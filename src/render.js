@@ -218,11 +218,19 @@
     '    if(b.z <= 1e-5) continue;',
     '    vec4 ax = uAux[i];',
     '    int bi = clamp(int(ax.x + 0.5), 0, NB - 1);',
-    '    vec2 q = p - b.xy;',
+    '    vec2 q = p - b.xy; float rEff0 = b.z;',
     // material coords: tile rides with the parcel (origin = blob centre, offset by its seed)
-    '    vec2 muv = q / TILE_WORLD + seedOffset(b.w) + uTime * vec2(0.004, 0.0025);',
-    '    vec3 ts = textureLod(uTile, muv, 1.5).rgb;',
-    '    vec3 tsSil = textureLod(uTile, muv, 2.0).rgb;',
+    // scoop roll: the billow texture flows outward from the parcel centre and curls under at the
+    // rim (zero flow at centre and rim, fastest half-way: a ring vortex seen from above). Two
+    // phases crossfaded (flow mapping) so the distortion never accumulates.
+    '    vec2 dq = q / max(rEff0, 1e-4); float rr = length(dq); vec2 rd = dq / max(rr, 1e-4);',
+    '    float roll = sin(clamp(rr, 0.0, 1.0) * 3.14159) * 0.3 * rEff0 / TILE_WORLD;',   // a fraction of the parcel radius per cycle
+    '    float ph = uTime * 0.09 + b.w; float fA = fract(ph), fB = fract(ph + 0.5); float wPh = abs(2.0 * fA - 1.0);',
+    '    vec2 base = q / TILE_WORLD + seedOffset(b.w);',
+    '    vec2 muvA = base - rd * roll * fA;',
+    '    vec2 muvB = base - rd * roll * fB + vec2(0.37, 0.61);',
+    '    vec3 ts = mix(textureLod(uTile, muvA, 2.0).rgb, textureLod(uTile, muvB, 2.0).rgb, wPh);',
+    '    vec3 tsSil = mix(textureLod(uTile, muvA, 2.5).rgb, textureLod(uTile, muvB, 2.5).rgb, wPh);',
     '    float rEff = b.z * (1.0 + 0.03 * (ts.r - 0.76));',
     // lobe caps poke out of the silhouette; scaled by the parcel's size so a newborn / regrowing
     // parcel (r -> 0) does not pop in at full bump size
@@ -349,7 +357,12 @@
     '  float ndl = dot(n, uLight);',
     // flat-facing areas sit in the light-cyan band; slopes toward the sun go cream, away go blue
     '  float dl = ndl - uSinEl;',
-    '  float light = clamp(0.56 + dl * (dl > 0.0 ? 0.7 : 1.1), 0.0, 1.0);',
+    '  float light = clamp(0.55 + dl * (dl > 0.0 ? 0.7 : 1.1), 0.0, 1.0);',
+    // bounce / under light from the side opposite the sun, low over the horizon: the shaded
+    // hemisphere keeps a gradient instead of going flat, so the puffs read as spheres
+    '  vec3 fillDir = normalize(vec3(-uLight.xy, 0.45));',
+    '  float bounce = max(0.0, dot(n, fillDir));',
+    '  light += 0.12 * bounce * bounce * (1.0 - smoothstep(0.0, 0.6, dl));',
 '  float rimness = 1.0 - smoothstep(0.3, 1.0, f.y);',                      // low height == near the silhouette
 '  light += 0.2 * rimness * smoothstep(0.25, 0.8, ndl);',                  // sun-facing rim catches light
 

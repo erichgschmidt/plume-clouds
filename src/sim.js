@@ -35,7 +35,7 @@
   var MAX_L = 0.35;                        // max chain length (world units)
   var R_OUT_MIN = 0.02;        // parcels below this are not emitted
   var FADE_S = 0.5;            // parcel fade in/out at chain ends
-  var BIRTH_S = 2.0;           // branch link / growth ramp
+  var BIRTH_S = 7.0;           // branch link / growth ramp: a lobe emerges slowly from inside its parent
   var TWO_PI = Math.PI * 2;
 
   // ---------------------------------------------------------------- PRNG ---
@@ -81,7 +81,7 @@
   // rate range for children), crossBud (may bud onto another plume's trunk).
   var PRESETS = {
     plumes: {
-      plumes: [{ u: 0.4, v: 0.66, angle: -0.25, trunkN: 5, children: [3, 4], curl: 1.2, spin: [0.05, 0.12], tower: 1, maxL: 0.2, rMul: 0.8, maxDepth: 1 }],
+      plumes: [{ u: 0.4, v: 0.66, angle: -0.25, trunkN: 5, children: [3, 4], curl: 1.2, spin: [0.05, 0.12], tower: 1, maxL: 0.2, rMul: 0.8, maxDepth: 2 }],
       crossBud: false,
       defaults: { speed: 1, cohesion: 0.6, breakup: 0.5, buoyancy: 0.5, turbulence: 0.4, coverage: 0.6 }
     },
@@ -174,7 +174,8 @@
   };
 
   // Create a branch. parent=null => trunk (root at plume base).
-  CloudSim.prototype._newBranch = function (plume, parent, n, angle, born) {
+  CloudSim.prototype._newBranch = function (plume, parent, n, angle, born, opt) {
+    opt = opt || {};
     var slot = this._freeSlot();
     if (slot < 0) return null;
     if (this._parcelCount() + n + 1 > MAX_BLOBS) return null;
@@ -183,8 +184,9 @@
     var spin = isTrunk ? 0 : (d.spin[0] + rng() * (d.spin[1] - d.spin[0])) * (rng() < 0.5 ? -1 : 1);
     var z = isTrunk ? 0.5 : clamp(parent.z + (0.12 + rng() * 0.18) * (rng() < 0.5 ? -1 : 1), 0, 1);
     var b = {
-      id: slot, plume: plume, parent: parent, uAttach: parent ? 0.15 + rng() * 0.7 : 0,
-      z: z, angle: angle, angle0: angle, spin: spin, depth: parent ? parent.depth + 1 : 0, curl: (isTrunk ? 0.3 : d.curl) * (rng() < 0.5 ? -1 : 1) * (0.6 + rng() * 0.8),
+      id: slot, plume: plume, parent: parent, uAttach: parent ? (opt.uAttach !== undefined ? opt.uAttach : 0.15 + rng() * 0.7) : 0,
+      z: z, angle: angle, angle0: angle, spin: spin, depth: parent ? parent.depth + 1 : 0,
+      curl: (isTrunk ? 0.3 : d.curl) * (opt.hand || (rng() < 0.5 ? -1 : 1)) * (0.6 + rng() * 0.8),
       feedDir: isTrunk ? 1 : (rng() < 0.6 ? 1 : -1), // 1: creep toward root
       n: n, seed: rng() * 100, age: 0, link: born ? 0 : 1, grow: born ? 0 : 1, dying: false,
       rootX: 0, rootY: 0, pts: [], L: 0, parcels: [], children: 0, isTrunk: isTrunk,
@@ -230,15 +232,36 @@
       else if (!sameP && this.def.crossBud && b.isTrunk && b.children < 4) cands.push(b);
     }
     if (!cands.length) return null;
-    // prefer the trunk (60%) so plumes stay shallow trees with plenty of leaf branches
-    var parent = cands[(rng() * cands.length) | 0];
-    if (!parent.isTrunk && rng() < 0.6) {
-      for (var c = 0; c < cands.length; c++) if (cands[c].isTrunk && cands[c].plume === pl) { parent = cands[c]; break; }
+    // coherent formation: every plume curls one way (its handedness). A new billow either
+    // (a) cascades off the tip of a mature billow, continuing its heading rotated the plume's way
+    //     (a billow begets the next billow, like a cauliflower / scoop rolling over), or
+    // (b) buds from the trunk at the widest gap between existing children, heading outward.
+    if (!pl.hand) pl.hand = rng() < 0.5 ? -1 : 1;
+    var mature = [], c;
+    for (c = 0; c < cands.length; c++) if (!cands[c].isTrunk && cands[c].link >= 1 && cands[c].age > 4 && cands[c].plume === pl) mature.push(cands[c]);
+    var parent = null, uAttach, angle, n = 3 + Math.round(rng() * 1.5);
+    if (mature.length && rng() < 0.55) {
+      parent = mature[(rng() * mature.length) | 0];
+      uAttach = 0.6 + rng() * 0.3;
+      this._tangentAt(parent, uAttach, _pt);
+      angle = Math.atan2(_pt[1], _pt[0]) + pl.hand * (0.5 + rng() * 0.5);
+    } else {
+      for (c = 0; c < cands.length; c++) if (cands[c].isTrunk && cands[c].plume === pl) { parent = cands[c]; break; }
+      if (!parent) parent = cands[(rng() * cands.length) | 0];
+      // widest gap along the parent between existing children (plus the ends)
+      var us = [0.1, 0.9], k2;
+      for (k2 = 0; k2 < this.branches.length; k2++) if (this.branches[k2].parent === parent) us.push(this.branches[k2].uAttach);
+      us.sort(function (a, b2) { return a - b2; });
+      var best = -1; uAttach = 0.5;
+      for (k2 = 1; k2 < us.length; k2++) if (us[k2] - us[k2 - 1] > best) { best = us[k2] - us[k2 - 1]; uAttach = (us[k2] + us[k2 - 1]) / 2; }
+      uAttach = clamp(uAttach + (rng() - 0.5) * 0.1, 0.1, 0.9);
+      // outward normal of the parent at the attach point, on the side facing up
+      this._tangentAt(parent, uAttach, _pt);
+      var nx = -_pt[1], ny = _pt[0];
+      if (ny > 0) { nx = -nx; ny = -ny; }   // y is top-down: up is negative y
+      angle = Math.atan2(ny, nx) + (rng() - 0.5) * 0.6 + (pl.def.lean || 0) * 0.5;
     }
-    var n = 3 + Math.round(rng() * 2);
-    // rising lobes: heading within +-60 deg of up, leaning per preset (confluence: toward the other plume)
-    var angle = -Math.PI / 2 + (rng() - 0.5) * (2 * Math.PI / 3) + (pl.def.lean || 0);
-    var b = this._newBranch(pl, parent, n, angle, born);
+    var b = this._newBranch(pl, parent, n, angle, born, { uAttach: uAttach, hand: pl.hand });
     if (b && born) this.stats.buds++;
     return b;
   };
@@ -274,12 +297,15 @@
     var sway = (_flow[0] * 0.3 + _flow[1] * 0.2) * turbulence * 0.7 + Math.sin(t * 0.15 + b.swayPhase) * 0.12;
     var heading = b.angle + sway * (b.isTrunk ? 0.5 : 1);
     // root parcel sits half a parent radius out from the attach point: overlaps the parent by >= 50% of r
-    if (b.parent) { b.rootX += Math.cos(heading) * attachR * 0.5; b.rootY += Math.sin(heading) * attachR * 0.5; }
+    // while growing (or retracting) the whole chain starts deep inside the parent and extends out of it
+    var ge = b.grow * b.grow * (3 - 2 * b.grow);
+    if (b.parent) { b.rootX += Math.cos(heading) * attachR * (0.35 * ge - 0.3 * (1 - ge)); b.rootY += Math.sin(heading) * attachR * (0.35 * ge - 0.3 * (1 - ge)); }
 
     // chain length from tapered radii
     var n = b.n, L = 0, i;
     for (i = 0; i < n - 1; i++) L += spacing * (b.taper(i / (n - 1)) + b.taper((i + 1) / (n - 1))) * rScale;
     L = Math.min(L, b.plume.def.maxL || MAX_L, MAX_L);
+    if (b.parent) L = Math.min(L, 2.0 * attachR) * (0.15 + 0.85 * ge);   // a lobe stays within reach of the volume it grew from
     b.L = L;
 
     // polyline with curvature (8 segments)
@@ -328,6 +354,14 @@
   function trunkTaper(u) { return TRUNK_ROOT + (TRUNK_TIP - TRUNK_ROOT) * u; }
 
   var _pt = [0, 0];
+  CloudSim.prototype._tangentAt = function (b, u, out) {
+    var ax, ay;
+    this._pointAt(b, Math.max(0, u - 0.05), out); ax = out[0]; ay = out[1];
+    this._pointAt(b, Math.min(1, u + 0.05), out);
+    out[0] -= ax; out[1] -= ay;
+    var l = Math.sqrt(out[0] * out[0] + out[1] * out[1]) || 1; out[0] /= l; out[1] /= l;
+    if (!b.pts.length) { out[0] = Math.cos(b.angle); out[1] = Math.sin(b.angle); }
+  };
   CloudSim.prototype._pointAt = function (b, u, out) {
     var pts = b.pts, segs = (pts.length >> 1) - 1;
     if (segs < 1) { out[0] = b.rootX; out[1] = b.rootY; return; }
