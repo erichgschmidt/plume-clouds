@@ -224,7 +224,9 @@
     '    vec3 ts = textureLod(uTile, muv, 1.5).rgb;',
     '    vec3 tsSil = textureLod(uTile, muv, 2.0).rgb;',
     '    float rEff = b.z * (1.0 + 0.03 * (ts.r - 0.76));',
-    '    float bump = (tsSil.g + 0.6 * tsSil.b) * TILE_WORLD * 0.3 * uBillow;',   // lobe caps poke out of the silhouette
+    // lobe caps poke out of the silhouette; scaled by the parcel's size so a newborn / regrowing
+    // parcel (r -> 0) does not pop in at full bump size
+    '    float bump = (tsSil.g + 0.6 * tsSil.b) * TILE_WORLD * 0.3 * uBillow * smoothstep(0.0, 0.6 * uMeanR, b.z);',
     '    float di = length(q) - rEff - bump;',
     // root parcel: bridge capsule to its parent-branch parcel, smooth-min'd into the CHILD branch
     '    int pi = int(ax.z + 0.5);',
@@ -315,9 +317,13 @@
     'uniform float uPacked;',
     'uniform vec3 uSkyColor;',
     'vec4 fieldAt(vec2 uv){',      // returns (height, mask, billow, contact)
-    '  vec4 t = texture(uField, uv);',
+    '  vec4 t = textureLod(uField, uv, 0.0);',
     '  if(uPacked > 0.5) return vec4(t.r + t.g / 255.0, t.b, 0.5, t.a);',
     '  return t;',
+    '}',
+    'vec4 fieldLod(vec2 uv, float lod){',   // blurred read (penumbra); the packed fallback cannot be filtered
+    '  if(uPacked > 0.5) return fieldAt(uv);',
+    '  return textureLod(uField, uv, lod);',
     '}',
     'vec3 palette(float t){',
     '  vec3 c0 = vec3(0.247, 0.478, 0.592);', // #3f7a97 shadow blue
@@ -355,7 +361,7 @@
     '  float stepTex = 1.75; float maxDist = 8.0 * stepTex;',
     '  for(int s = 1; s <= 8; s++){',
     '    float dist = float(s) * stepTex;',
-    '    vec4 fa = fieldAt(vUv + dir * uTexel * dist);',
+    '    vec4 fa = fieldLod(vUv + dir * uTexel * dist, 1.0 + dist / maxDist * 1.5);',   // blur grows with distance: penumbra
     '    float need = h0 + uTanEl * dist / uHeightScale;',
     '    float rise = clamp(fa.x - need, 0.0, uJump) / max(uJump, 1e-4);',   // 0..1 within the near-layer window
     '    float nearLayer = 1.0 - smoothstep(0.5 * uJump, 1.5 * uJump, fa.x - h0);',   // far layers handled by the contact term
@@ -364,7 +370,8 @@
     '  }',
     '  occ /= 2.2;',
     '  light *= 1.0 - uShadow * 0.5 * smoothstep(0.0, 1.0, occ);',
-    '  light *= 1.0 - uShadow * 0.4 * smoothstep(0.0, 1.0, f.w);',   // contact shadow where a front plume overlaps this one
+    '  float cw = fieldLod(vUv, 2.0).w;',
+    '  light *= 1.0 - uShadow * 0.4 * smoothstep(0.0, 1.0, cw);',   // contact shadow where a front plume overlaps this one (blurred)
     // rim: the outermost texels sink toward the shadow blue and fade into the sky
     '  light *= mix(0.3, 1.0, smoothstep(0.1, 0.9, f.y));',
     '  float bands = max(uBands, 2.0);',
@@ -460,7 +467,8 @@
     gl.bindTexture(gl.TEXTURE_2D, this._tex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    // mipmapped: the shade pass reads blurred levels for the shadow march / contact term (penumbra)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     this._filter = gl.NEAREST;
     if (useFloat) {
@@ -558,9 +566,9 @@
     gl.useProgram(this._shadeProg);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this._tex);
+    gl.generateMipmap(gl.TEXTURE_2D);
     var filter = pixelated ? gl.NEAREST : gl.LINEAR;
     if (filter !== this._filter) {
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
       this._filter = filter;
     }

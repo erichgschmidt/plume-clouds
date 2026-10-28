@@ -340,19 +340,19 @@
   CloudSim.prototype.step = function (dt) {
     if (!(dt > 0)) return;
     if (dt > 0.25) dt = 0.25;
-    this.accum += dt;
-    while (this.accum >= SUBSTEP - 1e-9) {
-      this.accum -= SUBSTEP;
-      this._substep();
-    }
+    // cover the frame's time exactly in substeps no longer than SUBSTEP: a fixed-tick
+    // accumulator alternates 0/1/2 ticks per frame at any refresh rate other than 60 Hz
+    // (a visible global stutter)
+    var n = Math.max(1, Math.ceil(dt / SUBSTEP - 1e-9)), h = dt / n;
+    for (var i = 0; i < n; i++) this._substep(h);
     this._write();
   };
 
-  CloudSim.prototype._substep = function () {
+  CloudSim.prototype._substep = function (dt) {
     var S = this.settings;
     var speed = clamp(+S.speed || 0, 0, 3);
     if (speed <= 0) return;
-    var h = SUBSTEP * speed;
+    var h = dt * speed;
     var breakup = clamp(+S.breakup || 0, 0, 1);
     var buoyancy = clamp(+S.buoyancy || 0, 0, 1);
     var turbulence = clamp(+S.turbulence || 0, 0, 1);
