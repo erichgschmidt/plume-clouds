@@ -1,0 +1,1020 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Cloudfield — shared broad depth</title>
+<style>
+  :root{color-scheme:dark;--bg:#0d1720;--panel:#14232c;--line:#29404b;--ink:#e0eceb;--muted:#8ba7b3;--accent:#dce9bc;--cyan:#8bc5d4;font:13px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+  *{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button,select,input[type=number]{background:#1a2f39;color:var(--ink);border:1px solid #36515e;border-radius:6px}button{cursor:pointer;padding:9px 12px;transition:background .15s,border-color .15s}button:hover{background:#25414d;border-color:#91b7bd}button:disabled{opacity:.45;cursor:wait}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}button.primary{background:var(--accent);color:#21332c;border-color:var(--accent);font-weight:650}button.primary:hover{background:#eef5da}button.active{color:var(--accent);border-color:#adc591;background:#2b3f37}button svg{width:14px;height:14px;vertical-align:-2px;margin-right:5px}a{color:var(--accent)}
+  .topbar{height:62px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;border-bottom:1px solid var(--line);gap:18px}.brand{display:flex;gap:10px;align-items:center;font-size:12px;letter-spacing:2.5px;font-weight:600}.brand .mark{font-size:28px;font-weight:300;color:var(--accent);line-height:1}.brand span:last-child{color:var(--muted);font-weight:400}.edition{font-size:10px;letter-spacing:1.5px;color:var(--muted)}
+  main{display:grid;grid-template-columns:minmax(0,1fr) 302px;height:calc(100dvh - 62px);min-height:620px}.studio{padding:26px 30px 20px;display:flex;flex-direction:column;min-width:0;min-height:0;background:radial-gradient(ellipse at 35% 35%,#163748 0%,#10232f 55%,#0d1c27 100%)}.heading{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:21px}.eyebrow{color:#a9c6c9;font-size:9px;letter-spacing:2px;text-transform:uppercase}h1{margin:5px 0 6px;font-family:Georgia,"Times New Roman",serif;font-weight:400;font-size:clamp(28px,2.8vw,42px);line-height:1.12;letter-spacing:-1.2px}.intro{font-size:12px;color:#9db9c6;margin:0}.heading-actions{display:flex;gap:7px;flex-shrink:0}.subtle{background:#18313e99;border-color:#345263;font-size:11px}.stage-space{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;position:relative}.stage{width:100%;max-height:100%;aspect-ratio:8/5;position:relative;border:1px solid #50718470;border-radius:3px;overflow:hidden;box-shadow:0 22px 65px #050e1866;background:repeating-conic-gradient(#1b2b34 0% 25%,#22343d 0% 50%) 50%/20px 20px}.stage canvas{display:block;width:100%;height:100%;image-rendering:pixelated;touch-action:none;cursor:crosshair}.stage canvas.smooth{image-rendering:auto}.stage:fullscreen{width:100vw;height:100vh;border:0;background:#0c263f;border-radius:0;display:flex;align-items:center;justify-content:center}.stage:fullscreen canvas{width:min(100vw,160vh);height:min(100vh,62.5vw)}.stage-badge{position:absolute;left:14px;top:12px;color:#def5efaa;font:9px ui-monospace,Consolas,monospace;letter-spacing:1.5px;pointer-events:none;text-shadow:0 1px 6px #071722}.stage-tip{position:absolute;left:14px;bottom:12px;color:#ddf3edb0;font-size:9px;letter-spacing:1px;pointer-events:none;text-shadow:0 1px 5px #07223a}.stage-ui-hidden .stage-badge,.stage-ui-hidden .stage-tip{display:none}.timeline{margin-top:18px;padding:13px 16px 12px;background:#11242e;border:1px solid #2c4754;border-radius:7px}.transport{display:flex;align-items:center;gap:9px}.transport #play{min-width:88px}.transport button{font-size:11px;padding:8px 11px}.time-label{font:11px ui-monospace,Consolas,monospace;color:#b9d6da;min-width:95px}.loop-label{margin-left:auto;font-size:10px;color:var(--muted)}#phase{margin:14px 0 4px;height:4px}.stage-footer{display:flex;align-items:center;justify-content:space-between;margin-top:13px;gap:14px;color:#829fab;font:9px/1.4 ui-monospace,Consolas,monospace}.live-dot{display:inline-block;width:5px;height:5px;background:var(--accent);border-radius:50%;margin-right:6px;vertical-align:1px}.metrics{white-space:nowrap}
+  aside{border-left:1px solid var(--line);padding:24px 22px 26px;background:var(--panel);overflow-y:auto;scrollbar-width:thin;scrollbar-color:#46616c transparent}.section-title{display:flex;align-items:baseline;justify-content:space-between}h2{font-weight:500;font-size:17px;letter-spacing:-.3px;margin:0 0 6px}.section-title small{font:9px ui-monospace,monospace;color:#7c9aa7}.helper{font-size:10px;color:var(--muted);line-height:1.6;margin:0 0 14px}.preset-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:15px}.preset-grid button{font-size:10px;line-height:1.4;padding:10px 3px}.preset-grid small{display:block;color:var(--muted);font-size:8px;margin-top:3px}.seed-row{display:flex;gap:6px}.seed-row input{min-width:0;width:100%;padding:7px 9px;font:11px ui-monospace,monospace}.seed-row button{font-size:11px;padding:7px 10px}.seed-row label{flex:1;display:flex;align-items:center;gap:7px;font-size:10px;margin:0}.group{border-top:1px solid var(--line);margin-top:20px;padding-top:18px}.group h3{font-size:9px;font-weight:500;letter-spacing:1.8px;margin:0 0 13px;color:#b4cdd0}.control{margin-bottom:14px}.control label{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#b9ced1;gap:8px}.control output{font:10px ui-monospace,monospace;color:var(--accent)}input[type=range]{width:100%;accent-color:var(--accent);height:3px;margin:12px 0 5px;cursor:pointer}select{width:100%;padding:8px 9px;font-size:11px}.checkbox{display:flex;align-items:center;gap:8px;font-size:11px;color:#b2cbd0;margin:11px 0}.checkbox input{accent-color:var(--accent);margin:0}.row{display:flex;gap:7px}.row>*{flex:1}.export-actions button{width:100%;margin-bottom:8px;font-size:11px}.export-actions .row button{font-size:10px}.note{font-size:9px;color:var(--muted);line-height:1.6;margin:4px 0 0}.help-details{margin-top:15px;border-top:1px solid var(--line);padding-top:14px;font-size:10px;color:#9db8c0}.help-details summary{cursor:pointer;color:#c2d8d9}.help-details p{line-height:1.7}.help-details kbd{font:9px ui-monospace,monospace;border:1px solid #49616a;border-radius:3px;padding:1px 4px}
+  dialog{max-width:min(92vw,650px);background:#142832;color:var(--ink);border:1px solid #507180;border-radius:9px;padding:24px;box-shadow:0 20px 90px #0009}dialog::backdrop{background:#050d16d9;backdrop-filter:blur(6px)}dialog img{width:100%;image-rendering:pixelated;border-radius:3px;margin:12px 0}dialog h2{font:26px Georgia,serif}dialog p{color:#b2cdd1;font-size:12px;line-height:1.7}dialog form{text-align:right;margin-top:20px}dialog button{padding:8px 18px}.toast{position:fixed;left:50%;bottom:25px;transform:translateX(-50%);padding:12px 19px;border:1px solid #789686;border-radius:7px;background:#e0ebca;color:#24372e;z-index:20;font-size:12px;box-shadow:0 8px 35px #0004;max-width:90vw}.toast[hidden]{display:none}.error{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;background:#152939;text-align:center;color:#d1e5e6;z-index:10}.error[hidden]{display:none}.error p{max-width:480px}.error pre{white-space:pre-wrap;font-size:11px;max-height:160px;overflow:auto;max-width:100%;color:#e8bfb1}.busy{position:absolute;inset:0;background:#0a1d2a99;display:flex;align-items:center;justify-content:center;z-index:5;backdrop-filter:blur(2px)}.busy[hidden]{display:none}.busy span{background:#152c38;border:1px solid #507486;border-radius:7px;padding:18px 25px;font:12px ui-monospace,monospace;color:var(--accent)}
+  @media(min-width:1050px) and (max-height:820px){.studio{padding:18px 24px 15px}.heading{margin-bottom:14px}h1{font-size:30px}.timeline{margin-top:13px;padding:9px 13px}.stage-footer{margin-top:9px}.intro{font-size:11px}}
+  @media(max-width:1050px){main{grid-template-columns:minmax(0,1fr) 276px}.studio{padding:22px 18px 18px}aside{padding:22px 18px}.heading-actions #reference{display:none}.intro{max-width:290px}.edition{font-size:8px}.stage-footer{font-size:8px}}
+  @media(max-width:760px){.topbar{height:52px;padding:0 17px}.brand{font-size:10px;letter-spacing:1.6px}.edition{display:none}main{display:block;height:auto;min-height:0}.studio{padding:24px 15px 19px}.heading{gap:10px;margin-bottom:18px}h1{font-size:30px}.intro{font-size:11px;max-width:250px}.heading-actions button{padding:8px}.stage-space{min-height:0}.stage{max-height:none}.timeline{margin-top:13px}aside{border-left:0;border-top:1px solid var(--line);overflow:visible;padding:24px;display:grid;grid-template-columns:1fr 1fr;gap:0 24px}.preset-section,.export-actions,.help-details{grid-column:1/-1}.group{margin-top:17px}.metrics{font-size:8px}.stage-badge{font-size:7px}.stage-tip{display:none}.loop-label{font-size:8px}.time-label{min-width:75px;font-size:10px}}
+  @media(max-width:420px){aside{display:block}.heading-actions{align-self:flex-start}.intro{max-width:215px}.stage-footer>span:first-child{max-width:190px}.loop-label{display:none}}
+</style>
+</head>
+<body>
+<header class="topbar"><div class="brand"><span class="mark" aria-hidden="true">◌</span> CLOUD / <span>FIELD STUDY</span></div><span class="edition">BILLOW · SEPARATE · GATHER</span></header>
+<main>
+ <section class="studio" aria-label="Cloud preview">
+  <div class="heading"><div><div class="eyebrow">Procedural sky / 01</div><h1>A sky, in motion.</h1><p class="intro">Broad forms, quiet detail, and drifting cloud tufts.</p></div><div class="heading-actions"><button id="reference" class="subtle">Reference</button><button id="fullscreen" class="subtle" title="Fullscreen (F)" aria-label="Fullscreen preview">⛶</button></div></div>
+  <div class="stage-space"><div class="stage" id="stage"><canvas id="cloud" width="320" height="200" aria-label="Animated pixel art cloud field. Drag to change the light direction." tabindex="0"></canvas><div class="stage-badge" id="stage-badge">SHARED BROAD FORMS</div><div class="stage-tip">DRAG TO MOVE THE SUN</div><div id="busy" class="busy" hidden><span id="busy-text">Building loop…</span></div><div id="error" class="error" hidden><h2>The sky needs WebGL 2</h2><p id="error-message">Open this file in a browser with hardware acceleration enabled.</p><pre id="error-details"></pre></div></div></div>
+  <div class="timeline"><div class="transport"><button id="play" class="primary" aria-label="Pause animation">Ⅱ &nbsp; Pause</button><button id="restart" title="Restart loop (R)" aria-label="Restart loop">↺</button><span class="time-label" id="time-label">00.0 / 48.0s</span><span class="loop-label">CONTINUOUS LOOP</span></div><input type="range" id="phase" min="0" max="1000" value="0" aria-label="Animation phase"></div>
+  <div class="stage-footer"><span><span class="live-dot"></span><span id="status" role="status">Coherent cloud clusters · shared light</span></span><span class="metrics" id="metrics">320 × 200</span></div>
+ </section>
+ <aside aria-label="Cloud generator controls">
+  <div class="preset-section"><div class="section-title"><h2>Shape the weather</h2><small>LIVE FIELD</small></div><p class="helper">Start with a composition. Let its edges wander.</p><div class="preset-grid" aria-label="Composition"><button data-preset="reference" class="active" aria-pressed="true">Broad forms<small>REFERENCE STYLE</small></button><button data-preset="cathedral" aria-pressed="false">Plumes<small>CONNECTED MASSES</small></button><button data-preset="archipelago" aria-pressed="false">Islands<small>OPEN SKY</small></button><button data-preset="confluence" aria-pressed="false">Split / merge<small>MOTION STUDY</small></button></div><div class="seed-row"><label for="seed">Seed<input id="seed" type="number" min="1" max="999999" value="7401" aria-label="Cloud seed"></label><button id="shuffle" title="Generate a new seeded field">Shuffle ↻</button></div></div>
+  <section class="group"><h3>01 / MOTION & MASS</h3>
+   <div class="control"><label for="speed">Drift speed<output id="speed-out"></output></label><input id="speed" type="range" min="10" max="250" value="100"></div>
+   <div class="control"><label for="separation">Tuft separation<output id="separation-out"></output></label><input id="separation" type="range" min="0" max="100" value="65"></div>
+   <div class="control"><label for="lift">Plume lift<output id="lift-out"></output></label><input id="lift" type="range" min="0" max="100" value="60"></div>
+   <div class="control"><label for="coverage">Cloud coverage<output id="coverage-out"></output></label><input id="coverage" type="range" min="15" max="100" value="60"></div>
+   <div class="control"><label for="turbulence">Slow billowing<output id="turbulence-out"></output></label><input id="turbulence" type="range" min="0" max="100" value="40"></div>
+  </section>
+  <section class="group"><h3>02 / SURFACE & LIGHT</h3>
+   <div class="control"><label for="detail">Billow relief<output id="detail-out"></output></label><input id="detail" type="range" min="0" max="100" value="35"></div>
+   <div class="control"><label for="softness">Edge softness<output id="softness-out"></output></label><input id="softness" type="range" min="0" max="100" value="75"></div>
+   <div class="control"><label for="sun">Sun direction<output id="sun-out"></output></label><input id="sun" type="range" min="0" max="360" value="120"></div>
+   <div class="control"><label for="depth">Light toward viewer<output id="depth-out"></output></label><input id="depth" type="range" min="-70" max="70" value="17"></div>
+   <div class="control"><label for="shadow">Dimensional light<output id="shadow-out"></output></label><input id="shadow" type="range" min="0" max="100" value="83"></div>
+   <div class="control"><label for="bands">Palette steps<output id="bands-out"></output></label><input id="bands" type="range" min="6" max="24" value="18"></div>
+  </section>
+  <section class="group"><h3>03 / CANVAS</h3>
+   <button id="reference-style" style="width:100%;margin-bottom:16px;font-size:11px">Reset to reference appearance</button>
+   <div class="control"><label for="resolution">Native art resolution</label><select id="resolution"><option value="256">256 × 160 · softer</option><option value="320" selected>320 × 200 · reference pixels</option><option value="384">384 × 240 · finer</option></select></div>
+   <div class="control"><label for="view">View</label><select id="view"><option value="0">Lit clouds</option><option value="1">Shared depth</option><option value="2">Surface normals</option><option value="3">Cloud silhouette</option></select></div>
+   <label class="checkbox"><input id="sky" type="checkbox" checked> Teal background</label>
+   <label class="checkbox"><input id="distant" type="checkbox"> Distant clouds (optional)</label>
+   <label class="checkbox"><input id="pixelated" type="checkbox" checked> Crisp pixel scaling</label>
+  </section>
+  <section class="group export-actions"><h3>04 / TAKE IT WITH YOU</h3><button id="export-png" class="primary">Export frame · PNG ↓</button><button id="export-loop">Export loop samples · ZIP ↓</button><div class="row"><button id="save-settings">Save settings</button><button id="load-settings">Load settings</button></div><input type="file" id="settings-file" accept="application/json,.json" hidden><p class="note">Turn off the teal background for transparent sprites. Loop ZIP: 32 evenly spaced samples in a padded sprite sheet, plus timing JSON. The live preview animates continuously. No installation or internet needed.</p></section>
+  <details class="help-details"><summary>How this field works</summary><p>Moving groups define the silhouette. One broad depth surface is reconstructed across every connected shape, then a restrained layer of positive billow relief is added. The light follows the whole form.</p><p>The starting appearance restores the original shared-depth study: 35% billow relief, 40% secondary field, 18 lighting steps, sun 120°, and light toward the viewer 17°. Small patches enrich the broad planes without giving every puff its own lighting.</p><p>The motion remains a deterministic loop: tufts leave a body, drift, and merge into another. This is a fixed-view 2.5D field with shallow surface shadows.</p><p><kbd>Space</kbd> play / pause &nbsp; <kbd>R</kbd> restart &nbsp; <kbd>F</kbd> fullscreen. Drag the preview to move the sun. Scrubbing pauses the animation.</p><p>Use <strong>Split / merge</strong> to watch a tuft cross open sky. <strong>Reset to reference appearance</strong> restores the lighting and surface settings while retaining your seed, composition, and motion settings.</p></details>
+ </aside>
+</main>
+<dialog id="reference-dialog"><h2>The shared-depth reference</h2><p>Broad connected forms. Quiet blue shadow planes. Restrained relief and a muted cream-to-cyan palette.</p><img id="reference-image" alt="Supplied shared-depth reference showing broad softly lit cloud forms on a flat teal background" src="data:image/png;base64,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"><p>This is the appearance guiding the generator. The moving shapes are rendered from one shared broad depth field before lighting.</p><form method="dialog"><button>Back to the clouds</button></form></dialog>
+<div id="toast" class="toast" role="status" hidden></div>
+<noscript><p style="padding:30px">Enable JavaScript to run this standalone cloud generator.</p></noscript>
+<script>
+'use strict';
+/*
+ * CLOUDFIELD — complete standalone source.
+ * No external scripts, fonts, packages, or network requests.
+ * Coordinates: 960 × 600 design units, top-left origin; positive Z faces viewer.
+ * Pipeline: moving silhouettes -> continuous broad membrane -> restrained
+ * shared relief -> original light/finish/palette. This is fixed-view 2.5D.
+ */
+/*
+ * CloudMotion — deterministic, periodic broad cloud silhouettes.
+ *
+ * API:
+ *   const motion = new CloudMotion(7401, 'reference');
+ *   const puffs = motion.sample(phase, {
+ *     coverage: .60, separation: .65, lift: .60,
+ *     turbulence: .40, detail: .35
+ *   });
+ *
+ * Coordinates use a 960 × 600 design canvas, with y increasing downwards.
+ * Each result defines elliptical coverage and attached material coordinates.
+ * Legacy z/rz/layer fields remain inert metadata: CloudSurface reconstructs
+ * the lit height from the combined mask, not from those cap heights.
+ * Seeds, result order, objects and the result array remain stable. The caller
+ * must copy values if it needs to retain two sampled frames at once.
+ *
+ * The main plumes own persistent silhouette lobes and a few broad shoulders.
+ * These are coverage shapes only. The renderer reconstructs one continuous
+ * membrane and restrained relief across their union before any lighting.
+ * Satellite cohorts travel between plume shoulders, rise away from both
+ * hosts, and rejoin the destination. The return trip has a slightly different
+ * curve. Every time-dependent term uses an integer harmonic of one cycle;
+ * phase 0 and phase 1 are exactly identical.
+ *
+ * coverage   : expands/shrinks cloud bodies without changing their identities.
+ * separation : spreads the hosts and increases the detached travel arc.
+ * lift       : increases plume height and satellite buoyancy.
+ * turbulence : coherent sway and small rolling deformation, not random jitter.
+ * detail     : shared relief strength, applied by CloudSurface after coverage.
+ *
+ * This is art-directed 2.5D cloud motion, not a fluid or atmosphere solver.
+ */
+class CloudMotion {
+  constructor(seed = 7401, preset = 'reference') {
+    this.seed = Number.isFinite(Number(seed)) ? Number(seed) >>> 0 : 7401;
+    this.preset = ['reference', 'cathedral', 'archipelago', 'confluence'].includes(preset)
+      ? preset : 'cathedral';
+    this._state = this.seed;
+    this._hosts = [];
+    this._travelers = [];
+    this._roots = [];
+    this._puffs = [];
+    this._positions = [];
+    this._build();
+    this.puffCount = this._puffs.length;
+  }
+
+  _random() {
+    this._state = (this._state + 0x6d2b79f5) >>> 0;
+    let t = this._state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  _range(a, b) { return a + (b - a) * this._random(); }
+
+  _newPuff() {
+    const puff = {
+      x: 0, y: 0, z: 0, rx: 1, ry: 1, rz: 1,
+      seed: (this._random() * 16777215) >>> 0,
+      layer: 0
+    };
+    this._puffs.push(puff);
+    return puff;
+  }
+
+  _host(x, y, roots, options = {}) {
+    const host = {
+      x, y, phase: this._range(0, Math.PI * 2),
+      sway: options.sway ?? this._range(5, 10),
+      vertical: options.vertical ?? 1,
+      spread: options.spread ?? 1,
+      radial: options.radial ?? 1,
+      roots: [], index: this._hosts.length
+    };
+    this._hosts.push(host);
+    this._positions.push({ x, y, scaleX: 1, scaleY: 1 });
+    for (const specification of roots) {
+      this._root(host, specification, false);
+    }
+    return host.index;
+  }
+
+  _root(owner, specification, traveling) {
+    const [x, y, rx, ry, rz = Math.min(rx, ry) * .95] = specification;
+    if (owner.materialSeed === undefined) owner.materialSeed = this._range(0, 4096);
+    const root = {x,y,rx:rx*this._range(.96,1.04),ry:ry*this._range(.96,1.04),rz,
+      phase:this._range(0,Math.PI*2),base:this._newPuff(),rim:[],front:[],micro:[],owner,traveling};
+    // Broad overlapping silhouette lobes carry the cloud outline. Fine
+    // billows belong to shared relief and do not add little contour knobs.
+    owner.roots.push(root);this._roots.push(root);
+  }
+
+  _traveler(from, to, fromOffset, toOffset, options = {}) {
+    const traveler = {
+      from, to, fromOffset, toOffset,
+      phase: options.phase ?? this._random(),
+      arc: options.arc ?? this._range(68, 110),
+      side: options.side ?? this._range(-18, 18),
+      scale: options.scale ?? this._range(.70, .95),
+      roots: [], x: 0, y: 0, scaleX: 1, scaleY: 1,
+      frequency: options.frequency ?? 1
+    };
+    this._travelers.push(traveler);
+    const size = options.size ?? 1;
+    for (const specification of [
+      [-15, 8, 32, 27, 30],
+      [15, -4, 28, 30, 31],
+      [-5, -29, 21, 24, 25]
+    ]) {
+      this._root(traveler, specification.map(value => value * size), true);
+    }
+  }
+
+  _build() {
+    if (this.preset === 'reference') {
+      // Broad diagonal masses echo the supplied shared-depth style reference.
+      // A coherent small tuft moves between the two bodies on a lifted arc.
+      this._host(282, 310, [
+        [-68, 38, 114, 112, 70],[-4,-10,108,112,70],
+        [18,-110,82,83,56],[110,-80,72,77,50],[-45,-12,91,87,60]
+      ],{sway:6,radial:1.12});
+      this._host(644, 449, [
+        [-44,18,94,67,58],[21,-18,87,83,60],
+        [63,-80,78,78,54],[-104,54,58,40,42]
+      ],{sway:6,radial:1.12});
+      this._traveler(0,1,[87,-76],[28,-74],{phase:.27,arc:190,side:84,scale:.96,size:1.35});
+      return;
+    }
+    if (this.preset === 'confluence') {
+      // The gap and high transfer arc deliberately make this a readable
+      // topology test: joined at phase 0/.5, fully detached near .25/.75.
+      this._host(267, 399, [
+        [-18, 12, 100, 64, 77], [35, -16, 78, 71, 77],
+        [-27, -57, 72, 70, 76], [8, -110, 51, 49, 56],
+        [-70, -12, 54, 49, 56]
+      ], { sway: 5 });
+      this._host(700, 401, [
+        [17, 7, 99, 62, 76], [-31, -26, 81, 75, 80],
+        [27, -66, 66, 62, 69], [-11, -112, 48, 49, 54],
+        [76, -16, 49, 42, 51]
+      ], { sway: 5 });
+      this._traveler(0, 1, [4, -103], [-8, -105], {
+        phase: 0, arc: 113, side: -12, scale: 1.05, size: 1.15
+      });
+      return;
+    }
+
+    if (this.preset === 'archipelago') {
+      this._host(151, 237, [
+        [-25, 9, 72, 43, 50], [29, 6, 63, 44, 49],
+        [0, -34, 51, 43, 49], [-17, -64, 30, 29, 34]
+      ], { vertical: .7 });
+      this._host(480, 177, [
+        [-26, 11, 63, 44, 48], [24, -7, 60, 48, 54],
+        [-2, -42, 42, 39, 46]
+      ], { vertical: .7 });
+      this._host(803, 262, [
+        [-33, 8, 70, 43, 51], [29, 2, 60, 49, 53],
+        [2, -40, 50, 44, 48], [12, -72, 30, 28, 34]
+      ], { vertical: .7 });
+      this._host(265, 503, [
+        [-27, 10, 85, 45, 54], [36, -6, 72, 47, 53],
+        [-1, -46, 57, 49, 55], [-17, -84, 34, 33, 39]
+      ], { vertical: .8 });
+      this._host(669, 488, [
+        [-32, 13, 77, 47, 51], [29, 0, 66, 49, 53],
+        [-7, -41, 49, 44, 49]
+      ], { vertical: .7 });
+      this._traveler(0, 1, [10, -21], [-28, -11], { phase: .05, arc: 66, scale: .77 });
+      this._traveler(1, 2, [23, -9], [-23, -31], { phase: .29, arc: 83, scale: .68 });
+      this._traveler(0, 3, [10, -22], [-17, -44], { phase: .46, arc: 27, side: -100, scale: .65 });
+      this._traveler(3, 4, [27, -22], [-26, -14], { phase: .71, arc: 89, scale: .87 });
+      this._traveler(4, 2, [20, -33], [-10, -21], { phase: .19, arc: 36, side: 71, scale: .62 });
+      return;
+    }
+
+    // Asymmetrical towers, a low left plume, and a cropped foreground
+    // chimney. Broad gaps survive between them at the default settings.
+    this._host(474, 540, [
+      [-16, 0, 109, 62, 77], [27, -49, 92, 66, 77],
+      [6, -106, 82, 64, 76], [-25, -164, 73, 65, 73],
+      [-11, -221, 62, 59, 69], [2, -271, 53, 53, 63],
+      [-17, -316, 45, 47, 54], [-4, -355, 33, 38, 43],
+      [-14, -385, 23, 26, 32], [-79, -74, 46, 42, 48],
+      [66, -134, 44, 43, 49], [-66, -216, 36, 41, 47],
+      [48, -256, 35, 38, 44], [-52, -320, 25, 31, 36],
+      [-97, 22, 65, 35, 46], [90, 23, 58, 32, 42]
+    ], { sway: 9, vertical: 1 });
+    this._host(138, 514, [
+      [-4, 3, 102, 50, 62], [-30, -36, 72, 49, 57],
+      [6, -77, 62, 54, 62], [-12, -121, 49, 49, 55],
+      [5, -159, 35, 38, 44], [-5, -189, 25, 29, 35],
+      [53, -78, 31, 36, 42], [-47, -143, 24, 31, 36],
+      [82, 18, 61, 30, 40]
+    ], { sway: 7, vertical: .9 });
+    this._host(839, 442, [
+      [0, 67, 96, 55, 65], [-18, 21, 82, 58, 66],
+      [4, -25, 70, 60, 67], [-12, -72, 60, 57, 64],
+      [7, -117, 50, 49, 58], [13, -160, 41, 44, 51],
+      [-3, -197, 32, 37, 42], [7, -228, 23, 28, 33],
+      [-51, -97, 31, 38, 44], [42, -174, 24, 30, 37]
+    ], { sway: 8, vertical: 1 });
+    this._host(756, 638, [
+      [0, -4, 126, 63, 75], [12, -55, 95, 63, 71],
+      [-27, -104, 74, 58, 65], [-44, -147, 53, 44, 51],
+      [-64, -179, 35, 32, 39], [-100, -68, 43, 39, 46],
+      [104, -23, 66, 35, 45], [-152, 5, 75, 37, 46]
+    ], { sway: 5, vertical: .8 });
+    this._host(29, 627, [
+      [0, 0, 124, 58, 68], [-14, -44, 83, 53, 61],
+      [5, -83, 57, 42, 49], [-7, -112, 39, 32, 40]
+    ], { sway: 5, vertical: .7 });
+    this._host(1016, 336, [
+      [0, 0, 100, 61, 69], [-23, -53, 66, 56, 63],
+      [-12, -99, 50, 49, 56], [-5, -138, 31, 37, 43]
+    ], { sway: 7, vertical: .9 });
+
+    this._traveler(1, 0, [0, -140], [-23, -253], { phase: .16, arc: 86, scale: .77 });
+    this._traveler(0, 2, [15, -286], [-15, -143], { phase: .31, arc: 93, scale: .82 });
+    this._traveler(0, 2, [44, -116], [-27, -16], { phase: .66, arc: 62, scale: .73 });
+    this._traveler(1, 0, [26, -52], [-63, -75], { phase: .79, arc: 75, scale: .79 });
+    this._traveler(3, 0, [-63, -160], [34, -58], { phase: .42, arc: 78, scale: .77 });
+    this._traveler(2, 5, [3, -169], [-19, -77], { phase: .91, arc: 66, scale: .63 });
+  }
+
+  sample(phase, settings = {}) {
+    const clamp = value => Math.max(0, Math.min(1, value));
+    const setting = (name, fallback) => {
+      const value = Number(settings[name]);
+      return Number.isFinite(value) ? clamp(value) : fallback;
+    };
+    const coverage = setting('coverage', .60);
+    const separation = setting('separation', .65);
+    const lift = setting('lift', .60);
+    const turbulence = setting('turbulence', .40);
+    const detail = setting('detail', .72);
+    const numericPhase = Number.isFinite(Number(phase)) ? Number(phase) : 0;
+    const cycle = ((numericPhase % 1) + 1) % 1;
+    const theta = cycle * Math.PI * 2;
+    const bodyScale = .70 + .50 * coverage;
+    const spread = .85 + .23 * separation;
+    const width = .90 + coverage / 6;
+    const height = .802 + .33 * lift;
+
+    for (let i = 0; i < this._hosts.length; i++) {
+      const host = this._hosts[i];
+      const position = this._positions[i];
+      position.x = 480 + (host.x - 480) * spread
+        + host.sway * turbulence * Math.sin(theta + host.phase);
+      position.y = host.y + 3.5 * turbulence * Math.sin(theta * 2 + host.phase);
+      position.scaleX = width;
+      position.scaleY = 1 + (height - 1) * host.vertical;
+    }
+
+    for (const traveler of this._travelers) {
+      const source = this._positions[traveler.from];
+      const target = this._positions[traveler.to];
+      const a = theta * traveler.frequency + traveler.phase * Math.PI * 2;
+      const releaseT = Math.min(1, separation / .35);
+      const release = releaseT * releaseT * (3 - 2 * releaseT);
+      const travel = (1 - Math.cos(a)) * .5 * release;
+      const sin = Math.sin(a);
+      const detach = sin * sin * release;
+      const sx = source.x + traveler.fromOffset[0] * source.scaleX;
+      const sy = source.y + traveler.fromOffset[1] * source.scaleY;
+      const tx = target.x + traveler.toOffset[0] * target.scaleX;
+      const ty = target.y + traveler.toOffset[1] * target.scaleY;
+      const arc = traveler.arc * (.55 + .75 * separation) * (.55 + .75 * lift);
+      // Slightly different outbound/returning arcs, with zero positional
+      // and velocity discontinuities when the cohort enters either host.
+      traveler.x = sx + (tx - sx) * travel
+        + traveler.side * detach * (.70 + .30 * sin)
+        + turbulence * 8 * Math.sin(a * 2) * detach;
+      traveler.y = sy + (ty - sy) * travel
+        - arc * detach * (.78 + .22 * sin)
+        + turbulence * 4 * Math.sin(a * 3) * detach;
+      const breathing = 1 + .055 * turbulence * Math.sin(a * 2 + .6);
+      traveler.scaleX = traveler.scale * breathing;
+      traveler.scaleY = traveler.scale * (1 + .06 * detach * lift) / breathing;
+    }
+
+    for (const root of this._roots) {
+      const position = root.traveling ? root.owner : this._positions[root.owner.index];
+      const rolling = theta * 2 + root.phase;
+      const sx = position.scaleX;
+      const sy = position.scaleY;
+      const localSway = turbulence * (root.traveling ? .04 : .028);
+      const cx = position.x + root.x * sx
+        + root.rx * localSway * Math.sin(rolling);
+      const cy = position.y + root.y * sy
+        + root.ry * localSway * Math.cos(theta + root.phase);
+      const breathing = 1 + .022 * turbulence * Math.sin(theta * 2 + root.phase);
+      const ownerScale = root.traveling ? root.owner.scale : (root.owner.radial || 1);
+      const rx = root.rx * bodyScale * ownerScale * breathing;
+      const ry = root.ry * bodyScale * ownerScale / breathing;
+      const rz = root.rz * bodyScale * ownerScale;
+      const minRadius = Math.min(rx, ry);
+      const rootPuff = root.base;
+      rootPuff.x = cx; rootPuff.y = cy; rootPuff.z = 0;
+      rootPuff.rx = rx; rootPuff.ry = ry; rootPuff.rz = rz;
+
+      for (const rim of root.rim) {
+        const roll = localSway * .65 * Math.sin(theta + rim.phase);
+        const angle = rim.angle + roll;
+        const radius = minRadius * rim.scale;
+        const puff = rim.puff;
+        puff.x = cx + Math.cos(angle) * rx * rim.orbit;
+        puff.y = cy + Math.sin(angle) * ry * rim.orbit;
+        puff.z = 0;
+        puff.rx = radius * rim.aspect;
+        puff.ry = radius / rim.aspect;
+        puff.rz = radius * rim.depth;
+      }
+
+      for (const cap of root.front) {
+        const u = cap.u + localSway * .45 * Math.sin(theta + cap.phase);
+        const v = cap.v + localSway * .45 * Math.cos(theta + cap.phase);
+        const radius = minRadius * cap.scale * (.50 + .70 * detail);
+        const depth = radius * cap.depth * (.60 + .55 * detail);
+        const surface = rz * Math.sqrt(Math.max(.01, 1 - u * u - v * v));
+        const puff = cap.puff;
+        puff.x = cx + u * rx; puff.y = cy + v * ry;
+        puff.rx = radius * cap.aspect;
+        puff.ry = radius / cap.aspect;
+        puff.rz = depth;
+        // The shallow embedding keeps the shared broad body readable.
+        puff.z = Math.max(0, surface - depth * .52);
+      }
+
+      for (const micro of root.micro) {
+        const parent = micro.parent.puff;
+        const u = Math.cos(micro.angle) * micro.orbit;
+        const v = Math.sin(micro.angle) * micro.orbit;
+        const radius = Math.min(parent.rx, parent.ry) * micro.scale * (.30 + .97 * detail);
+        const depth = radius * .53 * (.30 + .97 * detail);
+        const surface = parent.z + parent.rz * Math.sqrt(1 - u * u - v * v);
+        const puff = micro.puff;
+        puff.x = parent.x + u * parent.rx;
+        puff.y = parent.y + v * parent.ry;
+        puff.rx = Math.max(.15, radius);
+        puff.ry = Math.max(.15, radius * .91);
+        puff.rz = Math.max(.10, depth);
+        puff.z = Math.max(0, surface - depth * .77);
+      }
+    }
+    // Every ellipse carries the same material coordinates as its parent
+    // cohort, keeping surface texture attached as tufts travel and merge.
+    for(const root of this._roots){
+      const pos=root.traveling?root.owner:this._positions[root.owner.index];
+      const set=p=>{p.originX=pos.x;p.originY=pos.y;p.scaleX=pos.scaleX;p.scaleY=pos.scaleY;p.materialSeed=root.owner.materialSeed;};
+      set(root.base);for(const rim of root.rim)set(rim.puff);
+    }
+    return this._puffs;
+  }
+}
+
+
+/*
+ * CloudSurface — animated silhouette -> shared broad depth.
+ *
+ * The broad surface follows the reference prototype's 256-step, soft-Dirichlet
+ * membrane, followed by its two radius-2 blurs and 6.5 * strength scale. Billow
+ * depth is a restrained POSITIVE relief contribution, never a union of the
+ * silhouette's independently lit sphere caps. All pixel arrays and the result
+ * object are reused. Pixel depth is measured in native art pixels.
+ *
+ * Original-equivalent choices: 4-art-pixel coarse cells, strength 1.21,
+ * natural primary billows (seed17), transformed second field (seed137),
+ * second amount .40 with Screen, shared amount .35, the same edge envelope,
+ * the same material frequencies and the same .035 shallow absorption.
+ *
+ * Animation adaptation: material and billow sources are periodic cached
+ * textures. Each cohort samples them in its moving local coordinates. Owner
+ * contributions blend smoothly in overlap regions. The original's very weak
+ * broad-form modulation remains cached in world space. Landscape depth and
+ * source frequencies use the image height as their reference length.
+ *
+ * Bodies: {x,y,rx,ry,originX,originY,scaleX,scaleY,materialSeed} in960x600.
+ * Settings: {detail:.35,sun:120,depth:17}; other settings shape the bodies or
+ * belong to the caller's lighting/alpha pass. Optional strength/secondAmount.
+ */
+class CloudSurface {
+  constructor(width = 320, rows = 200) {
+    this._tileSize = 256;
+    this._source = this._makeSource();
+    this.resize(width, rows);
+  }
+
+  resize(width, rows) {
+    this.width = Math.max(8, Math.round(width));
+    this.rows = Math.max(8, Math.round(rows));
+    this.normalizer = this.rows;
+    const size = this.width * this.rows;
+    for (const name of ['mask','material','height','relief','interior','transmission',
+      'shadeDetail','_weight','_materialSum','_primarySum','_secondarySum',
+      '_primary','_secondary','_distance','_density','_attenuation',
+      '_a','_b','_c','_phi','_forms']) this[name] = new Float32Array(size);
+    this._gx = Math.max(2, Math.ceil(this.width / 4));
+    this._gy = Math.max(2, Math.ceil(this.rows / 4));
+    this._stride = this._gx + 2;
+    const coarseSize = (this._gx + 2) * (this._gy + 2);
+    this._coverage = new Float32Array(coarseSize);
+    this._solveA = new Float32Array(coarseSize);
+    this._solveB = new Float32Array(coarseSize);
+    this._x0 = new Int32Array(this.width); this._x1 = new Int32Array(this.width);
+    this._y0 = new Int32Array(this.rows); this._y1 = new Int32Array(this.rows);
+    this._xf = new Float32Array(this.width); this._yf = new Float32Array(this.rows);
+    const cellX = this.width / this._gx, cellY = this.rows / this._gy;
+    for (let x = 0; x < this.width; x++) {
+      const value = (x + .5) / cellX - .5, i = Math.floor(value);
+      this._x0[x] = Math.max(0, Math.min(this._gx - 1, i)) + 1;
+      this._x1[x] = Math.max(0, Math.min(this._gx - 1, i + 1)) + 1;
+      this._xf[x] = value - i;
+    }
+    for (let y = 0; y < this.rows; y++) {
+      const value = (y + .5) / cellY - .5, i = Math.floor(value);
+      this._y0[y] = (Math.max(0, Math.min(this._gy - 1, i)) + 1) * this._stride;
+      this._y1[y] = (Math.max(0, Math.min(this._gy - 1, i + 1)) + 1) * this._stride;
+      this._yf[y] = value - i;
+    }
+    for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.width; x++) {
+      const u = x / this.normalizer, v = y / this.normalizer;
+      this._forms[y * this.width + x] = .88 * this._noise(u * 2.75 + 3.7, v * 2.75 + 8.2, 131, true)
+        + .12 * this._noise(u * 4.6 - 5.2, v * 4.6 + 12.6, 131, true);
+    }
+    this.result = {
+      width: this.width, rows: this.rows, heightSize: this.rows,
+      mask: this.mask, material: this.material, height: this.height,
+      relief: this.relief, interior: this.interior, transmission: this.transmission,
+      shadeDetail: this.shadeDetail
+    };
+    return this.result;
+  }
+
+  _hash(x, y, seed) {
+    const v = Math.sin(x * 127.1 + y * 311.7 + seed) * 43758.5453;
+    return v - Math.floor(v);
+  }
+
+  _noise(x, y, seed, quintic = false, period = 0) {
+    let ix = Math.floor(x), iy = Math.floor(y), u = x - ix, v = y - iy;
+    if (quintic) { u = u*u*u*(u*(u*6-15)+10); v = v*v*v*(v*(v*6-15)+10); }
+    else { u = u*u*(3-2*u); v = v*v*(3-2*v); }
+    const wrap = k => period ? ((k % period) + period) % period : k;
+    const a = this._hash(wrap(ix),wrap(iy),seed), b = this._hash(wrap(ix+1),wrap(iy),seed);
+    const c = this._hash(wrap(ix),wrap(iy+1),seed), d = this._hash(wrap(ix+1),wrap(iy+1),seed);
+    return (a+(b-a)*u)*(1-v)+(c+(d-c)*u)*v;
+  }
+
+  _scatter(seed) {
+    let state = seed >>> 0;
+    const random = () => { state += 0x6d2b79f5; let t = state; t = Math.imul(t ^ t >>> 15,t|1); t ^= t+Math.imul(t ^ t >>> 7,t|61); return ((t ^ t >>> 14) >>> 0)/4294967296; };
+    const roots = [], lobes = [];
+    for (let i = 0; i < 36; i++) {
+      let best, score = -1;
+      for (let c = 0; c < 9; c++) {
+        const p = {x:-.15+random()*1.3,y:-.15+random()*1.3}; let distance = Infinity;
+        for (const root of roots) distance = Math.min(distance,(p.x-root.x)**2+(p.y-root.y)**2);
+        if (distance > score) { score = distance; best = p; }
+      }
+      const radius = .075+random()*.085, aspect = .92+random()*.16;
+      const root = {...best,rx:radius*aspect,ry:radius/aspect,angle:random()*Math.PI,height:.9*radius,layer:0};
+      roots.push(root); lobes.push(root);
+      for (let j=0;j<3;j++) {
+        const a=random()*Math.PI*2,d=radius*(.4+random()*.8),r=.05+random()*.055,aspect=.92+random()*.16;
+        lobes.push({x:root.x+Math.cos(a)*d,y:root.y+Math.sin(a)*d,rx:r*aspect,ry:r/aspect,angle:random()*Math.PI,height:.9*r+.06,layer:1});
+      }
+      for (let j=0;j<5;j++) {
+        const a=random()*Math.PI*2,d=radius*(.25+random()),r=.028+random()*.028,aspect=.92+random()*.16;
+        lobes.push({x:root.x+Math.cos(a)*d,y:root.y+Math.sin(a)*d,rx:r*aspect,ry:r/aspect,angle:random()*Math.PI,height:.9*r+.095,layer:2});
+      }
+    }
+    return lobes;
+  }
+
+  _billowTile(descriptors) {
+    const n=this._tileSize, layers=[new Float32Array(n*n),new Float32Array(n*n),new Float32Array(n*n)];
+    for (const lobe of descriptors) {
+      const ux=lobe.x-Math.floor(lobe.x),uy=lobe.y-Math.floor(lobe.y);
+      const rx=lobe.rx*n,ry=lobe.ry*n,r=Math.max(rx,ry),c=Math.cos(lobe.angle),s=Math.sin(lobe.angle),layer=layers[lobe.layer];
+      for (let oy=-1;oy<=1;oy++) for(let ox=-1;ox<=1;ox++) {
+        const cx=(ux+ox)*n,cy=(uy+oy)*n;
+        const left=Math.max(0,Math.floor(cx-r)),right=Math.min(n-1,Math.ceil(cx+r)),top=Math.max(0,Math.floor(cy-r)),bottom=Math.min(n-1,Math.ceil(cy+r));
+        if(left>right||top>bottom)continue;
+        for(let y=top;y<=bottom;y++)for(let x=left;x<=right;x++){
+          const dx=x-cx,dy=y-cy,u=(dx*c+dy*s)/rx,v=(-dx*s+dy*c)/ry,q=1-u*u-v*v;
+          if(q>0){const index=y*n+x,h=lobe.height*Math.sqrt(q);if(h>layer[index])layer[index]=h;}
+        }
+      }
+    }
+    const out=new Float32Array(n*n),k=.009;
+    for(let i=0;i<out.length;i++){let h=0;for(const layer of layers){const b=layer[i],t=Math.max(k-Math.abs(h-b),0)/k;h=Math.max(h,b)+t*t*k*.25;}out[i]=h;}
+    return out;
+  }
+
+  _makeSource() {
+    const n=this._tileSize,primary=this._billowTile(this._scatter(17));
+    const descriptors=this._scatter(137).map(l=>({...l,x:(l.x-.5)*.83+.5+.173,y:(l.y-.5)*.83+.5-.117,rx:l.rx*.83,ry:l.ry*.83,height:l.height*.83}));
+    const secondary=this._billowTile(descriptors),out=new Float32Array(n*n*4);
+    for(let y=0;y<n;y++)for(let x=0;x<n;x++){
+      const i=y*n+x,k=i*4,u=x/n,v=y/n;
+      out[k]=.3+.7*this._noise(u*11,v*11,17,false,11)+.16*this._noise(u*27,v*27,17,false,27)+.06*this._noise(u*59,v*59,17,false,59);
+      out[k+1]=primary[i];out[k+2]=secondary[i];
+    }
+    return out;
+  }
+
+  // Separable box blur. `clamped` matches field/forms; zero padding matches
+  // soft.mjs's mask-derived interior. Source and output must be distinct.
+  _blur(source, output, radius, scratch, clamped = true) {
+    const w=this.width,h=this.rows,span=radius*2+1,inv=1/span;
+    for(let y=0;y<h;y++){
+      const row=y*w;let sum=0;
+      for(let x=-radius;x<=radius;x++){if(clamped)sum+=source[row+Math.max(0,Math.min(w-1,x))];else if(x>=0&&x<w)sum+=source[row+x];}
+      for(let x=0;x<w;x++){
+        scratch[row+x]=sum*inv;
+        const leave=x-radius,enter=x+radius+1;
+        if(clamped){sum-=source[row+Math.max(0,leave)];sum+=source[row+Math.min(w-1,enter)];}
+        else{if(leave>=0)sum-=source[row+leave];if(enter<w)sum+=source[row+enter];}
+      }
+    }
+    for(let x=0;x<w;x++){
+      let sum=0;for(let y=-radius;y<=radius;y++){if(clamped)sum+=scratch[Math.max(0,Math.min(h-1,y))*w+x];else if(y>=0&&y<h)sum+=scratch[y*w+x];}
+      for(let y=0;y<h;y++){
+        output[y*w+x]=sum*inv;const leave=y-radius,enter=y+radius+1;
+        if(clamped){sum-=scratch[Math.max(0,leave)*w+x];sum+=scratch[Math.min(h-1,enter)*w+x];}
+        else{if(leave>=0)sum-=scratch[leave*w+x];if(enter<h)sum+=scratch[enter*w+x];}
+      }
+    }
+  }
+
+  _raster(bodies) {
+    const w=this.width,h=this.rows,sx=w/960,sy=h/600,tile=this._source;
+    const mask=this.mask,weight=this._weight,mats=this._materialSum,pri=this._primarySum,sec=this._secondarySum;
+    mask.fill(0);weight.fill(0);mats.fill(0);pri.fill(0);sec.fill(0);
+    for(const body of bodies){
+      if(!(body.rx>0&&body.ry>0))continue;
+      const cx=body.x*sx,cy=body.y*sy,rx=body.rx*sx,ry=body.ry*sy,invRx=1/rx,invRy=1/ry;
+      const x0=Math.max(0,Math.ceil(cx-rx)),x1=Math.min(w-1,Math.floor(cx+rx)),y0=Math.max(0,Math.ceil(cy-ry)),y1=Math.min(h-1,Math.floor(cy+ry));
+      if(x0>x1||y0>y1)continue;
+      const minRadius=Math.min(rx,ry),feather=Math.max(1,minRadius*.18),edgeScale=minRadius/feather;
+      const seed=Number(body.materialSeed)||17,ox=Number.isFinite(body.originX)?body.originX:body.x,oy=Number.isFinite(body.originY)?body.originY:body.y;
+      const scaleX=Math.max(.05,Math.abs(Number(body.scaleX)||1)),scaleY=Math.max(.05,Math.abs(Number(body.scaleY)||1));
+      const seedX=this._hash(seed,31,17)*256,seedY=this._hash(19,seed,43)*256;
+      const du=256/(600*scaleX*sx),dv=256/(600*scaleY*sy),u0=(-ox/(600*scaleX)+.5)*256+seedX,v0=(-oy/(600*scaleY)+.5)*256+seedY;
+      for(let y=y0;y<=y1;y++){
+        const yy=(y-cy)*invRy,qq=yy*yy,ty=y*dv+v0,iy=Math.floor(ty),fv=ty-iy;
+        const row0=(iy&255)*256,row1=((iy+1)&255)*256;let tx=x0*du+u0;
+        for(let x=x0;x<=x1;x++,tx+=du){
+          const xx=(x-cx)*invRx,q=xx*xx+qq;if(q>=1)continue;
+          const i=y*w+x,coverage=Math.min(1,(1-Math.sqrt(q))*edgeScale);if(coverage>mask[i])mask[i]=coverage;
+          const density=(1-q)*(1-q)+.002,ix=Math.floor(tx),fu=tx-ix,xa=ix&255,xb=(ix+1)&255;
+          const a=(row0+xa)*4,b=(row0+xb)*4,c=(row1+xa)*4,d=(row1+xb)*4;
+          const wa=(1-fu)*(1-fv)*density,wb=fu*(1-fv)*density,wc=(1-fu)*fv*density,wd=fu*fv*density;
+          weight[i]+=density;
+          mats[i]+=tile[a]*wa+tile[b]*wb+tile[c]*wc+tile[d]*wd;
+          pri[i]+=tile[a+1]*wa+tile[b+1]*wb+tile[c+1]*wc+tile[d+1]*wd;
+          sec[i]+=tile[a+2]*wa+tile[b+2]*wb+tile[c+2]*wc+tile[d+2]*wd;
+        }
+      }
+    }
+    for(let i=0;i<mask.length;i++)this.material[i]=weight[i]>0?mats[i]/weight[i]:.68;
+  }
+
+  _membrane() {
+    const w=this.width,h=this.rows,gx=this._gx,gy=this._gy,stride=this._stride,coverage=this._coverage,mask=this.mask;
+    const cellX=w/gx,cellY=h/gy;coverage.fill(0);
+    for(let y=0;y<gy;y++)for(let x=0;x<gx;x++){
+      const x0=Math.floor(x*cellX),x1=Math.min(w,Math.floor((x+1)*cellX)),y0=Math.floor(y*cellY),y1=Math.min(h,Math.floor((y+1)*cellY));
+      let sum=0,count=0;for(let yy=y0;yy<y1;yy++)for(let xx=x0;xx<x1;xx++){sum+=mask[yy*w+xx];count++;}
+      coverage[(y+1)*stride+x+1]=count?Math.min(1,Math.max(0,sum/count)):0;
+    }
+    let a=this._solveA,b=this._solveB;a.fill(0);b.fill(0);
+    // The reference uses n/4 in both dimensions; landscape adapts n to rows.
+    const forcing=1/(gy*gy);
+    for(let iteration=0;iteration<256;iteration++){
+      for(let y=1;y<=gy;y++)for(let x=1,i=y*stride+1;x<=gx;x++,i++)b[i]=coverage[i]*(a[i-1]+a[i+1]+a[i-stride]+a[i+stride]+forcing)*.25;
+      const swap=a;a=b;b=swap;
+    }
+    const phi=this._phi,x0=this._x0,x1=this._x1,xf=this._xf;
+    for(let y=0;y<h;y++){
+      const ya=this._y0[y],yb=this._y1[y],v=this._yf[y];
+      for(let x=0;x<w;x++){const u=xf[x];phi[y*w+x]=((1-u)*a[ya+x0[x]]+u*a[ya+x1[x]])*(1-v)+((1-u)*a[yb+x0[x]]+u*a[yb+x1[x]])*v;}
+    }
+    this._blur(phi,this._b,2,this._a,true);
+    this._blur(this._b,phi,2,this._a,true);
+  }
+
+  _billows(amount, secondAmount) {
+    const w=this.width,h=this.rows,n=this.normalizer,mask=this.mask,distance=this._distance,weight=this._weight,primary=this._primary,secondary=this._secondary;
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;distance[i]=mask[i]>.05?Math.min(x+1,y+1,w-x,h-y,999):0;}
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;distance[i]=Math.min(distance[i],x?distance[i-1]+1:1,y?distance[i-w]+1:1);}
+    for(let y=h-1;y>=0;y--)for(let x=w-1;x>=0;x--){const i=y*w+x;distance[i]=Math.min(distance[i],x<w-1?distance[i+1]+1:1,y<h-1?distance[i+w]+1:1);}
+    for(let i=0;i<mask.length;i++){
+      const edge=Math.min(1,distance[i]/(n*.055)),envelope=Math.sqrt(edge*(2-edge));
+      const scale=mask[i]>.01&&weight[i]>0?n*envelope/weight[i]:0;
+      primary[i]=this._primarySum[i]*scale;secondary[i]=this._secondarySum[i]*scale;
+    }
+    // Same cross smoothing as buildNaturalFromDescriptors, before Screen.
+    this._a.set(primary);this._b.set(secondary);
+    for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){
+      const i=y*w+x;if(mask[i]<.01)continue;
+      primary[i]=(this._a[i]*4+this._a[i-1]+this._a[i+1]+this._a[i-w]+this._a[i+w])*.125;
+      secondary[i]=(this._b[i]*4+this._b[i-1]+this._b[i+1]+this._b[i-w]+this._b[i+w])*.125;
+    }
+    const reliefScale=n*.22,composite=this._c;
+    for(let i=0;i<mask.length;i++){
+      const a=Math.max(0,Math.min(1,primary[i]/reliefScale)),b=Math.max(0,Math.min(1,secondary[i]/reliefScale));
+      composite[i]=Math.max(0,primary[i]+((a+b-a*b)*reliefScale-primary[i])*secondAmount);
+    }
+    // Original shared-depth [1 2 1] x [1 2 1] positive-relief filter.
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;this._a[i]=(composite[y*w+Math.max(0,x-1)]+2*composite[i]+composite[y*w+Math.min(w-1,x+1)])*.25;}
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;if(mask[i]>0)this.height[i]+=amount*(this._a[Math.max(0,y-1)*w+x]+2*this._a[i]+this._a[Math.min(h-1,y+1)*w+x])*.25;}
+  }
+
+  _transmit(sun, depth) {
+    const w=this.width,h=this.rows,out=this.transmission,density=this._density,attenuation=this._attenuation;
+    const a=sun*Math.PI/180,e=depth*Math.PI/180,lx=Math.cos(a)*Math.cos(e),ly=-Math.sin(a)*Math.cos(e);
+    out.fill(1);if(Math.hypot(lx,ly)<1e-6)return;
+    const majorX=Math.abs(lx)>=Math.abs(ly),major=majorX?lx:ly,minor=(majorX?ly:lx)/Math.abs(major),step=major>=0?1:-1,distance=Math.sqrt(1+minor*minor),majorLength=majorX?w:h,minorLength=majorX?h:w;
+    for(let i=0;i<density.length;i++)attenuation[i]=Math.exp(-density[i]*.035*distance);
+    for(let m=step>0?majorLength-1:0;m>=0&&m<majorLength;m-=step){
+      const up=m+step;if(up<0||up>=majorLength)continue;
+      for(let b=0;b<minorLength;b++){
+        const pos=b+minor;if(pos<0||pos>minorLength-1)continue;
+        const low=Math.floor(pos),high=Math.min(minorLength-1,low+1),f=pos-low;
+        const i0=majorX?low*w+up:up*w+low,i1=majorX?high*w+up:up*w+high,i=majorX?b*w+m:m*w+b;
+        out[i]=out[i0]*attenuation[i0]*(1-f)+out[i1]*attenuation[i1]*f;
+      }
+    }
+  }
+
+  build(bodies, settings = {}) {
+    this._raster(bodies);
+    const mask=this.mask,n=this.normalizer,size=mask.length;
+    // The original shallow surface uses one radius-4 coverage blur.
+    this._blur(mask,this._b,4,this._a,true);
+    for(let i=0;i<size;i++){this.relief[i]=this._b[i]*this.material[i];this._density[i]=mask[i]*(.3+.7*this.relief[i]);}
+    // Original interior is independent of broad/noise/mass controls.
+    this._blur(mask,this._b,5,this._a,false);
+    this._blur(this._b,this._c,5,this._a,false);
+    for(let i=0;i<size;i++)this.interior[i]=Math.max(0,Math.min(1,(this._c[i]-.42)/.5));
+    this._membrane();
+    const strength=Number.isFinite(settings.strength)?Math.max(.1,settings.strength):1.21;
+    for(let i=0;i<size;i++)this.height[i]=mask[i]>0?n*strength*6.5*this._phi[i]*(.88+.32*this._forms[i])*Math.sqrt(mask[i]):0;
+    const amount=Number.isFinite(settings.detail)?Math.max(0,Math.min(1,settings.detail)):.35;
+    const secondAmount=Number.isFinite(settings.secondAmount)?Math.max(0,Math.min(1,settings.secondAmount)):.4;
+    if(amount>0)this._billows(amount,secondAmount);
+    this._blur(this.material,this._b,5,this._a,true);
+    for(let i=0;i<size;i++)this.shadeDetail[i]=mask[i]>0?1+.08*(this.material[i]-this._b[i]):1;
+    this._transmit(Number.isFinite(settings.sun)?settings.sun:120,Number.isFinite(settings.depth)?settings.depth:17);
+    return this.result;
+  }
+}
+
+
+const $ = id => document.getElementById(id);
+const clamp = (v,a=0,b=1) => Math.max(a,Math.min(b,v));
+const TAU = Math.PI * 2;
+const LOOP_SECONDS = 48;
+const DEFAULTS = Object.freeze({coverage:.60,separation:.65,lift:.60,turbulence:.40,detail:.35,softness:.75,sun:120,depth:17,shadow:.83,bands:18,speed:1,resolution:320,view:0,sky:true,distant:false,pixelated:true});
+const PRESET_NAMES = {reference:'Shared broad forms',cathedral:'Broad plumes',archipelago:'Cloud islands',confluence:'Split / merge study'};
+const canvas = $('cloud');
+let settings = {...DEFAULTS}, seed=7401, preset='reference', phase=0, playing=true;
+let field, renderer, busy=false, broken=false, dirty=true, lastTime=0, lastStats=0, frameCount=0, fps=0, lastPuffs=[];
+let toastTimer=0, pointerId=null;
+
+// The original reference builds form from a silhouette, then adds restrained
+// relief. These passes light that ONE shared surface; ellipse instances are
+// never shaded independently. RGBA8 packing preserves offline WebGL 2 support.
+const SCREEN_VERTEX = `#version 300 es
+precision highp float;
+out vec2 vUV;
+void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));vUV=p;gl_Position=vec4(p*2.0-1.0,0,1);}`;
+
+const SHARED_GLSL = `
+uniform sampler2D uSurface,uAux;
+uniform vec2 uSize;
+uniform float uHeightScale,uSun,uDepth;
+in vec2 vUV;
+vec2 atUV(vec2 p){return clamp(p,vec2(.5),uSize-vec2(.5))/uSize;}
+vec4 rawAt(vec2 p){return texture(uSurface,atUV(p));}
+vec4 auxAt(vec2 p){return texture(uAux,atUV(p));}
+float hAt(vec2 p){vec4 s=rawAt(p);return (s.r+s.g/255.0)*uHeightScale;}
+float coverage(vec2 p){return rawAt(p).a;}
+bool outside(vec2 p){return p.x<0.0||p.y<0.0||p.x>=uSize.x||p.y>=uSize.y;}
+vec3 normalAt(vec2 p){return normalize(vec3((hAt(p-vec2(1,0))-hAt(p+vec2(1,0)))*.5,(hAt(p-vec2(0,1))-hAt(p+vec2(0,1)))*.5,1));}
+vec3 lightVector(){return vec3(cos(uSun)*cos(uDepth),-sin(uSun)*cos(uDepth),sin(uDepth));}
+float dayAmount(){return clamp((sin(uSun)+.16)/.5,0.0,1.0);}
+vec2 encode16(float v){vec2 e=fract(clamp(v,0.0,.999999)*vec2(1,255));e.x-=e.y/255.0;return e;}
+`;
+
+const LIGHT_FRAGMENT = `#version 300 es
+precision highp float;
+${SHARED_GLSL}
+out vec4 outColor;
+void main(){
+ vec2 p=vec2(vUV.x*uSize.x,(1.0-vUV.y)*uSize.y);
+ float mask=coverage(p);if(mask<.001){outColor=vec4(0);return;}
+ vec3 l=lightVector(),n=normalAt(p);float planar=length(l.xy),h=hAt(p),visibility=1.0;
+ if(planar>.01){
+  vec2 ray=l.xy/planar;
+  for(int i=1;i<=20;i++){
+   float s=float(i)*2.0;vec2 q=floor(p+ray*s)+.5;
+   if(outside(q))break;if(coverage(q)<.01)continue;
+   float excess=hAt(q)-(h+s*l.z/planar);
+   visibility=min(visibility,1.0-clamp((excess-.6)/(1.5+s*.14),0.0,1.0)*.88);
+  }
+ }
+ float pocket=max(0.0,(hAt(p+vec2(5,0))+hAt(p-vec2(5,0))+hAt(p+vec2(0,5))+hAt(p-vec2(0,5)))*.25-h);
+ float ao=exp(-pocket*.16);
+ float diffuse=pow(clamp((dot(n,l)+.24)/1.24,0.0,1.0),.85);
+ float transmitted=l.z<0.0?exp(-h/(uSize.y*.04))*.45:0.0;
+ vec4 a=auxAt(p);
+ float direct=clamp(.09*ao+.88*diffuse*visibility+transmitted,0.0,1.0);
+ direct=clamp(direct*(.95+.10*a.a),0.0,1.0);
+ // Keep the reference's shallow material contribution near thin silhouettes.
+ float relief=a.g*1.25;
+ vec3 shallowNormal=normalize(vec3((auxAt(p-vec2(1,0)).g-auxAt(p+vec2(1,0)).g)*7.5,(auxAt(p-vec2(0,1)).g-auxAt(p+vec2(0,1)).g)*7.5,1));
+ float through=a.b*dot(l.xy,l.xy)+(l.z>=0.0?1.0:exp(-relief*3.5))*l.z*l.z;
+ float rim=(1.0-relief)*.18*max(0.0,-l.z);
+ float shallow=clamp(.12+dayAmount()*(through*(.4+.5*max(0.0,dot(shallowNormal,l)))+rim),0.0,1.0);
+ outColor=vec4(encode16(direct),encode16(shallow));
+}`;
+
+const FINISH_FRAGMENT = `#version 300 es
+precision highp float;
+${SHARED_GLSL}
+uniform sampler2D uLight;
+uniform float uSoftness,uVolume,uBands;
+uniform int uView;
+uniform bool uSky,uDistant;
+out vec4 outColor;
+// A rendered framebuffer has its bottom row first; the CPU surface is top-down.
+vec4 lightAt(vec2 p){vec2 uv=atUV(p);return texture(uLight,vec2(uv.x,1.0-uv.y));}
+float directAt(vec2 p){vec4 a=lightAt(p);return a.r+a.g/255.0;}
+vec3 palette(float light,float day){
+ vec3 dark=vec3(19,62,103)/255.0,mid=vec3(103,157,178)/255.0,cream=vec3(249,240,202)/255.0;
+ float t=clamp(light,0.0,1.0);
+ return (t<.48?mix(dark,mid,t/.48):mix(mid,cream,(t-.48)/.52))*(.45+.55*day);
+}
+float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);vec4 v=fract(sin(vec4(dot(i,vec2(127.1,311.7)),dot(i+vec2(1,0),vec2(127.1,311.7)),dot(i+vec2(0,1),vec2(127.1,311.7)),dot(i+1.0,vec2(127.1,311.7))))*43758.5453);return mix(mix(v.x,v.y,f.x),mix(v.z,v.w,f.x),f.y);}
+vec3 background(vec2 uv,float day){
+ vec3 base=vec3(8.0+day,17.0+day*88.0,36.0+day*100.0)/255.0;
+ if(!uDistant)return base;
+ float y=1.0-uv.y;vec3 result=mix(base*.75,base*1.05,y);
+ for(int i=0;i<3;i++){
+  float k=float(i),line=.48+k*.18,ridge=noise(vec2(uv.x*(18.0+k*7.0),k*6.2+10.0));
+  float top=line-ridge*(.02+k*.006),gap=smoothstep(.26,.65,noise(vec2(uv.x*7.0+23.0*k,4.7)));
+  float band=smoothstep(top-.003,top+.003,y)*(1.0-smoothstep(line,line+.025,y))*gap;
+  result=mix(result,mix(base,palette(.48,day),.5),band*.5);
+ }
+ return result;
+}
+void main(){
+ vec2 p=vec2(vUV.x*uSize.x,(1.0-vUV.y)*uSize.y);float mask=coverage(p),day=dayAmount();
+ vec3 bg=background(vUV,day);if(mask<=.001){outColor=uSky?vec4(bg,1):vec4(0);return;}
+ float source=directAt(p),peak=source,sum=0.0,weight=0.0,coverSum=0.0;
+ // Exact reference stencils: radius-2 highlight dilation and radius-4
+ // coverage-weighted edge softening. No hash dither or extra cap-rim glow.
+ for(int y=-4;y<=4;y++)for(int x=-4;x<=4;x++){
+  int rr=x*x+y*y;if(rr>16)continue;vec2 q=p+vec2(float(x),float(y));if(outside(q))continue;
+  float m=coverage(q),v=directAt(q);
+  if(rr<=4&&m>.1)peak=max(peak,v);
+  coverSum+=m;sum+=v*m;weight+=m;
+ }
+ float highlight=clamp((peak-.48)/.32,0.0,1.0);
+ float finished=source+(peak-source)*highlight*.85;
+ float edge=min(1.0,(1.0-coverSum/49.0)*2.5)*uSoftness;
+ if(weight>0.0)finished=mix(finished,sum/weight,edge);
+ vec4 a=auxAt(p),light=lightAt(p);float shallow=light.b+light.a/255.0;
+ float dimensional=clamp(.055+day*finished,0.0,1.0);
+ float value=mix(shallow,dimensional,uVolume*a.r);
+ value=floor(value*uBands+.5)/uBands;
+ vec3 color=palette(value,day);
+ if(uView==1)color=vec3(clamp(hAt(p)/(uSize.y*.22),0.0,1.0));
+ if(uView==2)color=normalAt(p)*.5+.5;
+ if(uView==3)color=vec3(.94,.95,.84);
+ float alpha=pow(mask,1.0+uSoftness*.6);
+ outColor=uSky?vec4(mix(bg,color,alpha),1):vec4(color,alpha);
+}`;
+
+class CloudRenderer {
+ constructor(target){
+  this.canvas=target;
+  const gl=target.getContext('webgl2',{alpha:true,antialias:false,depth:false,premultipliedAlpha:false,preserveDrawingBuffer:true,powerPreference:'high-performance'});
+  if(!gl)throw new Error('WebGL 2 is unavailable. Enable hardware acceleration, then reopen this file in your browser.');
+  this.gl=gl;this.light=this.program(SCREEN_VERTEX,LIGHT_FRAGMENT);this.finish=this.program(SCREEN_VERTEX,FINISH_FRAGMENT);
+  this.lightLoc=this.locations(this.light,['uSurface','uAux','uSize','uHeightScale','uSun','uDepth']);
+  this.finishLoc=this.locations(this.finish,['uSurface','uAux','uLight','uSize','uHeightScale','uSun','uDepth','uSoftness','uVolume','uBands','uView','uSky','uDistant']);
+  this.vao=gl.createVertexArray();this.surfaceTexture=gl.createTexture();this.auxTexture=gl.createTexture();this.lightTexture=gl.createTexture();this.fbo=gl.createFramebuffer();
+  gl.disable(gl.DITHER);this.resize(settings.resolution);
+ }
+ program(vs,fs){
+  const g=this.gl,compile=(type,source)=>{const s=g.createShader(type);g.shaderSource(s,source);g.compileShader(s);if(!g.getShaderParameter(s,g.COMPILE_STATUS)){const message=g.getShaderInfoLog(s);g.deleteShader(s);throw new Error(message);}return s;};
+  const v=compile(g.VERTEX_SHADER,vs),f=compile(g.FRAGMENT_SHADER,fs),p=g.createProgram();g.attachShader(p,v);g.attachShader(p,f);g.linkProgram(p);g.deleteShader(v);g.deleteShader(f);if(!g.getProgramParameter(p,g.LINK_STATUS))throw new Error(g.getProgramInfoLog(p));return p;
+ }
+ locations(p,names){return Object.fromEntries(names.map(n=>[n,this.gl.getUniformLocation(p,n)]));}
+ resize(width){
+  const g=this.gl;this.width=width;this.rows=Math.round(width*5/8);this.canvas.width=width;this.canvas.height=this.rows;
+  if(this.builder)this.builder.resize(width,this.rows);else this.builder=new CloudSurface(width,this.rows);
+  this.surfaceBytes=new Uint8Array(width*this.rows*4);this.auxBytes=new Uint8Array(this.surfaceBytes.length);
+  for(const tex of [this.surfaceTexture,this.auxTexture,this.lightTexture]){
+   g.bindTexture(g.TEXTURE_2D,tex);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_MIN_FILTER,g.NEAREST);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_MAG_FILTER,g.NEAREST);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_WRAP_S,g.CLAMP_TO_EDGE);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_WRAP_T,g.CLAMP_TO_EDGE);g.texImage2D(g.TEXTURE_2D,0,g.RGBA8,width,this.rows,0,g.RGBA,g.UNSIGNED_BYTE,null);
+  }
+  g.bindFramebuffer(g.FRAMEBUFFER,this.fbo);g.framebufferTexture2D(g.FRAMEBUFFER,g.COLOR_ATTACHMENT0,g.TEXTURE_2D,this.lightTexture,0);if(g.checkFramebufferStatus(g.FRAMEBUFFER)!==g.FRAMEBUFFER_COMPLETE)throw new Error('The lighting buffer could not be created.');g.bindFramebuffer(g.FRAMEBUFFER,null);
+ }
+ render(bodies,o){
+  const g=this.gl,d=this.builder.build(bodies,o),heightScale=this.rows;this.lastSurface=d;
+  for(let i=0,k=0;i<d.mask.length;i++,k+=4){
+   const h=Math.max(0,Math.min(.999999,d.height[i]/heightScale))*255,integer=Math.floor(h);
+   this.surfaceBytes[k]=integer;this.surfaceBytes[k+1]=Math.round((h-integer)*255);this.surfaceBytes[k+2]=Math.round(Math.max(0,Math.min(1,d.material[i]/1.2))*255);this.surfaceBytes[k+3]=Math.round(d.mask[i]*255);
+   this.auxBytes[k]=Math.round(d.interior[i]*255);this.auxBytes[k+1]=Math.round(Math.max(0,Math.min(1,d.relief[i]/1.25))*255);this.auxBytes[k+2]=Math.round(d.transmission[i]*255);this.auxBytes[k+3]=Math.round(Math.max(0,Math.min(1,((d.shadeDetail?d.shadeDetail[i]:1)-.95)/.1))*255);
+  }
+  for(const [unit,tex,data]of [[0,this.surfaceTexture,this.surfaceBytes],[1,this.auxTexture,this.auxBytes]]){g.activeTexture(g.TEXTURE0+unit);g.bindTexture(g.TEXTURE_2D,tex);g.texSubImage2D(g.TEXTURE_2D,0,0,0,this.width,this.rows,g.RGBA,g.UNSIGNED_BYTE,data);}
+  g.viewport(0,0,this.width,this.rows);g.disable(g.BLEND);g.disable(g.DEPTH_TEST);g.disable(g.DITHER);g.bindVertexArray(this.vao);
+  const uniforms=u=>{g.uniform1i(u.uSurface,0);g.uniform1i(u.uAux,1);g.uniform2f(u.uSize,this.width,this.rows);g.uniform1f(u.uHeightScale,heightScale);g.uniform1f(u.uSun,o.sun*Math.PI/180);g.uniform1f(u.uDepth,o.depth*Math.PI/180);};
+  g.bindFramebuffer(g.FRAMEBUFFER,this.fbo);g.useProgram(this.light);uniforms(this.lightLoc);g.drawArrays(g.TRIANGLES,0,3);
+  g.bindFramebuffer(g.FRAMEBUFFER,null);g.useProgram(this.finish);const u=this.finishLoc;uniforms(u);g.activeTexture(g.TEXTURE2);g.bindTexture(g.TEXTURE_2D,this.lightTexture);g.uniform1i(u.uLight,2);g.uniform1f(u.uSoftness,o.softness);g.uniform1f(u.uVolume,o.shadow);g.uniform1f(u.uBands,o.bands);g.uniform1i(u.uView,o.view);g.uniform1i(u.uSky,o.sky?1:0);g.uniform1i(u.uDistant,o.distant?1:0);g.drawArrays(g.TRIANGLES,0,3);g.bindVertexArray(null);
+ }
+ pixels(surface=false){if(surface)return this.surfaceBytes.slice();const g=this.gl,out=new Uint8Array(this.width*this.rows*4);g.bindFramebuffer(g.FRAMEBUFFER,null);g.readPixels(0,0,this.width,this.rows,g.RGBA,g.UNSIGNED_BYTE,out);return out;}
+ dispose(){const g=this.gl;g.deleteProgram(this.light);g.deleteProgram(this.finish);g.deleteVertexArray(this.vao);g.deleteFramebuffer(this.fbo);for(const t of [this.surfaceTexture,this.auxTexture,this.lightTexture])g.deleteTexture(t);}
+}
+
+function notify(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,4200);}
+function fail(error){broken=true;playing=false;$('error').hidden=false;$('error-message').textContent='The renderer could not start. Check that hardware acceleration is enabled in your browser.';$('error-details').textContent=String(error.message||error);$('status').textContent='Renderer unavailable';console.error(error);updateUI();}
+function fitStage(){const box=document.querySelector('.stage-space'),stage=$('stage');if(document.fullscreenElement===stage)return;const w=box.clientWidth,h=box.clientHeight;stage.style.width=(innerWidth>760?Math.min(w,h*1.6):w)+'px';}
+function buildField(){field=new CloudMotion(seed,preset);dirty=true;}
+function render(){if(!renderer||broken)return;lastPuffs=field.sample(phase,settings);renderer.render(lastPuffs,settings);dirty=false;}
+function setPlaying(v){playing=!!v&&!broken&&!busy;lastTime=performance.now();updateUI();}
+function setPhase(v){phase=((Number(v)%1)+1)%1;playing=false;dirty=true;render();updateUI();}
+function setPreset(id){if(!Object.hasOwn(PRESET_NAMES,id))return;preset=id;phase=0;buildField();updateUI();render();}
+function updateUI(){
+ $('play').innerHTML=playing?'Ⅱ &nbsp; Pause':'▶ &nbsp; Play';$('play').setAttribute('aria-label',playing?'Pause animation':'Play animation');
+ $('phase').value=String(Math.round(phase*1000));const duration=LOOP_SECONDS/settings.speed;
+ $('time-label').textContent=(phase*duration).toFixed(1).padStart(4,'0')+' / '+duration.toFixed(1)+'s';
+ for(const key of ['coverage','separation','lift','turbulence','detail','softness','shadow','speed']){$(key).value=String(Math.round(settings[key]*100));$(key+'-out').textContent=key==='speed'?settings[key].toFixed(2)+'×':Math.round(settings[key]*100)+'%';}
+ for(const key of ['sun','depth','bands']){$(key).value=String(settings[key]);$(key+'-out').textContent=Math.round(settings[key])+(['sun','depth'].includes(key)?'°':'');}
+ for(const key of ['resolution','view'])$(key).value=String(settings[key]);
+ for(const key of ['sky','distant','pixelated'])$(key).checked=settings[key];
+ $('distant').disabled=busy||!settings.sky;$('seed').value=String(seed);canvas.classList.toggle('smooth',!settings.pixelated);
+ for(const b of document.querySelectorAll('[data-preset]')){const active=b.dataset.preset===preset;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));}
+ $('stage-badge').textContent=PRESET_NAMES[preset].toUpperCase();
+}
+function setSetting(key,value){
+ if(!Object.hasOwn(DEFAULTS,key))return;
+ if(['sky','distant','pixelated'].includes(key))settings[key]=!!value;
+ else if(key==='resolution'){if(![256,320,384].includes(Number(value)))return;settings[key]=Number(value);if(renderer)renderer.resize(settings[key]);}
+ else if(key==='sun')settings[key]=clamp(Number(value)||0,0,360);
+ else if(key==='depth')settings[key]=clamp(Number(value)||0,-70,70);
+ else if(key==='bands')settings[key]=Math.round(clamp(Number(value)||14,6,24));
+ else if(key==='view')settings[key]=Math.round(clamp(Number(value)||0,0,3));
+ else if(key==='speed')settings[key]=clamp(Number(value)||1,.1,2.5);
+ else settings[key]=clamp(Number(value)||0,key==='coverage'?.15:0,1);
+ dirty=true;updateUI();if(!playing)render();
+}
+function state(){return {version:2,style:'shared-depth',seed,preset,phase,playing,settings:{...settings},loopSeconds:LOOP_SECONDS/settings.speed,nativeWidth:canvas.width,nativeHeight:canvas.height,count:lastPuffs.length};}
+function nextFrame(){return new Promise(resolve=>requestAnimationFrame(resolve));}
+function getBlob(target=canvas){return new Promise((resolve,reject)=>target.toBlob(b=>b?resolve(b):reject(new Error('PNG creation failed.')), 'image/png'));}
+function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
+function setBusy(value,label='Building loop…'){busy=value;$('busy').hidden=!value;$('busy-text').textContent=label;for(const el of document.querySelectorAll('aside button, aside input, aside select, .transport button, #phase, #fullscreen'))el.disabled=value;updateUI();}
+
+// Minimal, dependency-free ZIP (store mode). Browser PNG data is already compressed.
+const CRC_TABLE=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?0xedb88320^(c>>>1):c>>>1;t[n]=c>>>0;}return t;})();
+function crc32(data){let c=0xffffffff;for(let i=0;i<data.length;i++)c=CRC_TABLE[(c^data[i])&255]^(c>>>8);return(c^0xffffffff)>>>0;}
+function zipStore(files){
+ const encoder=new TextEncoder(),parts=[],central=[];let offset=0,centralSize=0;
+ for(const file of files){const name=encoder.encode(file.name),data=file.data,crc=crc32(data),header=new Uint8Array(30+name.length),v=new DataView(header.buffer);
+  v.setUint32(0,0x04034b50,true);v.setUint16(4,20,true);v.setUint16(6,0x800,true);v.setUint16(12,33,true);v.setUint32(14,crc,true);v.setUint32(18,data.length,true);v.setUint32(22,data.length,true);v.setUint16(26,name.length,true);header.set(name,30);parts.push(header,data);
+  const record=new Uint8Array(46+name.length),r=new DataView(record.buffer);r.setUint32(0,0x02014b50,true);r.setUint16(4,20,true);r.setUint16(6,20,true);r.setUint16(8,0x800,true);r.setUint16(14,33,true);r.setUint32(16,crc,true);r.setUint32(20,data.length,true);r.setUint32(24,data.length,true);r.setUint16(28,name.length,true);r.setUint32(42,offset,true);record.set(name,46);central.push(record);centralSize+=record.length;offset+=header.length+data.length;
+ }
+ const end=new Uint8Array(22),e=new DataView(end.buffer);e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,centralSize,true);e.setUint32(16,offset,true);return new Blob([...parts,...central,end],{type:'application/zip'});
+}
+async function exportPNG(){if(busy||broken)return;try{render();download(await getBlob(),`cloud-${preset}-${seed}-${Math.round(phase*1000)}.png`);notify(settings.sky?'PNG frame exported.':'Transparent PNG frame exported.');}catch(e){notify(e.message);}}
+async function exportLoop(){
+ if(busy||broken)return;
+ const savedPhase=phase,wasPlaying=playing,exportState=state(),count=32,cols=8,rows=4,padding=2,w=canvas.width,h=canvas.height,tileW=w+padding*2,tileH=h+padding*2;
+ playing=false;setBusy(true,'Preparing 32 frames…');
+ try{
+  const atlas=document.createElement('canvas');atlas.width=tileW*cols;atlas.height=tileH*rows;const ctx=atlas.getContext('2d');ctx.imageSmoothingEnabled=false;
+  const frames=[];
+  for(let i=0;i<count;i++){
+   phase=i/count;render();const x=(i%cols)*tileW+padding,y=Math.floor(i/cols)*tileH+padding;ctx.drawImage(canvas,x,y);
+   // Extrude the outer texels into a 2-pixel gutter to protect filtered atlas samples.
+   ctx.drawImage(canvas,0,0,w,1,x,y-padding,w,padding);ctx.drawImage(canvas,0,h-1,w,1,x,y+h,w,padding);
+   ctx.drawImage(canvas,0,0,1,h,x-padding,y,padding,h);ctx.drawImage(canvas,w-1,0,1,h,x+w,y,padding,h);
+   for(const [sx,sy,dx,dy] of [[0,0,x-padding,y-padding],[w-1,0,x+w,y-padding],[0,h-1,x-padding,y+h],[w-1,h-1,x+w,y+h]])ctx.drawImage(canvas,sx,sy,1,1,dx,dy,padding,padding);
+   frames.push({index:i,x,y,width:w,height:h,phase:i/count,durationMs:LOOP_SECONDS/settings.speed/count*1000});
+   $('busy-text').textContent=`Rendering frame ${i+1} / ${count}`;await nextFrame();
+  }
+  $('busy-text').textContent='Packing sprite sheet…';
+  const metadata={generator:'Cloudfield',version:2,style:'shared-depth',image:'cloud-loop.png',seed,preset,settings:{...settings},width:atlas.width,height:atlas.height,frameWidth:w,frameHeight:h,columns:cols,rows,padding,extruded:true,origin:'top-left',colorSpace:'sRGB',alpha:settings.sky?'opaque':'straight (unassociated)',recommendedFiltering:'nearest',loop:true,durationSeconds:LOOP_SECONDS/settings.speed,fps:count/(LOOP_SECONDS/settings.speed),frameCount:count,phaseZeroDuplicatedAtEnd:false,frames};
+  const png=new Uint8Array(await(await getBlob(atlas)).arrayBuffer()),json=new TextEncoder().encode(JSON.stringify(metadata,null,2));
+  const info=new TextEncoder().encode('CLOUDFIELD LOOP\n\ncloud-loop.png is a 32-frame, 8-column × 4-row sprite sheet.\ncloud-loop.json contains frame rectangles, timing, seed, and every generator setting.\nRectangles exclude the 2-pixel extruded gutter. Origin: top-left.\nPNG pixels use sRGB color and straight alpha. Use nearest filtering for pixel art.\nThe loop samples phases [0,1); do not duplicate its first frame at the end.\nThe default 48-second loop is deliberately slow. This 32-frame atlas is a motion\nstudy; play the HTML generator for continuous motion, or raise Drift speed\nbefore export for a shorter, more densely sampled animation in time.\nThe renderer is a fixed-view shared-height surface, not a 3D density volume.\n');
+  download(zipStore([{name:'cloud-loop.png',data:png},{name:'cloud-loop.json',data:json},{name:'README.txt',data:info}]),`cloud-${preset}-${seed}-loop.zip`);notify('Loop exported: sprite sheet + frame data.');
+ }catch(e){console.error(e);notify('Export failed: '+e.message);}
+ finally{phase=savedPhase;playing=wasPlaying;setBusy(false);lastTime=performance.now();dirty=true;render();updateUI();}
+}
+
+for(const key of ['coverage','separation','lift','turbulence','detail','softness','shadow','speed'])$(key).addEventListener('input',e=>setSetting(key,Number(e.target.value)/100));
+for(const key of ['sun','depth','bands','resolution','view'])$(key).addEventListener('input',e=>setSetting(key,Number(e.target.value)));
+for(const key of ['sky','distant','pixelated'])$(key).addEventListener('change',e=>setSetting(key,e.target.checked));
+for(const b of document.querySelectorAll('[data-preset]'))b.addEventListener('click',()=>setPreset(b.dataset.preset));
+$('play').onclick=()=>setPlaying(!playing);
+$('restart').onclick=()=>{phase=0;lastTime=performance.now();dirty=true;render();updateUI();};
+$('phase').addEventListener('input',e=>setPhase(Number(e.target.value)/1000));
+$('seed').addEventListener('change',e=>{seed=Math.round(clamp(Number(e.target.value)||7401,1,999999));buildField();updateUI();render();});
+$('shuffle').onclick=()=>{const values=new Uint32Array(1);crypto.getRandomValues(values);seed=values[0]%999999+1;buildField();updateUI();render();};
+$('export-png').onclick=exportPNG;$('export-loop').onclick=exportLoop;
+$('save-settings').onclick=()=>download(new Blob([JSON.stringify(state(),null,2)],{type:'application/json'}),`cloud-${preset}-${seed}-settings.json`);
+$('load-settings').onclick=()=>$('settings-file').click();
+$('settings-file').addEventListener('change',async e=>{
+ const file=e.target.files[0];if(!file)return;
+ try{if(file.size>100000)throw new Error('This file is too large for cloud settings.');const data=JSON.parse(await file.text());if(![1,2].includes(data.version)||!Object.hasOwn(PRESET_NAMES,data.preset)||!data.settings||!Number.isFinite(data.seed))throw new Error('Choose a Cloudfield settings file or loop JSON.');
+  seed=Math.round(clamp(data.seed,1,999999));preset=data.preset;const loaded=data.version===1?{...data.settings,detail:.35,softness:.75,sun:120,depth:17,shadow:.83,bands:18,resolution:320,distant:false}:data.settings;for(const [key,value]of Object.entries(loaded))if(Object.hasOwn(DEFAULTS,key)){if(typeof value!==typeof DEFAULTS[key])continue;if(typeof value==='number'&&!Number.isFinite(value))continue;setSetting(key,value);}
+  phase=Number.isFinite(data.phase)?((data.phase%1)+1)%1:0;playing=false;buildField();render();updateUI();notify('Cloud settings restored.');
+ }catch(err){notify(err.message);}finally{e.target.value='';}
+});
+$('reference-style').onclick=()=>{for(const k of ['detail','softness','sun','depth','shadow','bands','resolution','distant','sky','pixelated'])settings[k]=DEFAULTS[k];renderer.resize(settings.resolution);dirty=true;render();updateUI();notify('Reference appearance restored.');};
+$('reference').onclick=()=>$('reference-dialog').showModal();
+$('reference-dialog').addEventListener('click',e=>{if(e.target===$('reference-dialog'))$('reference-dialog').close();});
+async function fullscreen(){try{if(document.fullscreenElement)await document.exitFullscreen();else await $('stage').requestFullscreen();}catch(e){notify('Fullscreen is unavailable in this preview. Open the HTML directly.');}}
+$('fullscreen').onclick=fullscreen;document.addEventListener('fullscreenchange',()=>{$('stage').classList.toggle('stage-ui-hidden',!!document.fullscreenElement);requestAnimationFrame(fitStage);});
+canvas.addEventListener('pointerdown',e=>{if(busy)return;pointerId=e.pointerId;canvas.setPointerCapture(e.pointerId);moveSun(e);});
+canvas.addEventListener('pointermove',e=>{if(pointerId===e.pointerId)moveSun(e);});
+for(const event of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(event,()=>pointerId=null);
+function moveSun(e){const r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;if(Math.hypot(x,y)<.025)return;setSetting('sun',((Math.atan2(-y,x)*180/Math.PI)+360)%360);}
+document.addEventListener('keydown',e=>{if(busy||$('reference-dialog').open||/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(e.target.tagName))return;if(e.code==='Space'){e.preventDefault();setPlaying(!playing);}if(e.key.toLowerCase()==='r')$('restart').click();if(e.key.toLowerCase()==='f')fullscreen();});
+new ResizeObserver(fitStage).observe(document.querySelector('.stage-space'));
+document.addEventListener('visibilitychange',()=>lastTime=performance.now());
+canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();broken=true;$('status').textContent='Graphics context paused. Waiting to restore…';});
+canvas.addEventListener('webglcontextrestored',()=>{try{broken=false;renderer=new CloudRenderer(canvas);dirty=true;render();$('status').textContent='Coherent cloud clusters · shared light';}catch(e){fail(e);}});
+function animate(now){
+ const dt=lastTime?(now-lastTime)/1000:0;lastTime=now;
+ if(!busy&&!broken&&!document.hidden){if(playing){phase=(phase+dt*settings.speed/LOOP_SECONDS)%1;dirty=true;}if(dirty){render();frameCount++;}
+  if(now-lastStats>700){fps=frameCount/((now-lastStats)/1000);frameCount=0;lastStats=now;$('metrics').textContent=`${canvas.width} × ${canvas.height} · ${lastPuffs.length} shape lobes${playing?' · '+Math.round(fps)+' fps':''}`;}
+  $('phase').value=String(Math.round(phase*1000));const duration=LOOP_SECONDS/settings.speed;$('time-label').textContent=(phase*duration).toFixed(1).padStart(4,'0')+' / '+duration.toFixed(1)+'s';
+ }
+ requestAnimationFrame(animate);
+}
+try{buildField();renderer=new CloudRenderer(canvas);updateUI();render();fitStage();requestAnimationFrame(animate);}catch(error){fail(error);}
+
+// Deterministic inspection hooks for offline validation and technical iteration.
+window.cloudLab={setPhase,render,getState:state,setPreset,setSetting,pixels:()=>renderer.pixels(false),surfacePixels:()=>renderer.pixels(true),sample:p=>field.sample(p,settings).map(v=>({...v})),exportPNG,exportLoop};
+</script>
+</body>
+</html>

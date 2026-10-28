@@ -1,0 +1,91 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CloudRenderer test</title>
+<style>
+  body { margin: 0; background: #1a1a1a; color: #ccc; font: 12px monospace; }
+  canvas { display: block; width: 640px; height: 480px; image-rendering: pixelated; margin: 8px; }
+  #stats { margin: 0 8px; white-space: pre; }
+</style>
+</head>
+<body>
+<div style="display:flex;align-items:flex-start"><canvas id="c" width="640" height="480"></canvas><img src="../reference/reference.png" width="640" style="margin:8px;image-rendering:pixelated"></div>
+<div id="stats"></div>
+<script>document.write('<script src="../src/render.js?' + Date.now() + '"><\/script>');</script>
+<script>
+(function () {
+  var MAX = 64;
+  var sim = { blobCount: 12, blobs: new Float32Array(MAX * 4), aux: new Float32Array(MAX * 4) };
+  // [x, y, r, seed, parentIndex]
+  var base = [
+    // cluster A (upper-left big mass)
+    [0.27, 0.32, 0.17, 0.11, -1],
+    [0.18, 0.28, 0.11, 0.37, -1],
+    [0.36, 0.22, 0.12, 0.62, -1],
+    [0.40, 0.38, 0.13, 0.83, -1],
+    [0.22, 0.42, 0.10, 0.25, -1],
+    [0.31, 0.16, 0.08, 0.91, -1],
+    // cluster B (lower-right)
+    [0.68, 0.52, 0.14, 0.44, -1],
+    [0.76, 0.42, 0.10, 0.57, -1],
+    [0.62, 0.62, 0.09, 0.71, -1],
+    [0.80, 0.56, 0.08, 0.19, -1],
+    // small drifting tuft upper-right
+    [0.78, 0.16, 0.07, 0.66, -1],
+    // mid blob, child of blob 3 with a decaying link
+    [0.52, 0.44, 0.06, 0.48, 3]
+  ];
+  var look = { billow: .5, softness: .3, erosion: .4, sun: 120, elevation: 17, shadow: .8, bands: 18, sky: true, pixelated: true, relief: .5 };
+  var canvas = document.getElementById('c');
+  var statsEl = document.getElementById('stats');
+  var renderer;
+  try {
+    renderer = new CloudRenderer(canvas);
+    renderer.resize(320);
+  } catch (e) {
+    statsEl.textContent = 'ERROR: ' + e.message;
+    console.error(e);
+    return;
+  }
+  window.renderer = renderer; window.sim = sim; window.look = look;
+
+  function update(t) {
+    for (var i = 0; i < base.length; i++) {
+      var b = base[i];
+      var ph = b[3] * 6.283;
+      sim.blobs[i * 4 + 0] = b[0] + 0.02 * Math.sin(t * 0.21 + ph);
+      sim.blobs[i * 4 + 1] = b[1] + 0.015 * Math.cos(t * 0.17 + ph * 1.3);
+      sim.blobs[i * 4 + 2] = b[2] * (1 + 0.06 * Math.sin(t * 0.3 + ph));
+      sim.blobs[i * 4 + 3] = b[3];
+      sim.aux[i * 4 + 0] = 0.5;
+      sim.aux[i * 4 + 1] = t;
+      sim.aux[i * 4 + 2] = b[4];
+      sim.aux[i * 4 + 3] = 0;
+    }
+    // child blob 11 wanders away from parent 3; link strength pulses so the strand tears and reforms
+    sim.blobs[11 * 4 + 0] = 0.50 + 0.06 * Math.sin(t * 0.25);
+    sim.blobs[11 * 4 + 1] = 0.44 + 0.03 * Math.cos(t * 0.2);
+    sim.aux[11 * 4 + 3] = 0.5 + 0.5 * Math.sin(t * 0.4);
+  }
+
+  var start = performance.now();
+  var frames = 0, fpsT = start, fps = 0;
+  function frame(now) {
+    var t = (now - start) / 1000;
+    update(t);
+    renderer.render(sim, look, t);
+    frames++;
+    if (now - fpsT > 500) { fps = frames * 1000 / (now - fpsT); frames = 0; fpsT = now; }
+    var s = renderer.stats;
+    statsEl.textContent = 'field ' + s.fieldW + 'x' + s.fieldH + '  draw ' + s.lastDrawMs.toFixed(2) + ' ms  fps ' + fps.toFixed(0) +
+      '  packed=' + renderer._packed + '  t=' + t.toFixed(1);
+    var err = renderer.gl.getError();
+    if (err) console.error('GL error', err);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
