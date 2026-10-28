@@ -293,6 +293,31 @@
 
   // ---------- go ----------
   refreshAll();
+  // click-drag on the stage aims the light: direction from the stage centre = sun azimuth
+  // (CCW degrees, 0 = from the right, 90 = from the top), distance from the centre = elevation
+  // (near the centre = high sun, near the edge = grazing)
+  var dragging = false;
+  function aimLight(e) {
+    var r = stage.getBoundingClientRect();
+    var dx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
+    var dy = ((r.top + r.height / 2) - e.clientY) / (r.height / 2);
+    var len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.02) return;
+    var deg = Math.atan2(dy, dx) * 180 / Math.PI; if (deg < 0) deg += 360;
+    state.look.sun = Math.round(deg);
+    state.look.elevation = Math.round(clamp(60 - 60 * Math.min(len, 1), -60, 60));
+    refreshSlider('sun'); refreshSlider('elevation');
+    onChanged('look', 'sun');
+  }
+  stage.addEventListener('pointerdown', function (e) {
+    if (e.button !== 0) return;
+    dragging = true; stage.setPointerCapture(e.pointerId); aimLight(e); e.preventDefault();
+  });
+  stage.addEventListener('pointermove', function (e) { if (dragging) aimLight(e); });
+  function endDrag(e) { if (!dragging) return; dragging = false; try { stage.releasePointerCapture(e.pointerId); } catch (_) {} }
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', endDrag);
+
   fitCanvas();
   if (window.ResizeObserver) new ResizeObserver(fitCanvas).observe(stage);
   window.addEventListener('resize', fitCanvas);

@@ -208,8 +208,8 @@
     '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);',   // world: y top-down
     '  float k = max(uSmoothK, 1e-4);',
     // per-branch accumulators
-    '  float dB[NB]; float wB[NB]; float rB[NB]; float zB[NB]; vec2 tB[NB];',
-    '  for(int j = 0; j < NB; j++){ dB[j] = 1e3; wB[j] = 0.0; rB[j] = 0.0; zB[j] = 0.0; tB[j] = vec2(0.0); }',
+    '  float dB[NB]; float wB[NB]; float rB[NB]; float zB[NB]; vec2 tB[NB]; float cB[NB];',
+    '  for(int j = 0; j < NB; j++){ dB[j] = 1e3; wB[j] = 0.0; rB[j] = 0.0; zB[j] = 0.0; tB[j] = vec2(0.0); cB[j] = 0.0; }',
     // nearest bridge capsule (child root -> parent parcel) for seamless junction blending
     '  float brD = 1e3; float brT = 0.0; int brChild = -1; int brParent = -1;',
     '  for(int i = 0; i < ' + MAX_BLOBS + '; i++){',
@@ -232,6 +232,8 @@
     '      vec4 pb = uBlobs[pi];',
     '      float cr = 0.6 * min(b.z, pb.z) * ax.w;',
     '      vec2 pa = p - b.xy, ba = pb.xy - b.xy;',
+    // a faded (regrowing) end or an over-stretched pair would draw a long thin rod: skip the capsule then
+    '      if(min(b.z, pb.z) < 0.45 * max(b.z, pb.z) || dot(ba, ba) > 2.0 * (b.z + pb.z) * (b.z + pb.z)) ba = vec2(0.0);',
     '      float tc = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);',
     '      float dc = length(pa - ba * tc) - cr;',
     '      di = smin(di, dc, k * 0.6);',
@@ -240,6 +242,10 @@
     '    float w = exp(-clamp(di, -3.0 * k, 4.0 * k) / k);',
     '    wB[bi] += w; rB[bi] += w * b.z; tB[bi] += w * ts.gb; zB[bi] += w * ax.y;',   // z is weight-blended along the branch
     '    dB[bi] = smin(dB[bi], di, k);',
+    // per-parcel sphere cap, smooth-max'd per branch: every parcel reads as its own billow (the
+    // branch-wide dome alone plateaus wherever parcels overlap deeply)
+    '    float Rc = rEff * 1.25; float hc = 0.7 * sqrt(max(Rc * Rc - dot(q, q), 0.0));',   // near-hemispheres: steep flanks, distinct billows
+    '    cB[bi] = -smin(-cB[bi], -hc, k);',
     '  }',
     // world-space erosion, slowly drifting: ragged tufts instead of clean necks
     '  vec2 drift = vec2(uTime * 0.012, uTime * 0.008);',
@@ -254,20 +260,26 @@
     '    float Rj = (wB[j] > 0.0) ? rB[j] / wB[j] : uMeanR;',
     '    vec2 tvj = (wB[j] > 0.0) ? tB[j] / wB[j] : vec2(0.0);',
     '    lbB[j] = tvj.x; zB[j] = (wB[j] > 0.0) ? zB[j] / wB[j] : 0.0;',
-    '    hB[j] = domeH(dj, Rj) + reliefH(dj, tvj) + zB[j] * uDepth;',
+    '    float dome = -smin(-cB[j], -0.55 * domeH(dj, Rj), k);',   // caps carry the interior, the SDF dome carries the eroded silhouette
+    // the depth offset rolls off toward the silhouette so a front lobe slopes down onto the one
+    // behind it (a full-height cliff at the edge shaded as a hard dark outline)
+    '    float zf = smoothstep(0.0, 0.6 * Rj, -dj);',
+    '    hB[j] = dome + reliefH(dj, tvj) + zB[j] * uDepth * zf;',
     '    if(dj < 0.0){ if(hB[j] > hWin){ hSecond = hWin; hWin = hB[j]; win = j; dWin = dj; } else if(hB[j] > hSecond) hSecond = hB[j]; }',
     '  }',
     '  float hw = 0.0; float mask = 0.0; float lb = 0.0; float contact = 0.0;',
     '  if(win >= 0){',
     '    hw = hWin; lb = clamp(lbB[win] / 0.22, 0.0, 1.0);',
-'    float ks = max(0.5 * uDepth, 1e-4);',                                  // soft seam: smooth-max with the runner-up when the z gap is small
+'    float ks = max(1.0 * uDepth, 1e-4);',                                  // soft seam: smooth-max with the runner-up when the z gap is small
 '    if(hSecond > -1e2){ float hs = max(ks - abs(hWin - hSecond), 0.0) / ks; hw = hWin + hs * hs * ks * 0.25; }',
     // junction: the bridge capsule is already in the child's SDF and z is blended along the branch; the
     // soft-max seam above handles the remaining height gap (an explicit capsule height blend carved trenches)
     // contact: a branch in FRONT (higher z) whose silhouette is within a few texels casts a contact shadow on this one
     '    for(int j = 0; j < NB; j++){',
     '      if(j == win || wB[j] <= 0.0 || zB[j] <= zB[win] + 0.02) continue;',
-    '      contact = max(contact, 1.0 - smoothstep(-1.0 * uTexelWorld, 5.0 * uTexelWorld, dB[j]));',
+    '      float cz = clamp((zB[j] - zB[win]) / 0.3, 0.2, 1.0);',   // deeper gap -> longer, softer contact shadow
+    '      float cs = 1.0 - smoothstep(-1.0 * uTexelWorld, (4.0 + 10.0 * cz) * uTexelWorld, dB[j]);',
+    '      contact = max(contact, cs * cs);',
     '    }',
     '  }',
     // coverage mask = union of all branches (never the winner alone, or interior branch silhouettes would read as rims)
@@ -338,16 +350,20 @@
     // self-shadow: march toward the sun over the height field
     '  vec2 dir = normalize(uLight.xy + vec2(1e-5, 0.0));',
     '  float occ = 0.0;',
-    '  float stepTex = 1.5; float maxDist = 6.0 * stepTex;',
-    '  for(int s = 1; s <= 6; s++){',
+    // soft: accumulate occlusion over a longer march, each sample fading with distance, and
+    // blend from the nearest-layer gate rather than cutting it (a step() here gave hard shadow edges)
+    '  float stepTex = 1.75; float maxDist = 8.0 * stepTex;',
+    '  for(int s = 1; s <= 8; s++){',
     '    float dist = float(s) * stepTex;',
     '    vec4 fa = fieldAt(vUv + dir * uTexel * dist);',
     '    float need = h0 + uTanEl * dist / uHeightScale;',
-    '    float rise = min(fa.x - need, uJump);',                // ignore far-layer occluders (handled by the contact term)
-    '    float nearLayer = step(fa.x - h0, uJump);',
-    '    occ = max(occ, rise * fa.y * nearLayer * (1.0 - dist / maxDist));',
+    '    float rise = clamp(fa.x - need, 0.0, uJump) / max(uJump, 1e-4);',   // 0..1 within the near-layer window
+    '    float nearLayer = 1.0 - smoothstep(0.5 * uJump, 1.5 * uJump, fa.x - h0);',   // far layers handled by the contact term
+    '    float fall = 1.0 - dist / maxDist; fall *= fall;',
+    '    occ += rise * fa.y * nearLayer * fall;',
     '  }',
-    '  light *= 1.0 - uShadow * 0.5 * smoothstep(0.02, 0.4, occ);',
+    '  occ /= 2.2;',
+    '  light *= 1.0 - uShadow * 0.5 * smoothstep(0.0, 1.0, occ);',
     '  light *= 1.0 - uShadow * 0.4 * smoothstep(0.0, 1.0, f.w);',   // contact shadow where a front plume overlaps this one
     // rim: the outermost texels sink toward the shadow blue and fade into the sky
     '  light *= mix(0.3, 1.0, smoothstep(0.1, 0.9, f.y));',
@@ -498,10 +514,10 @@
     var count = sim ? Math.max(0, Math.min(MAX_BLOBS, sim.blobCount | 0)) : 0;
     var blobs = (sim && sim.blobs && sim.blobs.length >= MAX_BLOBS * 4) ? sim.blobs : this._zeroBlobs;
     var aux = (sim && sim.aux && sim.aux.length >= MAX_BLOBS * 4) ? sim.aux : this._zeroBlobs;
-    var meanR = 0, n = 0;
-    var maxR = 0;
-    for (var i = 0; i < count; i++) { var r = blobs[i * 4 + 2]; if (r > 0) { meanR += r; n++; if (r > maxR) maxR = r; } }
-    meanR = n ? meanR / n : 0.1; if (!maxR) maxR = meanR;
+    // reference radii must NOT follow the live parcels: budding / dying / regrowing parcels would
+    // rescale the whole height field every frame (visible as a global stutter). Prefer the sim's
+    // static reference, fall back to fixed values.
+    var maxR = num(sim.refRadius, 0.16), meanR = num(sim.meanRadius, maxR * 0.7);
 
     var smoothK = meanR * (0.4 + 0.8 * softness) * 0.9;
     var depth = num(look.depth, 0.5);

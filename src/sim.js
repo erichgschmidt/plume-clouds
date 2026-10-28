@@ -86,7 +86,7 @@
       defaults: { speed: 1, cohesion: 0.6, breakup: 0.5, buoyancy: 0.5, turbulence: 0.4, coverage: 0.6 }
     },
     lavalamp: {
-      plumes: [{ u: 0.32, v: 0.82, angle: -0.15, trunkN: 6, children: [3, 6], curl: 4.0, spin: [0.05, 0.1], tower: 1, maxL: 0.35 }],
+      plumes: [{ u: 0.3, v: 0.6, angle: -0.15, trunkN: 5, children: [3, 6], curl: 4.0, spin: [0.05, 0.1], tower: 1, maxL: 0.28, rMul: 0.9 }],
       crossBud: false,
       defaults: { speed: 1, cohesion: 0.7, breakup: 0.4, buoyancy: 0.7, turbulence: 0.3, coverage: 0.55 }
     },
@@ -101,8 +101,8 @@
     },
     confluence: {
       plumes: [
-        { u: 0.1, v: 0.78, angle: -0.5, trunkN: 5, children: [2, 4], curl: 1.0, spin: [0.05, 0.12], tower: 0.8, maxL: 0.32, lean: 0.5 },
-        { u: 0.9, v: 0.78, angle: Math.PI + 0.5, trunkN: 5, children: [2, 4], curl: -1.0, spin: [0.05, 0.12], tower: 0.8, maxL: 0.32, lean: -0.5 }
+        { u: 0.2, v: 0.62, angle: -0.5, trunkN: 5, children: [2, 4], curl: 1.0, spin: [0.05, 0.12], tower: 0.8, maxL: 0.26, lean: 0.5 },
+        { u: 0.8, v: 0.62, angle: Math.PI + 0.5, trunkN: 5, children: [2, 4], curl: -1.0, spin: [0.05, 0.12], tower: 0.8, maxL: 0.26, lean: -0.5 }
       ],
       crossBud: true,
       defaults: { speed: 1, cohesion: 0.6, breakup: 0.5, buoyancy: 0.6, turbulence: 0.35, coverage: 0.6 }
@@ -462,7 +462,7 @@
         for (k = 0; k < b.parent.parcels.length; k++) {
           p = b.parent.parcels[k];
           if (p.idx < 0) continue;
-          var dd = Math.abs(p.u - b.uAttach);
+          var dd = Math.abs(p.u - b.uAttach) + (1 - (p.fade === undefined ? 1 : p.fade));   // a fading parcel is a poor anchor
           if (dd < best) { best = dd; pb = p.idx; }
         }
       }
@@ -479,6 +479,15 @@
     for (i = n * 4; i < MAX_BLOBS * 4; i++) { Bo[i] = 0; A[i] = 0; }
     this.blobCount = n;
   };
+
+  // static reference radii for the renderer (largest trunk root / typical parcel); depends only on
+  // the preset and the coverage setting, never on the live parcel set
+  Object.defineProperty(CloudSim.prototype, 'refRadius', { get: function () {
+    var coverage = clamp(+this.settings.coverage || 0, 0, 1), m = 0, i, d;
+    for (i = 0; i < this.plumes.length; i++) { d = this.plumes[i].def; m = Math.max(m, (0.75 + 0.25 * d.tower) * (d.rMul || 1)); }
+    return TRUNK_ROOT * (0.75 + 0.5 * coverage) * (m || 1);
+  } });
+  Object.defineProperty(CloudSim.prototype, 'meanRadius', { get: function () { return this.refRadius * 0.7; } });
 
   CloudSim.PRESETS = PRESET_NAMES;
   CloudSim.MAX_BLOBS = MAX_BLOBS;
