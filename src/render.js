@@ -178,7 +178,9 @@
     'uniform float uTexelWorld;',
     'uniform float uMeanR;',
     'uniform float uPacked;',
+    'uniform float uDepth;',
     'const float TILE_WORLD = ' + TILE_WORLD.toFixed(4) + ';',
+    'const int NB = 16;',
     NOISE,
     'float smin(float a, float b, float k){',
     '  float h = max(k - abs(a - b), 0.0) / k;',
@@ -190,64 +192,94 @@
     '  return length(pa - ba * h) - r;',
     '}',
     'vec2 seedOffset(float s){ return vec2(fract(s * 7.31 + 0.17), fract(s * 3.77 + 0.59)); }',
+    'float domeH(float d, float R){',
+    '  float Rb = R * uDomeR;',
+    '  float t = clamp(-d / Rb, 0.0, 1.0);',
+    '  return sqrt(max(t * (2.0 - t), 0.0)) * Rb;',          // sphere cap over the branch SDF
+    '}',
+    'float reliefH(float d, vec2 tv){',
+    '  float ra = clamp(tv.x / 0.22, 0.0, 1.0), rb = clamp(tv.y / 0.22, 0.0, 1.0);',
+    '  float comp = max(0.0, tv.x + ((ra + rb - ra * rb) * 0.22 - tv.x) * (0.4 + 0.6 * uBillow));',
+    '  float edge = min(1.0, -d / (0.055 * TILE_WORLD));',
+    '  float env = sqrt(max(edge * (2.0 - edge), 0.0));',
+    '  return comp * TILE_WORLD * env * uRelief * 0.8;',
+    '}',
     'void main(){',
     '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);',   // world: y top-down
-    '  float d = 1e3;',
-    '  float wsum = 0.0; float rsum = 0.0; vec2 tsum = vec2(0.0);',
     '  float k = max(uSmoothK, 1e-4);',
+    // per-branch accumulators
+    '  float dB[NB]; float wB[NB]; float rB[NB]; float zB[NB]; vec2 tB[NB];',
+    '  for(int j = 0; j < NB; j++){ dB[j] = 1e3; wB[j] = 0.0; rB[j] = 0.0; zB[j] = 0.0; tB[j] = vec2(0.0); }',
+    // nearest bridge capsule (child root -> parent parcel) for seamless junction blending
+    '  float brD = 1e3; float brT = 0.0; int brChild = -1; int brParent = -1;',
     '  for(int i = 0; i < ' + MAX_BLOBS + '; i++){',
     '    if(i >= uCount) break;',
     '    vec4 b = uBlobs[i];',
     '    if(b.z <= 1e-5) continue;',
+    '    vec4 ax = uAux[i];',
+    '    int bi = clamp(int(ax.x + 0.5), 0, NB - 1);',
     '    vec2 q = p - b.xy;',
     // material coords: tile rides with the parcel (origin = blob centre, offset by its seed)
     '    vec2 muv = q / TILE_WORLD + seedOffset(b.w) + uTime * vec2(0.004, 0.0025);',
     '    vec3 ts = textureLod(uTile, muv, 1.5).rgb;',
-    '    vec3 tsSil = textureLod(uTile, muv, 2.0).rgb;',           // r: value noise ~0.3..1.2; g,b: lobe-cap heights (tile units)
-'    float rEff = b.z * (1.0 + 0.03 * (ts.r - 0.76));',
-'    float bump = (tsSil.g + 0.6 * tsSil.b) * TILE_WORLD * 0.3 * uBillow;',   // lobe caps poke out of the silhouette
-'    float di = length(q) - rEff - bump;',
-    // parent link: capsule between child and parent, scaled by linkStrength
-    '    vec4 ax = uAux[i];',
+    '    vec3 tsSil = textureLod(uTile, muv, 2.0).rgb;',
+    '    float rEff = b.z * (1.0 + 0.03 * (ts.r - 0.76));',
+    '    float bump = (tsSil.g + 0.6 * tsSil.b) * TILE_WORLD * 0.3 * uBillow;',   // lobe caps poke out of the silhouette
+    '    float di = length(q) - rEff - bump;',
+    // root parcel: bridge capsule to its parent-branch parcel, smooth-min'd into the CHILD branch
     '    int pi = int(ax.z + 0.5);',
     '    if(ax.w > 0.001 && pi >= 0 && pi < uCount && pi != i){',
     '      vec4 pb = uBlobs[pi];',
-    '      float cr = 0.35 * min(b.z, pb.z) * ax.w;',
-    '      float dc = sdCapsule(p, b.xy, pb.xy, cr);',
+    '      float cr = 0.6 * min(b.z, pb.z) * ax.w;',
+    '      vec2 pa = p - b.xy, ba = pb.xy - b.xy;',
+    '      float tc = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);',
+    '      float dc = length(pa - ba * tc) - cr;',
     '      di = smin(di, dc, k * 0.6);',
+    '      if(dc < brD){ brD = dc; brT = tc; brChild = bi; brParent = clamp(int(uAux[pi].x + 0.5), 0, NB - 1); }',
     '    }',
     '    float w = exp(-clamp(di, -3.0 * k, 4.0 * k) / k);',
-    '    wsum += w; rsum += w * b.z; tsum += w * ts.gb;',
-    '    d = smin(d, di, k);',
+    '    wB[bi] += w; rB[bi] += w * b.z; tB[bi] += w * ts.gb; zB[bi] += w * ax.y;',   // z is weight-blended along the branch
+    '    dB[bi] = smin(dB[bi], di, k);',
     '  }',
-    '  float R = (wsum > 0.0) ? rsum / wsum : uMeanR;',
-    '  vec2 tv = (wsum > 0.0) ? tsum / wsum : vec2(0.0);',
     // world-space erosion, slowly drifting: ragged tufts instead of clean necks
     '  vec2 drift = vec2(uTime * 0.012, uTime * 0.008);',
     '  float wf = 1.2 / max(uMeanR, 0.02);',
     '  float e = fbm3(vec3((p + drift) * wf, uTime * 0.05 + 3.1));',
-    '  d += uErosion * (e - 0.5) * uMeanR * 0.6;',
-    // broad shared dome: sphere cap over the union SDF
-    '  float Rb = R * uDomeR;',
-    '  float t = clamp(-d / Rb, 0.0, 1.0);',
-    '  float hb = sqrt(max(t * (2.0 - t), 0.0)) * Rb;',   // parabolic cap: continuous gradient cream -> blue across the mass
-    // billows: primary + secondary lobe fields, screened, faded to zero at the silhouette
-        '  float ra = clamp(tv.x / 0.22, 0.0, 1.0), rb = clamp(tv.y / 0.22, 0.0, 1.0);',
-    '  float comp = max(0.0, tv.x + ((ra + rb - ra * rb) * 0.22 - tv.x) * (0.4 + 0.6 * uBillow));',
-    '  float edge = min(1.0, -d / (0.055 * TILE_WORLD));',
-    '  float env = sqrt(max(edge * (2.0 - edge), 0.0));',
-    '  float hw = hb + comp * TILE_WORLD * env * uRelief * 0.8;',   // world-unit height
-    '  hw *= step(0.0, -d);',
+    '  float eros = uErosion * (e - 0.5) * uMeanR * 0.6;',
+    // per-branch height; the tallest covering branch wins the pixel (hard occlusion)
+    '  float hB[NB]; float lbB[NB];',
+    '  int win = -1; float hWin = -1.0; float dWin = 1e3; float hSecond = -1e3;',
+    '  for(int j = 0; j < NB; j++){',
+    '    float dj = dB[j] + eros; dB[j] = dj;',
+    '    float Rj = (wB[j] > 0.0) ? rB[j] / wB[j] : uMeanR;',
+    '    vec2 tvj = (wB[j] > 0.0) ? tB[j] / wB[j] : vec2(0.0);',
+    '    lbB[j] = tvj.x; zB[j] = (wB[j] > 0.0) ? zB[j] / wB[j] : 0.0;',
+    '    hB[j] = domeH(dj, Rj) + reliefH(dj, tvj) + zB[j] * uDepth;',
+    '    if(dj < 0.0){ if(hB[j] > hWin){ hSecond = hWin; hWin = hB[j]; win = j; dWin = dj; } else if(hB[j] > hSecond) hSecond = hB[j]; }',
+    '  }',
+    '  float hw = 0.0; float mask = 0.0; float lb = 0.0; float contact = 0.0;',
+    '  if(win >= 0){',
+    '    hw = hWin; lb = clamp(lbB[win] / 0.22, 0.0, 1.0);',
+'    float ks = max(0.5 * uDepth, 1e-4);',                                  // soft seam: smooth-max with the runner-up when the z gap is small
+'    if(hSecond > -1e2){ float hs = max(ks - abs(hWin - hSecond), 0.0) / ks; hw = hWin + hs * hs * ks * 0.25; }',
+    // junction: the bridge capsule is already in the child's SDF and z is blended along the branch; the
+    // soft-max seam above handles the remaining height gap (an explicit capsule height blend carved trenches)
+    // contact: a branch in FRONT (higher z) whose silhouette is within a few texels casts a contact shadow on this one
+    '    for(int j = 0; j < NB; j++){',
+    '      if(j == win || wB[j] <= 0.0 || zB[j] <= zB[win] + 0.02) continue;',
+    '      contact = max(contact, 1.0 - smoothstep(-1.0 * uTexelWorld, 5.0 * uTexelWorld, dB[j]));',
+    '    }',
+    '  }',
+    // coverage mask = union of all branches (never the winner alone, or interior branch silhouettes would read as rims)
+    '  float dn = 1e3; for(int j = 0; j < NB; j++) dn = min(dn, dB[j]);',
+    '  mask = smoothstep(0.0, 5.0 * uTexelWorld, -dn);',
     '  float h = clamp(hw / uHeightUnit, 0.0, 1.0);',
-    '  float mask = smoothstep(0.0, 5.0 * uTexelWorld, -d);',
-    '  float lb = clamp(comp / 0.22, 0.0, 1.0);',
-    // height is always packed hi/lo (16-bit) so normals do not terrace on RGBA16F or RGBA8
     '  if(uPacked > 0.5){',
     '    float hi = floor(h * 255.0) / 255.0;',
     '    float lo = fract(h * 255.0);',
-    '    fragColor = vec4(hi, lo, mask, lb);',
+    '    fragColor = vec4(hi, lo, mask, contact);',          // packed: billow dropped, contact in A
     '  } else {',
-    '    fragColor = vec4(h, mask, lb, 1.0);',
+    '    fragColor = vec4(h, mask, lb, contact);',
     '  }',
     '}'
   ].join('\n');
@@ -265,14 +297,15 @@
     'uniform float uTanEl;',
     'uniform float uHeightScale;',// height 1.0 == this many texels
     'uniform float uShadow;',
+    'uniform float uJump;',
     'uniform float uBands;',
     'uniform float uSky;',
     'uniform float uPacked;',
     'uniform vec3 uSkyColor;',
-    'vec3 fieldAt(vec2 uv){',      // returns (height, mask, billow)
+    'vec4 fieldAt(vec2 uv){',      // returns (height, mask, billow, contact)
     '  vec4 t = texture(uField, uv);',
-    '  if(uPacked > 0.5) return vec3(t.r + t.g / 255.0, t.b, t.a);',
-    '  return t.rgb;',
+    '  if(uPacked > 0.5) return vec4(t.r + t.g / 255.0, t.b, 0.5, t.a);',
+    '  return t;',
     '}',
     'vec3 palette(float t){',
     '  vec3 c0 = vec3(0.247, 0.478, 0.592);', // #3f7a97 shadow blue
@@ -286,7 +319,7 @@
     '  return mix(c3, c4, (t - 0.93) / 0.07);',
     '}',
     'void main(){',
-    '  vec3 f = fieldAt(vUv);',
+    '  vec4 f = fieldAt(vUv);',
     '  vec4 sky = (uSky > 0.5) ? vec4(uSkyColor, 1.0) : vec4(0.0);',
     '  if(f.y < 0.08){ fragColor = sky; return; }',
     '  float h0 = f.x;',
@@ -305,14 +338,17 @@
     // self-shadow: march toward the sun over the height field
     '  vec2 dir = normalize(uLight.xy + vec2(1e-5, 0.0));',
     '  float occ = 0.0;',
-    '  float stepTex = 1.5;',
-    '  for(int s = 1; s <= 10; s++){',
+    '  float stepTex = 1.5; float maxDist = 6.0 * stepTex;',
+    '  for(int s = 1; s <= 6; s++){',
     '    float dist = float(s) * stepTex;',
-    '    vec3 fa = fieldAt(vUv + dir * uTexel * dist);',
+    '    vec4 fa = fieldAt(vUv + dir * uTexel * dist);',
     '    float need = h0 + uTanEl * dist / uHeightScale;',
-    '    occ = max(occ, (fa.x - need) * fa.y);',
+    '    float rise = min(fa.x - need, uJump);',                // ignore far-layer occluders (handled by the contact term)
+    '    float nearLayer = step(fa.x - h0, uJump);',
+    '    occ = max(occ, rise * fa.y * nearLayer * (1.0 - dist / maxDist));',
     '  }',
-    '  light *= 1.0 - uShadow * 0.5 * smoothstep(0.05, 0.3, occ);',
+    '  light *= 1.0 - uShadow * 0.5 * smoothstep(0.02, 0.4, occ);',
+    '  light *= 1.0 - uShadow * 0.4 * smoothstep(0.0, 1.0, f.w);',   // contact shadow where a front plume overlaps this one
     // rim: the outermost texels sink toward the shadow blue and fade into the sky
     '  light *= mix(0.3, 1.0, smoothstep(0.1, 0.9, f.y));',
     '  float bands = max(uBands, 2.0);',
@@ -370,10 +406,10 @@
 
     this._fieldProg = link(gl, VS, FIELD_FS);
     this._fieldU = uniforms(gl, this._fieldProg, ['uBlobs', 'uAux', 'uCount', 'uTile', 'uAspect', 'uTime', 'uBillow',
-      'uErosion', 'uRelief', 'uSmoothK', 'uDomeR', 'uHeightUnit', 'uTexelWorld', 'uMeanR', 'uPacked']);
+      'uErosion', 'uRelief', 'uSmoothK', 'uDomeR', 'uHeightUnit', 'uTexelWorld', 'uMeanR', 'uPacked', 'uDepth']);
     this._shadeProg = link(gl, VS, SHADE_FS);
     this._shadeU = uniforms(gl, this._shadeProg, ['uField', 'uTexel', 'uLight', 'uSinEl', 'uTanEl', 'uHeightScale',
-      'uShadow', 'uBands', 'uSky', 'uPacked', 'uSkyColor']);
+      'uShadow', 'uJump', 'uBands', 'uSky', 'uPacked', 'uSkyColor']);
 
     // billow tile (static asset; baked once)
     this._tile = gl.createTexture();
@@ -468,7 +504,9 @@
     meanR = n ? meanR / n : 0.1; if (!maxR) maxR = meanR;
 
     var smoothK = meanR * (0.4 + 0.8 * softness) * 0.9;
-    var heightUnit = maxR * 4.5;   // never clip the dome of the largest parcel   // world units that map to height 1.0 in the field texture
+    var depth = num(look.depth, 0.5);
+    var zScale = depth * 3.0 * maxR;   // world units of height between z=0 and z=1 (0.5 -> 1.5*maxR)
+    var heightUnit = maxR * 4.5 + zScale;   // never clip the dome of the largest parcel   // world units that map to height 1.0 in the field texture
 
     // ---- pass 1: field ----
     gl.bindFramebuffer(gl.FRAMEBUFFER, this._fbo);
@@ -491,6 +529,7 @@
     gl.uniform1f(fu.uSmoothK, smoothK);
     gl.uniform1f(fu.uDomeR, 2.0 + 1.5 * softness);
     gl.uniform1f(fu.uHeightUnit, heightUnit);
+    gl.uniform1f(fu.uDepth, zScale);
     gl.uniform1f(fu.uTexelWorld, 1 / this.stats.fieldW);
     gl.uniform1f(fu.uMeanR, meanR);
     gl.uniform1f(fu.uPacked, this._packed ? 1 : 0);
@@ -520,6 +559,7 @@
     // height 1.0 == heightUnit world units == that many texels, exaggerated for steeper shading
     gl.uniform1f(su.uHeightScale, Math.max(2, heightUnit * this.stats.fieldW * 0.38));
     gl.uniform1f(su.uShadow, shadow);
+    gl.uniform1f(su.uJump, 0.3 * zScale / heightUnit);   // height-field jump clamp (field units)
     gl.uniform1f(su.uBands, bands);
     gl.uniform1f(su.uSky, sky ? 1 : 0);
     gl.uniform1f(su.uPacked, this._packed ? 1 : 0);

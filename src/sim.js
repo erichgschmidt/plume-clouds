@@ -1,40 +1,41 @@
-/* CloudSim — parcel simulation for Plume Clouds (see CONTRACT.md, "src/sim.js").
+/* CloudSim v2 — plume/branch tree simulation for Plume Clouds (CONTRACT.md "v2").
  *
  * Classic script, no modules, no deps. Assigns window.CloudSim.
+ * World: x in [0,1], y in [0,aspect], y grows downward. Deterministic for
+ * (seed, preset, settings, fixed 1/60 substeps).
  *
- * World: x in [0,1], y in [0,aspect], y grows downward (screen-like).
- * Deterministic for (seed, preset, settings, fixed 1/60 substeps).
+ * Structure
+ *   plume  : a tree of branches rooted at a base point.
+ *   branch : ordered chain of 3-8 parcels root->tip along a gently curving
+ *            polyline; radius tapers ~0.11 (root) -> ~0.045 (tip). Has a depth z,
+ *            rotates slowly about its root (trunks only sway), sways with the
+ *            curl-noise field (turbulence).
+ *   feeding: parcels creep along the chain (toward the root, or away, per
+ *            branch). A parcel leaving one end fades out (r -> 0 over 0.5 s,
+ *            sitting inside the parent/tip) and re-enters at the other end
+ *            fading in, so the branch is continuously fed / regrown.
+ *   budding: new child branches bud off a parent at an attach point (fixed
+ *            parameter along the parent chain), link 0->1 over 2 s while the
+ *            radii grow in; leaf branches die with link 1->0 while shrinking.
+ *            Rates follow `breakup`. No merging between branches, ever.
  *
- * Topology model
- *   - A few slow attractors ("wells") per preset. Each parcel is bound to one
- *     well with a spring + damping and a slow tangential orbit.
- *   - Heat cycle per parcel (phase 0..1 -> heat = 0.5-0.5cos(2*pi*phase)).
- *     Hot parcels (heat > ~0.6) lose most of their attraction and get lift along
- *     the well's lift direction, so they detach and drift away. When they have
- *     cooled (heat falls below 0.35) they are re-bound to the nearest OTHER well
- *     and sink back into it.
- *   - Curl-noise flow field (time evolving value noise) advects everything.
- *   - Split: big + (hot or sheared) parcels split into two area-conserving
- *     children; child inherits position, seed derived from parent, link to the
- *     surviving (bigger) sibling decays over ~3 s. Radii ramp smoothly.
- *   - Merge: deeply overlapping cool parcels merge; survivor grows to the
- *     combined area, the other fades out over 0.5 s and is removed.
+ * aux per blob = [branchId 0..15, z 0..1, parentBlob (index of the parent-branch
+ * parcel the branch root attaches to, root parcel of child branches only, else
+ * -1), link 0..1].
  */
 (function () {
   'use strict';
 
   var MAX_BLOBS = 64;
+  var MAX_BRANCHES = 16;
   var SUBSTEP = 1 / 60;
-  var MIN_COUNT = 14;
-  var MAX_COUNT = 40;
-  var R_MIN = 0.03;
-  var R_MAX = 0.22;
-  var R_MERGE_MAX = 0.18;  // merges that would exceed this radius are skipped
-  var R_REMOVE = 0.021;   // dying parcels are dropped once below this
-  var LINK_DECAY_S = 3.0;
-  var FADE_OUT_S = 0.5;
-  var RAMP_TAU = 0.45;    // radius easing time constant (s)
-  var MARGIN = 0.05;
+  var MARGIN = 0.04;
+  var R_ROOT = 0.13, R_TIP = 0.075;        // child branch taper
+  var TRUNK_ROOT = 0.16, TRUNK_TIP = 0.12; // trunk taper (broad, not tall)
+  var MAX_L = 0.35;                        // max chain length (world units)
+  var R_OUT_MIN = 0.02;        // parcels below this are not emitted
+  var FADE_S = 0.5;            // parcel fade in/out at chain ends
+  var BIRTH_S = 2.0;           // branch link / growth ramp
   var TWO_PI = Math.PI * 2;
 
   // ---------------------------------------------------------------- PRNG ---
@@ -58,10 +59,7 @@
     h ^= h >>> 16;
     return (h >>> 0) / 4294967296;
   }
-
   function fade(t) { return t * t * (3 - 2 * t); }
-
-  // 3D value noise in [0,1]
   function vnoise3(x, y, z, s) {
     var ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
     var fx = fade(x - ix), fy = fade(y - iy), fz = fade(z - iz);
@@ -74,54 +72,40 @@
     var y0 = x00 + (x10 - x00) * fy, y1 = x01 + (x11 - x01) * fy;
     return y0 + (y1 - y0) * fz;
   }
-
-  function smoothstep(a, b, x) {
-    var t = (x - a) / (b - a);
-    t = t < 0 ? 0 : t > 1 ? 1 : t;
-    return t * t * (3 - 2 * t);
-  }
-
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+  function copy(o) { var r = {}; for (var k in o) r[k] = o[k]; return r; }
 
   // ------------------------------------------------------------- Presets ---
-  // Wells in normalized coords (u in 0..1, v in 0..1 of aspect).
-  // lift = direction detached (hot) parcels are pushed along. w = share of parcels.
+  // plumes: base (u, v of aspect), trunk angle (radians, -PI/2 = up), trunk parcel count,
+  // child count range, curl (curvature of child branches, rad per world unit), spin (rotation
+  // rate range for children), crossBud (may bud onto another plume's trunk).
   var PRESETS = {
     plumes: {
-      wells: [
-        { u: 0.26, v: 0.78, lx: 0, ly: -1, w: 1.0, liftGain: 1.0 },
-        { u: 0.74, v: 0.74, lx: 0, ly: -1, w: 1.0, liftGain: 1.0 },
-        { u: 0.50, v: 0.28, lx: 0, ly: -0.4, w: 0.35, liftGain: 0.5 }
-      ],
-      heatGain: 1.0, spread: 1.4,
-      defaults: { speed: 1, cohesion: 0.6, breakup: 0.5, buoyancy: 0.55, turbulence: 0.4, coverage: 0.6 }
+      plumes: [{ u: 0.4, v: 0.66, angle: -0.25, trunkN: 5, children: [3, 4], curl: 1.2, spin: [0.05, 0.12], tower: 1, maxL: 0.2, rMul: 0.8, maxDepth: 1 }],
+      crossBud: false,
+      defaults: { speed: 1, cohesion: 0.6, breakup: 0.5, buoyancy: 0.5, turbulence: 0.4, coverage: 0.6 }
     },
     lavalamp: {
-      wells: [
-        { u: 0.5, v: 0.82, lx: 0, ly: -1, w: 1.0, liftGain: 1.4 },
-        { u: 0.5, v: 0.18, lx: 0, ly: 1, w: 1.0, liftGain: 1.4 }
-      ],
-      heatGain: 1.5, spread: 1.2,
-      defaults: { speed: 1, cohesion: 0.7, breakup: 0.35, buoyancy: 0.8, turbulence: 0.25, coverage: 0.55 }
+      plumes: [{ u: 0.32, v: 0.82, angle: -0.15, trunkN: 6, children: [3, 6], curl: 4.0, spin: [0.05, 0.1], tower: 1, maxL: 0.35 }],
+      crossBud: false,
+      defaults: { speed: 1, cohesion: 0.7, breakup: 0.4, buoyancy: 0.7, turbulence: 0.3, coverage: 0.55 }
     },
     islands: {
-      wells: [
-        { u: 0.18, v: 0.30, lx: 0, ly: -0.6, w: 0.6, liftGain: 0.7 },
-        { u: 0.50, v: 0.22, lx: 0, ly: -0.6, w: 0.6, liftGain: 0.7 },
-        { u: 0.82, v: 0.36, lx: 0, ly: -0.6, w: 0.6, liftGain: 0.7 },
-        { u: 0.30, v: 0.72, lx: 0, ly: -0.6, w: 0.6, liftGain: 0.7 },
-        { u: 0.70, v: 0.70, lx: 0, ly: -0.6, w: 0.6, liftGain: 0.7 }
+      plumes: [
+        { u: 0.12, v: 0.72, angle: -0.4, trunkN: 4, children: [2, 3], curl: 1.5, spin: [0.08, 0.15], tower: 0.6, maxL: 0.25 },
+        { u: 0.42, v: 0.38, angle: 0.2, trunkN: 4, children: [2, 3], curl: 1.5, spin: [0.08, 0.15], tower: 0.6, maxL: 0.25 },
+        { u: 0.7, v: 0.76, angle: -0.3, trunkN: 4, children: [2, 3], curl: 1.5, spin: [0.08, 0.15], tower: 0.6, maxL: 0.25 }
       ],
-      heatGain: 0.9, spread: 0.8,
-      defaults: { speed: 1, cohesion: 0.5, breakup: 0.5, buoyancy: 0.4, turbulence: 0.5, coverage: 0.6 }
+      crossBud: false,
+      defaults: { speed: 1, cohesion: 0.5, breakup: 0.5, buoyancy: 0.5, turbulence: 0.5, coverage: 0.6 }
     },
     confluence: {
-      wells: [
-        { u: 0.25, v: 0.5, lx: 1, ly: -0.15, w: 1.0, liftGain: 1.1 },
-        { u: 0.75, v: 0.5, lx: -1, ly: -0.15, w: 1.0, liftGain: 1.1 }
+      plumes: [
+        { u: 0.1, v: 0.78, angle: -0.5, trunkN: 5, children: [2, 4], curl: 1.0, spin: [0.05, 0.12], tower: 0.8, maxL: 0.32, lean: 0.5 },
+        { u: 0.9, v: 0.78, angle: Math.PI + 0.5, trunkN: 5, children: [2, 4], curl: -1.0, spin: [0.05, 0.12], tower: 0.8, maxL: 0.32, lean: -0.5 }
       ],
-      heatGain: 1.1, spread: 1.3,
-      defaults: { speed: 1, cohesion: 0.6, breakup: 0.45, buoyancy: 0.6, turbulence: 0.35, coverage: 0.6 }
+      crossBud: true,
+      defaults: { speed: 1, cohesion: 0.6, breakup: 0.5, buoyancy: 0.6, turbulence: 0.35, coverage: 0.6 }
     }
   };
   var PRESET_NAMES = ['plumes', 'lavalamp', 'islands', 'confluence'];
@@ -134,7 +118,7 @@
     this.aux = new Float32Array(MAX_BLOBS * 4);
     this.blobCount = 0;
     this.settings = null;
-    this.stats = { splits: 0, merges: 0 };
+    this.stats = { buds: 0, deaths: 0 };
     this.reseed(opts.seed !== undefined ? opts.seed : 1, opts.preset || 'plumes');
   }
 
@@ -151,114 +135,205 @@
     this.noiseSeed = (this.seed * 0x9E3779B1) | 0;
     this.time = 0;
     this.accum = 0;
-    this.sinceForcedSplit = 0;
-    this.stats.splits = 0;
-    this.stats.merges = 0;
-    this.parcels = [];
-    this.wells = [];
-    this._buildWells();
-    this._seedParcels();
+    this.stats.buds = 0;
+    this.stats.deaths = 0;
+    this.branches = [];
+    this.slots = [];
+    for (var i = 0; i < MAX_BRANCHES; i++) this.slots.push(false);
+    this._buildPlumes();
+    this._seed();
     this._write();
   };
 
   CloudSim.prototype.resize = function (aspect) {
     if (aspect > 0) this.aspect = aspect;
-    this._buildWells();
+    this._buildPlumes();
   };
 
-  function copy(o) { var r = {}; for (var k in o) r[k] = o[k]; return r; }
-
-  CloudSim.prototype._buildWells = function () {
-    var ws = this.def.wells, out = [];
-    for (var i = 0; i < ws.length; i++) {
-      var w = ws[i];
-      out.push({ bx: w.u, by: w.v * this.aspect, x: w.u, y: w.v * this.aspect,
-        lx: w.lx, ly: w.ly, w: w.w, liftGain: w.liftGain, id: i });
+  CloudSim.prototype._buildPlumes = function () {
+    var defs = this.def.plumes, out = [];
+    for (var i = 0; i < defs.length; i++) {
+      var d = defs[i];
+      out.push({ id: i, def: d, x: d.u, y: d.v * this.aspect, trunk: null });
     }
-    this.wells = out;
+    if (this.plumes) for (i = 0; i < out.length && i < this.plumes.length; i++) out[i].trunk = this.plumes[i].trunk;
+    this.plumes = out;
+    for (i = 0; i < this.branches.length; i++) if (this.branches[i].plume) this.branches[i].plume = out[this.branches[i].plume.id];
   };
 
-  CloudSim.prototype._targetArea = function () {
-    var s = this.settings;
-    return 0.04 + clamp(s.coverage, 0, 1) * 0.14;
+  // ------------------------------------------------------------ Building ---
+  CloudSim.prototype._parcelCount = function () {
+    var c = 0;
+    for (var i = 0; i < this.branches.length; i++) c += this.branches[i].parcels.length;
+    return c;
   };
 
-  CloudSim.prototype._seedParcels = function () {
-    var rng = this.rng, wells = this.wells;
-    var raw = [], sumR2 = 0, i, k, wi, w, p, r;
-    // each body: 2-4 big cores near the well + small bulges on the upper rim
-    for (wi = 0; wi < wells.length; wi++) {
-      w = wells[wi];
-      var cores = 2 + Math.round(rng() * 2 * w.w), rims = 3 + Math.round(rng() * 2 * w.w);
-      for (k = 0; k < cores; k++) {
-        r = 0.09 + rng() * 0.07;
-        p = this._newParcel(w.x, w.y, r, rng() * 100, wi);
-        this._assignRole(p, true);
-        p.phase = rng() * 0.5;
-        raw.push(p); sumR2 += r * r;
-      }
-      for (k = 0; k < rims; k++) {
-        r = 0.04 + rng() * 0.03;
-        p = this._newParcel(w.x, w.y, r, rng() * 100, wi);
-        this._assignRole(p, false);
-        p.phase = rng();
-        raw.push(p); sumR2 += r * r;
-      }
-    }
-    for (i = 0; i < raw.length; i++) {
-      p = raw[i]; w = wells[p.att];
-      p.x = w.x + Math.cos(p.oA) * p.oR;
-      p.y = w.y + Math.sin(p.oA) * p.oR * 0.8;
-    }
-    var scale = Math.sqrt(this._targetArea() / sumR2);
-    for (i = 0; i < raw.length; i++) {
-      raw[i].r = raw[i].rT = clamp(raw[i].r * scale, R_MIN, R_MAX);
-      raw[i].x = clamp(raw[i].x, MARGIN, 1 - MARGIN);
-      raw[i].y = clamp(raw[i].y, MARGIN, this.aspect - MARGIN);
-    }
-    this.parcels = raw;
+  CloudSim.prototype._freeSlot = function () {
+    for (var i = 0; i < MAX_BRANCHES; i++) if (!this.slots[i]) return i;
+    return -1;
   };
 
-  CloudSim.prototype._newParcel = function (x, y, r, seed, well) {
-    var rng = this.rng;
-    return {
-      x: x, y: y, vx: 0, vy: 0,
-      r: r, rT: r, seed: seed,
-      phase: 0, hrate: 0.75 + rng() * 0.5, heat: 0, prevHeat: 0,
-      age: 0, att: well, parent: null, link: 0,
-      dying: -1, mergeTo: null, lastSplit: -10, orbit: rng() < 0.5 ? -1 : 1,
-      oR: 0.03, oA: rng() * TWO_PI, core: false,
-      dead: false, idx: -1
+  // Create a branch. parent=null => trunk (root at plume base).
+  CloudSim.prototype._newBranch = function (plume, parent, n, angle, born) {
+    var slot = this._freeSlot();
+    if (slot < 0) return null;
+    if (this._parcelCount() + n + 1 > MAX_BLOBS) return null;
+    var rng = this.rng, d = plume.def;
+    var isTrunk = !parent;
+    var spin = isTrunk ? 0 : (d.spin[0] + rng() * (d.spin[1] - d.spin[0])) * (rng() < 0.5 ? -1 : 1);
+    var z = isTrunk ? 0.5 : clamp(parent.z + (0.12 + rng() * 0.18) * (rng() < 0.5 ? -1 : 1), 0, 1);
+    var b = {
+      id: slot, plume: plume, parent: parent, uAttach: parent ? 0.15 + rng() * 0.7 : 0,
+      z: z, angle: angle, angle0: angle, spin: spin, depth: parent ? parent.depth + 1 : 0, curl: (isTrunk ? 0.3 : d.curl) * (rng() < 0.5 ? -1 : 1) * (0.6 + rng() * 0.8),
+      feedDir: isTrunk ? 1 : (rng() < 0.6 ? 1 : -1), // 1: creep toward root
+      n: n, seed: rng() * 100, age: 0, link: born ? 0 : 1, grow: born ? 0 : 1, dying: false,
+      rootX: 0, rootY: 0, pts: [], L: 0, parcels: [], children: 0, isTrunk: isTrunk,
+      taper: isTrunk ? trunkTaper : childTaper,
+      swayPhase: rng() * TWO_PI, life: 20 + rng() * 40   // nominal lifetime (s), divided by breakup
     };
+    // n chain slots + 1 extra parcel so one can always be in a fade zone without opening a gap
+    var du = 1 / Math.max(1, n - 1);
+    for (var i = 0; i <= n; i++) {
+      b.parcels.push({ x: 0, y: 0, r: 0, u: i * du - du, fade: 1, snap: false, tx: 0, ty: 0, tr: 0, seed: b.seed + i * 0.37, idx: -1 });
+    }
+    this.slots[slot] = true;
+    this.branches.push(b);
+    if (parent) parent.children++;
+    this._layout(b, 0);
+    for (i = 0; i < b.parcels.length; i++) { var p = b.parcels[i]; p.x = p.tx; p.y = p.ty; p.r = p.tr; }
+    return b;
   };
 
-  // core: sits near the well centre, orbits slowly. rim: small bulge on the upper arc of the body.
-  CloudSim.prototype._assignRole = function (p, core) {
-    var rng = this.rng, sp = this.def.spread;
-    p.core = core;
-    if (core) {
-      p.oR = (0.01 + rng() * 0.05) * sp;
-      p.oA = rng() * TWO_PI;
-    } else {
-      p.oR = (0.08 + rng() * 0.06) * sp;
-      p.oA = -Math.PI * (0.2 + rng() * 0.6);   // upper half (y up = negative)
+  CloudSim.prototype._seed = function () {
+    var rng = this.rng;
+    for (var i = 0; i < this.plumes.length; i++) {
+      var pl = this.plumes[i], d = pl.def;
+      pl.trunk = this._newBranch(pl, null, d.trunkN, d.angle, false);
+      var nChildren = d.children[0] + Math.round(rng() * (d.children[1] - d.children[0]));
+      for (var k = 0; k < nChildren; k++) this._bud(pl, false);
     }
+    // settle feed phases so chains are not perfectly even
+    for (i = 0; i < this.branches.length; i++) {
+      var b = this.branches[i];
+      for (k = 0; k < b.parcels.length; k++) b.parcels[k].u += (rng() - 0.5) * 0.06;
+    }
+  };
+
+  // pick a parent branch for a new bud of plume pl
+  CloudSim.prototype._bud = function (pl, born) {
+    var rng = this.rng, cands = [];
+    for (var i = 0; i < this.branches.length; i++) {
+      var b = this.branches[i];
+      if (b.dying) continue;
+      var sameP = b.plume === pl;
+      if (sameP && b.children < (b.isTrunk ? 4 : 3) && b.depth < (pl.def.maxDepth || 2)) cands.push(b);
+      else if (!sameP && this.def.crossBud && b.isTrunk && b.children < 4) cands.push(b);
+    }
+    if (!cands.length) return null;
+    // prefer the trunk (60%) so plumes stay shallow trees with plenty of leaf branches
+    var parent = cands[(rng() * cands.length) | 0];
+    if (!parent.isTrunk && rng() < 0.6) {
+      for (var c = 0; c < cands.length; c++) if (cands[c].isTrunk && cands[c].plume === pl) { parent = cands[c]; break; }
+    }
+    var n = 3 + Math.round(rng() * 2);
+    // rising lobes: heading within +-60 deg of up, leaning per preset (confluence: toward the other plume)
+    var angle = -Math.PI / 2 + (rng() - 0.5) * (2 * Math.PI / 3) + (pl.def.lean || 0);
+    var b = this._newBranch(pl, parent, n, angle, born);
+    if (b && born) this.stats.buds++;
+    return b;
   };
 
   // --------------------------------------------------------------- Field ---
   CloudSim.prototype._psi = function (x, y) {
-    var s = this.noiseSeed, z = this.time * 0.07;
-    return (vnoise3(x * 2.6 + 11.3, y * 2.6 + 5.1, z, s) - 0.5) * 0.65 +
-           (vnoise3(x * 5.3 + 3.7, y * 5.3 + 9.2, z * 1.6, s ^ 0x1234567) - 0.5) * 0.35;
+    var s = this.noiseSeed, z = this.time * 0.06;
+    return (vnoise3(x * 2.2 + 11.3, y * 2.2 + 5.1, z, s) - 0.5) * 0.65 +
+           (vnoise3(x * 4.6 + 3.7, y * 4.6 + 9.2, z * 1.5, s ^ 0x1234567) - 0.5) * 0.35;
   };
-
-  // curl of psi, into out[0..1]
+  var _flow = [0, 0];
   CloudSim.prototype._curl = function (x, y, out) {
     var e = 0.006;
-    var dpdy = (this._psi(x, y + e) - this._psi(x, y - e)) / (2 * e);
-    var dpdx = (this._psi(x + e, y) - this._psi(x - e, y)) / (2 * e);
-    out[0] = dpdy;
-    out[1] = -dpdx;
+    out[0] = (this._psi(x, y + e) - this._psi(x, y - e)) / (2 * e);
+    out[1] = -(this._psi(x + e, y) - this._psi(x - e, y)) / (2 * e);
+  };
+
+  // -------------------------------------------------------------- Layout ---
+  // Compute root point, polyline and parcel target positions/radii for branch b.
+  CloudSim.prototype._layout = function (b, turbulence) {
+    var S = this.settings, cohesion = clamp(+S.cohesion || 0, 0, 1), coverage = clamp(+S.coverage || 0, 0, 1);
+    var rScale = (0.75 + 0.5 * coverage) * (0.75 + 0.25 * b.plume.def.tower) * (b.plume.def.rMul || 1);
+    var spacing = 0.6 - 0.1 * cohesion;   // centre distance / (r1+r2): fat lobes, not strings
+    var t = this.time;
+
+    // root
+    if (b.parent) { this._pointAt(b.parent, b.uAttach, _pt); b.rootX = _pt[0]; b.rootY = _pt[1]; }
+    else { b.rootX = b.plume.x; b.rootY = b.plume.y; }
+    var attachR = b.parent ? b.parent.taper(b.uAttach) * rScale : 0;
+
+    // sway from curl noise at the root + slow breathing of the heading
+    this._curl(b.rootX, b.rootY, _flow);
+    var sway = (_flow[0] * 0.3 + _flow[1] * 0.2) * turbulence * 0.7 + Math.sin(t * 0.15 + b.swayPhase) * 0.12;
+    var heading = b.angle + sway * (b.isTrunk ? 0.5 : 1);
+    // root parcel sits half a parent radius out from the attach point: overlaps the parent by >= 50% of r
+    if (b.parent) { b.rootX += Math.cos(heading) * attachR * 0.5; b.rootY += Math.sin(heading) * attachR * 0.5; }
+
+    // chain length from tapered radii
+    var n = b.n, L = 0, i;
+    for (i = 0; i < n - 1; i++) L += spacing * (b.taper(i / (n - 1)) + b.taper((i + 1) / (n - 1))) * rScale;
+    L = Math.min(L, b.plume.def.maxL || MAX_L, MAX_L);
+    b.L = L;
+
+    // polyline with curvature (8 segments)
+    var SEG = 8, ds = L / SEG, x = b.rootX, y = b.rootY, th = heading;
+    var pts = b.pts; pts.length = 0;
+    pts.push(x, y);
+    for (i = 0; i < SEG; i++) {
+      // bend; turbulence adds a wandering bend along the chain
+      var s = (i + 0.5) / SEG;
+      th += (b.curl + Math.sin(t * 0.2 + b.swayPhase + s * 3) * 0.8 * turbulence) * ds;
+      // gentle upward preference for child lobes (trunks stay horizontal/diagonal)
+      if (!b.isTrunk) {
+        var up = -Math.PI / 2, dth = up - th;
+        dth = Math.atan2(Math.sin(dth), Math.cos(dth));
+        th += dth * 0.3 * ds * b.plume.def.tower;
+      }
+      x += Math.cos(th) * ds; y += Math.sin(th) * ds;
+      // soft boundary: bend the chain back inside
+      if (x < MARGIN) { x += (MARGIN - x) * 0.5; }
+      if (x > 1 - MARGIN) { x -= (x - (1 - MARGIN)) * 0.5; }
+      if (y < MARGIN) { y += (MARGIN - y) * 0.5; }
+      if (y > this.aspect - MARGIN) { y -= (y - (this.aspect - MARGIN)) * 0.5; }
+      pts.push(x, y);
+    }
+
+    // parcel targets
+    var g = b.grow;
+    for (i = 0; i < b.parcels.length; i++) {
+      var p = b.parcels[i];
+      this._pointAt(b, p.u, _pt);
+      p.tx = clamp(_pt[0], MARGIN, 1 - MARGIN); p.ty = clamp(_pt[1], MARGIN, this.aspect - MARGIN);
+      var breathe = 1 + 0.1 * p.u * Math.sin(t * 0.9 + p.seed * 3.1);
+      p.tr = b.taper(p.u) * rScale * breathe * g * p.fade;
+    }
+  };
+
+  // depth along a branch: ramps from the parent's depth at the attach point (root) to the
+  // branch's own z at the tip, so junctions do not step in height. Trunks are constant.
+  CloudSim.prototype._zAt = function (b, u) {
+    if (!b.parent) return b.z;
+    var z0 = this._zAt(b.parent, b.uAttach);
+    return z0 + (b.z - z0) * clamp(u, 0, 1);
+  };
+
+  function childTaper(u) { return R_ROOT + (R_TIP - R_ROOT) * u; }
+  function trunkTaper(u) { return TRUNK_ROOT + (TRUNK_TIP - TRUNK_ROOT) * u; }
+
+  var _pt = [0, 0];
+  CloudSim.prototype._pointAt = function (b, u, out) {
+    var pts = b.pts, segs = (pts.length >> 1) - 1;
+    if (segs < 1) { out[0] = b.rootX; out[1] = b.rootY; return; }
+    var f = clamp(u, -0.6, 1.0) * segs, i = clamp(Math.floor(f), 0, segs - 1), k = f - i;
+    out[0] = pts[i * 2] + (pts[i * 2 + 2] - pts[i * 2]) * k;
+    out[1] = pts[i * 2 + 1] + (pts[i * 2 + 3] - pts[i * 2 + 1]) * k;
   };
 
   // ---------------------------------------------------------------- Step ---
@@ -273,293 +348,141 @@
     this._write();
   };
 
-  var _flow = [0, 0], _fa = [0, 0], _fb = [0, 0];
-
   CloudSim.prototype._substep = function () {
     var S = this.settings;
     var speed = clamp(+S.speed || 0, 0, 3);
     if (speed <= 0) return;
     var h = SUBSTEP * speed;
-    var cohesion = clamp(+S.cohesion || 0, 0, 1);
     var breakup = clamp(+S.breakup || 0, 0, 1);
     var buoyancy = clamp(+S.buoyancy || 0, 0, 1);
     var turbulence = clamp(+S.turbulence || 0, 0, 1);
-    var aspect = this.aspect;
-    var P = this.parcels, n = P.length, i, j, p, q;
-    var t = this.time;
+    var rng = this.rng;
+    var B = this.branches, i, k, b, p;
 
-    // --- wells wander slowly
-    var W = this.wells;
-    for (i = 0; i < W.length; i++) {
-      var w = W[i];
-      w.x = w.bx + (vnoise3(t * 0.045 + i * 7.1, 3.3, 0.5, this.noiseSeed) - 0.5) * 0.07;
-      w.y = w.by + (vnoise3(9.7, t * 0.045 + i * 3.9, 1.5, this.noiseSeed) - 0.5) * 0.07 * aspect;
-    }
+    var feedRate = 0.035 * (0.4 + buoyancy);   // chain parameter units per second (full traverse ~20-30 s)
+    var ease = 1 - Math.exp(-h / 0.35);
 
-    // --- coverage control: global area target
-    var sumR2 = 0;
-    for (i = 0; i < n; i++) if (P[i].dying < 0) sumR2 += P[i].rT * P[i].rT;
-    var areaScale = sumR2 > 1e-6 ? Math.sqrt(this._targetArea() / sumR2) : 1;
-    var areaBlend = 1 - Math.exp(-h / 6);
-
-    var kSpring = 0.5 * (0.6 + cohesion);
-    var damp = Math.exp(-2.0 * h);
-    var flowScale = 0.045 * turbulence * (1 - 0.45 * cohesion);
-    var heatRate = (0.25 + buoyancy) / 24 * this.def.heatGain;
-
-    // --- per-parcel dynamics
-    for (i = 0; i < n; i++) {
-      p = P[i];
-      p.age += h;
-      p.link = p.link > 0 ? Math.max(0, p.link - h / LINK_DECAY_S) : 0;
-
-      // radius easing
-      if (p.dying >= 0) {
-        p.dying += h;
-        p.r = Math.max(0, p.r - p.r0 * h / FADE_OUT_S);
-        if (p.r <= R_REMOVE || p.dying >= FADE_OUT_S) p.dead = true;
-        if (p.mergeTo && !p.mergeTo.dead) {
-          var mt = p.mergeTo, f = 1 - Math.exp(-h * 3);
-          p.x += (mt.x - p.x) * f; p.y += (mt.y - p.y) * f;
-        }
-        continue;
+    // order: parents before children (branches are pushed after their parents)
+    for (i = 0; i < B.length; i++) {
+      b = B[i];
+      b.age += h;
+      if (!b.isTrunk) {
+        b.angle += b.spin * h;
+        var swing = 1.0 - 0.4 * b.plume.def.tower;
+        if (b.angle > b.angle0 + swing) { b.angle = b.angle0 + swing; b.spin = -Math.abs(b.spin); }
+        else if (b.angle < b.angle0 - swing) { b.angle = b.angle0 - swing; b.spin = Math.abs(b.spin); }
       }
-      p.rT = clamp(p.rT * (1 + (areaScale - 1) * areaBlend), R_MIN, R_MAX);
-      p.r += (p.rT - p.r) * (1 - Math.exp(-h / RAMP_TAU));
+      // birth / death ramps
+      if (b.dying) { b.link = Math.max(0, b.link - h / BIRTH_S); b.grow = b.link; }
+      else if (b.link < 1) { b.link = Math.min(1, b.link + h / BIRTH_S); b.grow = b.link; }
 
-      // heat cycle (bigger parcels cycle a bit slower)
-      p.phase += h * heatRate * p.hrate * Math.sqrt(0.07 / Math.max(p.r, 0.03));
-      if (p.phase >= 1) p.phase -= 1;
-      p.prevHeat = p.heat;
-      p.heat = 0.5 - 0.5 * Math.cos(TWO_PI * p.phase);
-      var well = W[p.att];
-      if (p.prevHeat >= 0.35 && p.heat < 0.35 && W.length > 1) {
-        // cooled down: rebind to nearest OTHER well
-        var best = -1, bd = 1e9;
-        for (j = 0; j < W.length; j++) {
-          if (j === p.att) continue;
-          var ddx = W[j].x - p.x, ddy = W[j].y - p.y, d2 = ddx * ddx + ddy * ddy;
-          if (d2 < bd) { bd = d2; best = j; }
-        }
-        if (best >= 0) {
-          p.att = best; well = W[best];
-          p.orbit = this.rng() < 0.5 ? -1 : 1;
-          this._assignRole(p, p.r >= 0.08);
-        }
+      // feeding: creep along the chain, fade at the ends, re-enter at the other end
+      // Parcels travel over u in [-du, 1+du]: the extra du at the root is INSIDE the parent
+      // parcel (the chain is extrapolated backwards), so the junction never opens up; at the
+      // tip the extra du is the regrowth zone. Fade over the last 0.5 s before leaving and the
+      // first 0.5 s after re-entering; the wrap happens while invisible.
+      var du = 1 / Math.max(1, b.n - 1), fz = Math.max(1e-4, feedRate * FADE_S);
+      var lo = -du, hi = 1;   // extra slot only at the root (inside the parent); tips regrow by fading in
+      for (k = 0; k < b.parcels.length; k++) {
+        p = b.parcels[k];
+        p.u -= b.feedDir * feedRate * h;
+        if (p.u < lo) { p.u += hi - lo; p.snap = true; }
+        else if (p.u > hi) { p.u -= hi - lo; p.snap = true; }
+        var eIn = b.feedDir > 0 ? hi - p.u : p.u - lo;   // distance travelled since entering
+        var eOut = b.feedDir > 0 ? p.u - lo : hi - p.u;  // distance left before leaving
+        p.fade = clamp(Math.min(eIn, eOut) / fz, 0, 1);
       }
-      var hot = smoothstep(0.55, 0.82, p.heat);
 
-      // spring toward a slowly orbiting home point around the well (weakened when hot)
-      if (p.core) {
-        p.oA += p.orbit * 0.1 * h;
-      } else {
-        // rim bulges sway along the upper arc only
-        p.oA += p.orbit * 0.06 * h;
-        if (p.oA < -Math.PI * 0.85) { p.oA = -Math.PI * 0.85; p.orbit = 1; }
-        else if (p.oA > -Math.PI * 0.15) { p.oA = -Math.PI * 0.15; p.orbit = -1; }
-      }
-      var oR = p.oR * (1 - 0.4 * cohesion);
-      var dx = well.x + Math.cos(p.oA) * oR - p.x, dy = well.y + Math.sin(p.oA) * oR * 0.8 - p.y;
-      var k = kSpring * (1 - 0.88 * hot);
-      var ax = dx * k, ay = dy * k;
-
-      // lift along the well's lift direction when hot
-      var lift = 0.05 * hot * (0.4 + buoyancy) * well.liftGain;
-      ax += well.lx * lift; ay += well.ly * lift;
-
-      // soft boundary: spring back inside the margin, and bleed off outward velocity
-      var bk = 6, outDamp = Math.exp(-8 * h), ov;
-      if (p.x < MARGIN) { ov = MARGIN - p.x; ax += ov * bk; if (p.vx < 0) p.vx *= outDamp; }
-      else if (p.x > 1 - MARGIN) { ov = p.x - (1 - MARGIN); ax -= ov * bk; if (p.vx > 0) p.vx *= outDamp; }
-      if (p.y < MARGIN) { ov = MARGIN - p.y; ay += ov * bk; if (p.vy < 0) p.vy *= outDamp; }
-      else if (p.y > aspect - MARGIN) { ov = p.y - (aspect - MARGIN); ay -= ov * bk; if (p.vy > 0) p.vy *= outDamp; }
-
-      p.vx = (p.vx + ax * h) * damp;
-      p.vy = (p.vy + ay * h) * damp;
-    }
-
-    // --- pairwise: soft repulsion + merge
-    var mergeAllowed = this._liveCount() > MIN_COUNT;
-    for (i = 0; i < n; i++) {
-      p = P[i];
-      if (p.dying >= 0) continue;
-      for (j = i + 1; j < n; j++) {
-        q = P[j];
-        if (q.dying >= 0) continue;
-        var ex = q.x - p.x, ey = q.y - p.y;
-        var d = Math.sqrt(ex * ex + ey * ey);
-        var rs = p.r + q.r;
-        var cool = p.heat < 0.5 && q.heat < 0.5;
-        var sameBody = p.att === q.att && p.heat < 0.55 && q.heat < 0.55;
-        var inv = d > 1e-5 ? 1 / d : 0;
-        var ux = ex * inv, uy = ey * inv;
-        if (inv === 0) { ux = p.orbit; uy = 0; }
-        var wp = q.r * q.r / (p.r * p.r + q.r * q.r), wq = 1 - wp;
-        if (d >= rs * 0.62) {
-          // weak cohesion pull between members of the same body that drifted apart
-          if (sameBody && d > 0.9 * rs && d < 2.5 * rs) {
-            var pull = (d - 0.9 * rs) / rs * 0.25 * (0.5 + cohesion) * h;
-            p.vx += ux * pull * wp; p.vy += uy * pull * wp;
-            q.vx -= ux * pull * wq; q.vy -= uy * pull * wq;
-          }
-          continue;
-        }
-        // merge only while both are cool AND on the cooling (sinking) half of their cycle
-        var sinking = cool && p.phase > 0.5 && q.phase > 0.5;
-        var combined = Math.sqrt(p.r * p.r + q.r * q.r);
-        if (mergeAllowed && sinking && d < 0.4 * rs && combined <= R_MERGE_MAX && p.age > 1 && q.age > 1) {
-          this._merge(p, q);
-          mergeAllowed = this._liveCount() > MIN_COUNT;
-          if (p.dying >= 0) break;
-          continue;
-        }
-        // short-range soft repulsion: packs tight (10-40% overlap) without collapsing
-        var push = (0.62 * rs - d) / (0.62 * rs) * 0.8 * h;
-        p.vx -= ux * push * wp; p.vy -= uy * push * wp;
-        q.vx += ux * push * wq; q.vy += uy * push * wq;
+      this._layout(b, turbulence);
+      for (k = 0; k < b.parcels.length; k++) {
+        p = b.parcels[k];
+        if (p.snap) { p.x = p.tx; p.y = p.ty; p.r = 0; p.snap = false; }
+        p.x += (p.tx - p.x) * ease;
+        p.y += (p.ty - p.y) * ease;
+        p.r += (p.tr - p.r) * ease;
       }
     }
 
-    // --- advect (dynamics + curl flow)
-    for (i = 0; i < n; i++) {
-      p = P[i];
-      if (p.dying >= 0) continue;
-      this._curl(p.x, p.y, _flow);
-      p.x += (p.vx + _flow[0] * flowScale) * h;
-      p.y += (p.vy + _flow[1] * flowScale) * h;
+    // --- budding / dying per plume
+    var budRate = 0.25 * breakup, dieRate = 0.2 * breakup;
+    for (i = 0; i < this.plumes.length; i++) {
+      var pl = this.plumes[i], d = pl.def, count = 0, leaves = [];
+      for (k = 0; k < B.length; k++) {
+        b = B[k];
+        if (b.plume !== pl || b.isTrunk) continue;
+        if (!b.dying) count++;
+        if (!b.dying && b.children === 0 && b.link >= 1 && b.age > 6) leaves.push(b);
+      }
+      if (count < d.children[1] && rng() < (budRate + (count < d.children[0] ? 0.3 : 0)) * h) this._bud(pl, true);
+      if (count > d.children[0] && leaves.length) {
+        // random death on breakup, plus a guaranteed death once a leaf outlives its lifetime
+        var victim = null;
+        for (k = 0; k < leaves.length; k++) if (leaves[k].age > leaves[k].life / (0.25 + breakup)) { victim = leaves[k]; break; }
+        if (!victim && rng() < dieRate * h) victim = leaves[(rng() * leaves.length) | 0];
+        if (victim) { victim.dying = true; this.stats.deaths++; }
+      }
     }
 
-    // --- splitting
-    var live = this._liveCount();
-    this.sinceForcedSplit += h;
-    if (live < MAX_COUNT) {
-      var splitRate = 0.5 * breakup;   // per second per eligible parcel
-      for (i = 0; i < n && live < MAX_COUNT; i++) {
-        p = P[i];
-        if (p.dying >= 0 || p.r <= 0.06 || p.age < 1.5 || t - p.lastSplit < 3) continue;
-        // local shear along flow
-        this._curl(p.x + p.r, p.y, _fa); this._curl(p.x - p.r, p.y, _fb);
-        var sh = Math.abs(_fa[0] - _fb[0]) + Math.abs(_fa[1] - _fb[1]);
-        this._curl(p.x, p.y + p.r, _fa); this._curl(p.x, p.y - p.r, _fb);
-        sh += Math.abs(_fa[0] - _fb[0]) + Math.abs(_fa[1] - _fb[1]);
-        sh *= flowScale / (2 * p.r);   // 1/s
-        var hotness = smoothstep(0.6, 0.85, p.heat);
-        var shear = smoothstep(0.25, 0.9, sh);
-        var drive = Math.max(hotness, shear);
-        if (drive <= 0) continue;
-        var prob = splitRate * drive * (1 + (p.r - 0.06) * 8) * h;
-        if (this.rng() < prob) { this._split(p); live++; }
+    // --- remove dead branches
+    for (i = B.length - 1; i >= 0; i--) {
+      b = B[i];
+      if (b.dying && b.link <= 0) {
+        this.slots[b.id] = false;
+        if (b.parent) b.parent.children--;
+        B.splice(i, 1);
       }
-    }
-    // too few: split the largest
-    if (live < MIN_COUNT && this.sinceForcedSplit > 0.5) {
-      var big = null;
-      for (i = 0; i < n; i++) {
-        p = P[i];
-        if (p.dying >= 0 || p.r <= 0.06) continue;
-        if (!big || p.r > big.r) big = p;
-      }
-      if (big) { this._split(big); this.sinceForcedSplit = 0; }
-    }
-
-    // --- compact
-    if (n !== P.length || this._anyDead()) {
-      var keep = [];
-      for (i = 0; i < P.length; i++) if (!P[i].dead) keep.push(P[i]);
-      for (i = 0; i < keep.length; i++) {
-        p = keep[i];
-        if (p.parent && p.parent.dead) { p.parent = null; p.link = 0; }
-        if (p.mergeTo && p.mergeTo.dead) p.mergeTo = null;
-      }
-      this.parcels = keep;
     }
     this.time += h;
   };
 
-  CloudSim.prototype._anyDead = function () {
-    var P = this.parcels;
-    for (var i = 0; i < P.length; i++) if (P[i].dead) return true;
-    return false;
-  };
-
-  CloudSim.prototype._liveCount = function () {
-    var P = this.parcels, c = 0;
-    for (var i = 0; i < P.length; i++) if (P[i].dying < 0) c++;
-    return c;
-  };
-
-  CloudSim.prototype._split = function (p) {
-    if (this.parcels.length >= MAX_BLOBS) return;
-    var rng = this.rng;
-    var f = 0.55 + rng() * 0.2;             // area share of the survivor
-    var r1 = p.r * Math.sqrt(f), r2 = p.r * Math.sqrt(1 - f);
-    if (r2 < R_MIN) { r2 = R_MIN; r1 = Math.sqrt(Math.max(p.r * p.r - r2 * r2, R_MIN * R_MIN)); }
-    // direction: local flow direction (fallback to orbit tangent)
-    this._curl(p.x, p.y, _flow);
-    var dx = _flow[0], dy = _flow[1], L = Math.sqrt(dx * dx + dy * dy);
-    if (L < 1e-5) { dx = p.orbit; dy = 0; L = 1; }
-    dx /= L; dy /= L;
-    // bias split away from well along lift (towers / tufts shear off upward)
-    var w = this.wells[p.att];
-    dx = dx * 0.6 + w.lx * 0.4; dy = dy * 0.6 + w.ly * 0.4;
-    L = Math.sqrt(dx * dx + dy * dy) || 1; dx /= L; dy /= L;
-    var kick = 0.025;
-
-    var c = this._newParcel(p.x, p.y, p.r, p.seed + 0.05, p.att);
-    c.rT = r2;
-    c.phase = p.phase + 0.03; if (c.phase >= 1) c.phase -= 1;
-    c.heat = p.heat; c.prevHeat = p.heat;
-    c.vx = p.vx + dx * kick; c.vy = p.vy + dy * kick;
-    c.parent = p; c.link = 1;
-    c.lastSplit = this.time;
-    c.orbit = -p.orbit;
-
-    p.rT = r1;
-    p.vx -= dx * kick * (r2 * r2) / (r1 * r1 + r2 * r2) * 2;
-    p.vy -= dy * kick * (r2 * r2) / (r1 * r1 + r2 * r2) * 2;
-    p.lastSplit = this.time;
-
-    this.parcels.push(c);
-    this.stats.splits++;
-  };
-
-  CloudSim.prototype._merge = function (a, b) {
-    var surv = a.r >= b.r ? a : b, other = surv === a ? b : a;
-    var a1 = surv.r * surv.r, a2 = other.r * other.r;
-    var tot = a1 + a2;
-    var mx = (surv.x * a1 + other.x * a2) / tot, my = (surv.y * a1 + other.y * a2) / tot;
-    // nudge the survivor toward the area-weighted mean (no teleport)
-    surv.vx += (mx - surv.x) / FADE_OUT_S * 0.5;
-    surv.vy += (my - surv.y) / FADE_OUT_S * 0.5;
-    surv.vx = (surv.vx * a1 + other.vx * a2) / tot;
-    surv.vy = (surv.vy * a1 + other.vy * a2) / tot;
-    surv.rT = Math.min(Math.sqrt(tot), R_MAX);
-    other.dying = 0;
-    other.r0 = other.r;
-    other.mergeTo = surv;
-    other.link = 0; other.parent = null;
-    this.stats.merges++;
-  };
-
   // --------------------------------------------------------------- Output ---
   CloudSim.prototype._write = function () {
-    var P = this.parcels, n = Math.min(P.length, MAX_BLOBS);
-    var B = this.blobs, A = this.aux, i, p;
-    for (i = 0; i < n; i++) P[i].idx = i;
-    for (i = 0; i < n; i++) {
-      p = P[i];
-      var o = i * 4;
-      B[o] = p.x; B[o + 1] = p.y; B[o + 2] = p.r; B[o + 3] = p.seed;
-      A[o] = p.heat; A[o + 1] = p.age;
-      A[o + 2] = (p.parent && !p.parent.dead && p.parent.idx >= 0 && p.link > 0) ? p.parent.idx : -1;
-      A[o + 3] = A[o + 2] >= 0 ? p.link : 0;
+    var B = this.branches, Bo = this.blobs, A = this.aux, n = 0, i, k, b, p;
+    // assign output indices
+    for (i = 0; i < B.length; i++) {
+      b = B[i];
+      for (k = 0; k < b.parcels.length; k++) {
+        p = b.parcels[k];
+        p.idx = (p.r >= R_OUT_MIN && n < MAX_BLOBS) ? n++ : -1;
+      }
     }
-    for (i = n * 4; i < MAX_BLOBS * 4; i++) { B[i] = 0; A[i] = 0; }
+    for (i = 0; i < B.length; i++) {
+      b = B[i];
+      // root parcel: visible parcel with the smallest u
+      var root = null;
+      for (k = 0; k < b.parcels.length; k++) {
+        p = b.parcels[k];
+        if (p.idx < 0) continue;
+        if (!root || p.u < root.u) root = p;
+      }
+      // parent-branch parcel nearest to the attach point
+      var pb = -1;
+      if (b.parent) {
+        var best = 1e9;
+        for (k = 0; k < b.parent.parcels.length; k++) {
+          p = b.parent.parcels[k];
+          if (p.idx < 0) continue;
+          var dd = Math.abs(p.u - b.uAttach);
+          if (dd < best) { best = dd; pb = p.idx; }
+        }
+      }
+      for (k = 0; k < b.parcels.length; k++) {
+        p = b.parcels[k];
+        if (p.idx < 0) continue;
+        var o = p.idx * 4;
+        Bo[o] = p.x; Bo[o + 1] = p.y; Bo[o + 2] = Math.min(p.r, 0.25); Bo[o + 3] = p.seed;
+        A[o] = b.id; A[o + 1] = this._zAt(b, p.u);
+        A[o + 2] = (p === root) ? pb : -1;
+        A[o + 3] = b.link;
+      }
+    }
+    for (i = n * 4; i < MAX_BLOBS * 4; i++) { Bo[i] = 0; A[i] = 0; }
     this.blobCount = n;
   };
 
   CloudSim.PRESETS = PRESET_NAMES;
   CloudSim.MAX_BLOBS = MAX_BLOBS;
+  CloudSim.MAX_BRANCHES = MAX_BRANCHES;
   CloudSim.PRESET_DEFAULTS = {};
   for (var pi = 0; pi < PRESET_NAMES.length; pi++) {
     CloudSim.PRESET_DEFAULTS[PRESET_NAMES[pi]] = copy(PRESETS[PRESET_NAMES[pi]].defaults);

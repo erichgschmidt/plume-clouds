@@ -70,3 +70,43 @@ no readbacks, no textures except the two internal passes. This is so it can be d
 into a Unity/Godot material later. Renderer: when `aux.linkStrength > 0`, add a thin
 capsule-shaped bridge field between child and parent, scaled by linkStrength and eroded
 by the world noise, so splits tear as strands rather than popping.
+
+# v2 — distinct plumes in depth (supersedes the merge semantics above)
+
+Owner feedback on v1: "they should feel like rotating plumes that feed into each other;
+remain distinct, separated by depth and by shadow cast onto one another; a plume merges
+into the volume only on the one side where it branches back into the primary form."
+
+## Structure
+- A **plume** is a tree: one trunk branch, with child branches attached at a root point
+  on the parent branch. Each **branch** is an ordered chain of 3–8 parcels from root to tip.
+- Each branch has a depth `z` (0 = farthest, 1 = nearest). Children are offset from
+  their parent by ±0.12..0.3 so branches sit on different layers.
+- Branches **rotate** slowly about their root (plume-like swirl, ~0.05–0.15 rad/s) and
+  **feed**: parcels along a branch creep from tip toward root, are absorbed into the
+  parent at the root, and the branch regrows from the tip (or the reverse, per branch,
+  so some plumes are fed by the trunk and some feed it). Tips billow (radius breathing).
+- Branches are born (budding off a parent at a root point) and die (shrinking into the
+  parent) on `breakup`; count stays 2–6 branches per plume, 1–3 plumes per preset.
+- NO parcel-level merging between branches. Smooth union only WITHIN a branch, and
+  between a child's root parcel and its parent via a persistent bridge.
+
+## Data (sim → renderer)
+```
+sim.blobs : Float32Array(64*4) [x, y, r, seed]
+sim.aux   : Float32Array(64*4) [branchId (0..15, int as float), z (0..1), parentBlob (index of the parent-branch parcel the root attaches to, or -1), link (0..1: bridge strength, 1 for a mature attachment, ramps 0→1 over ~2 s at birth and 1→0 while dying)]
+```
+Parcels of one branch share `branchId`; the root parcel is the one whose `parentBlob >= 0`.
+`CloudSim.MAX_BRANCHES = 16`.
+
+## Renderer composite
+Pass 1 keeps a per-branch SDF `dB[16]` (smooth-min only among parcels with the same
+branchId; bridge capsule from a root parcel to its parentBlob smooth-min'd into the
+CHILD branch). Height per branch `hB = dome(dB) + relief + zB*zScale`. Composite: the
+branch with the largest `hB` among those with `dB < 0` wins the pixel (hard occlusion,
+so plumes stay distinct); along the bridge capsule (parameter t from child root to
+parent), blend child and parent heights so the junction is seamless. Output also a
+"branch edge" term (how close the winning branch's silhouette is to another branch
+behind it) so pass 2 can draw a contact shadow. Pass 2: unchanged lighting plus the
+self-shadow march now naturally casts the front plume onto the one behind (height
+includes z); add the contact-shadow darkening at branch-over-branch edges.

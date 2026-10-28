@@ -16,26 +16,20 @@
 <script>
 (function () {
   var MAX = 64;
-  var sim = { blobCount: 12, blobs: new Float32Array(MAX * 4), aux: new Float32Array(MAX * 4) };
-  // [x, y, r, seed, parentIndex]
-  var base = [
-    // cluster A (upper-left big mass)
-    [0.27, 0.32, 0.17, 0.11, -1],
-    [0.18, 0.28, 0.11, 0.37, -1],
-    [0.36, 0.22, 0.12, 0.62, -1],
-    [0.40, 0.38, 0.13, 0.83, -1],
-    [0.22, 0.42, 0.10, 0.25, -1],
-    [0.31, 0.16, 0.08, 0.91, -1],
-    // cluster B (lower-right)
-    [0.68, 0.52, 0.14, 0.44, -1],
-    [0.76, 0.42, 0.10, 0.57, -1],
-    [0.62, 0.62, 0.09, 0.71, -1],
-    [0.80, 0.56, 0.08, 0.19, -1],
-    // small drifting tuft upper-right
-    [0.78, 0.16, 0.07, 0.66, -1],
-    // mid blob, child of blob 3 with a decaying link
-    [0.52, 0.44, 0.06, 0.48, 3]
+  // v2 aux layout: [branchId, z, parentBlob, link]
+  // trunk (branch 0, z .5, 5 parcels), child branch 1 (z .75, in front) rooted at trunk parcel 1,
+  // child branch 2 (z .25, behind) rooted at trunk parcel 3; children rotate slowly about their roots.
+  var MAXB = 64;
+  var sim = { blobCount: 13, blobs: new Float32Array(MAXB * 4), aux: new Float32Array(MAXB * 4) };
+  var trunk = [
+    [0.30, 0.42, 0.095, 0.11], [0.40, 0.37, 0.085, 0.37], [0.50, 0.42, 0.09, 0.62], [0.60, 0.47, 0.08, 0.83], [0.69, 0.52, 0.065, 0.25]
   ];
+  // child branches: root parcel index into trunk, z, base angle, angular speed, parcel radii from root to tip
+  var kids = [
+    { root: 1, z: 0.75, ang: -1.9, spd: 0.08, radii: [0.075, 0.07, 0.06, 0.05], seed: 0.44 },
+    { root: 3, z: 0.25, ang: 0.9, spd: -0.06, radii: [0.07, 0.065, 0.055, 0.045], seed: 0.71 }
+  ];
+  var MAX = MAXB;
   var look = { billow: .5, softness: .3, erosion: .4, sun: 120, elevation: 17, shadow: .8, bands: 18, sky: true, pixelated: true, relief: .5 };
   var canvas = document.getElementById('c');
   var statsEl = document.getElementById('stats');
@@ -51,22 +45,32 @@
   window.renderer = renderer; window.sim = sim; window.look = look;
 
   function update(t) {
-    for (var i = 0; i < base.length; i++) {
-      var b = base[i];
-      var ph = b[3] * 6.283;
-      sim.blobs[i * 4 + 0] = b[0] + 0.02 * Math.sin(t * 0.21 + ph);
-      sim.blobs[i * 4 + 1] = b[1] + 0.015 * Math.cos(t * 0.17 + ph * 1.3);
-      sim.blobs[i * 4 + 2] = b[2] * (1 + 0.06 * Math.sin(t * 0.3 + ph));
-      sim.blobs[i * 4 + 3] = b[3];
-      sim.aux[i * 4 + 0] = 0.5;
-      sim.aux[i * 4 + 1] = t;
-      sim.aux[i * 4 + 2] = b[4];
-      sim.aux[i * 4 + 3] = 0;
+    var i, n = 0;
+    for (i = 0; i < trunk.length; i++, n++) {
+      var b = trunk[i], ph = b[3] * 6.283;
+      sim.blobs[n * 4 + 0] = b[0] + 0.012 * Math.sin(t * 0.15 + ph);
+      sim.blobs[n * 4 + 1] = b[1] + 0.010 * Math.cos(t * 0.12 + ph * 1.3);
+      sim.blobs[n * 4 + 2] = b[2] * (1 + 0.05 * Math.sin(t * 0.3 + ph));
+      sim.blobs[n * 4 + 3] = b[3];
+      sim.aux[n * 4 + 0] = 0; sim.aux[n * 4 + 1] = 0.5; sim.aux[n * 4 + 2] = -1; sim.aux[n * 4 + 3] = 0;
     }
-    // child blob 11 wanders away from parent 3; link strength pulses so the strand tears and reforms
-    sim.blobs[11 * 4 + 0] = 0.50 + 0.06 * Math.sin(t * 0.25);
-    sim.blobs[11 * 4 + 1] = 0.44 + 0.03 * Math.cos(t * 0.2);
-    sim.aux[11 * 4 + 3] = 0.5 + 0.5 * Math.sin(t * 0.4);
+    for (var c = 0; c < kids.length; c++) {
+      var kd = kids[c], rootBlob = kd.root, rx = sim.blobs[rootBlob * 4], ry = sim.blobs[rootBlob * 4 + 1];
+      var ang = kd.ang + kd.spd * t, dist = 0;
+      for (i = 0; i < kd.radii.length; i++, n++) {
+        var r = kd.radii[i], breathe = (i === kd.radii.length - 1) ? 1 + 0.12 * Math.sin(t * 0.5 + c) : 1;
+        dist += (i === 0) ? r * 1.0 : r * 1.3;
+        sim.blobs[n * 4 + 0] = rx + Math.cos(ang) * dist;
+        sim.blobs[n * 4 + 1] = ry + Math.sin(ang) * dist * 0.8;
+        sim.blobs[n * 4 + 2] = r * breathe;
+        sim.blobs[n * 4 + 3] = kd.seed + i * 0.13;
+        sim.aux[n * 4 + 0] = c + 1;
+        sim.aux[n * 4 + 1] = 0.5 + (kd.z - 0.5) * (i + 1) / kd.radii.length;   // z ramps from the trunk's depth at the root to the branch depth at the tip
+        sim.aux[n * 4 + 2] = (i === 0) ? rootBlob : -1;
+        sim.aux[n * 4 + 3] = (i === 0) ? 1 : 0;
+      }
+    }
+    sim.blobCount = n;
   }
 
   var start = performance.now();
