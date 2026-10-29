@@ -300,6 +300,7 @@
     'uniform float uAspect;',
     'uniform float uHeightUnit;', // world units of height per 1.0 in the field texture
     'uniform float uShadow;',
+    'uniform float uResScale;',  // field width / 320: shading footprints stay constant in world space
     'uniform float uHighlight;', // 0: tight specular-like lit side .. 1: broad soft falloff
     'uniform float uFill;',      // bounce light lifting the shadow side
     'uniform float uBands;',
@@ -340,8 +341,8 @@
     '  vec4 sky = (uSky > 0.5) ? vec4(uSkyColor, 1.0) : vec4(0.0);',
     '  if(uDebug > 0.5){ float cv = fract(f.x * 25.0); fragColor = vec4(vec3(f.x * 2.0 * (0.5 + 0.5 * step(0.5, cv))), 1.0); return; }',
     '  if(f.g < 0.01){ fragColor = sky; return; }',
-    '  float dx = gradient(vec2(t.x * 2.0, 0.0));',
-    '  float dy = gradient(vec2(0.0, t.y * 2.0));',
+    '  float dx = gradient(vec2(t.x * 2.0 * uResScale, 0.0));',
+    '  float dy = gradient(vec2(0.0, t.y * 2.0 * uResScale));',
     '  vec3 n = normalize(vec3(-dx, -dy, 1.0)); float lambert = dot(n, uLight);',
     // bounce fill from opposite the sun, low over the horizon: the shaded side keeps a gradient
     '  float bounce = max(0.0, dot(n, normalize(vec3(-uLight.x, -uLight.y, 0.25))));',
@@ -351,12 +352,12 @@
     '  for(int i = 1; i <= 16; i++){',
     '    float dist = float(i) * 0.006; float pen = 0.007 + dist * 0.30;',
     '    vec2 coord = vUv + dir * dist / vec2(1.0, uAspect);',
-    '    vec4 caster = fieldLod(coord, log2(1.0 + float(i) * 0.4));',
+    '    vec4 caster = fieldLod(coord, log2((1.0 + float(i) * 0.4) * uResScale));',
     '    float ray = h0 + dist * uLight.z / max(0.15, length(uLight.xy));',
     '    float sh = smoothstep(-pen, pen, caster.r * uHeightUnit - ray - 0.010) * caster.g;',
     '    occ = max(occ, sh * (1.0 - float(i) / 21.0));',
     '  }',
-    '  float contact = fieldLod(vUv, 1.0).a * 0.025;',
+    '  float contact = fieldLod(vUv, 1.0 + log2(uResScale)).a * 0.025;',
     '  float light = 0.18 + 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) + uFill * bounce - uShadow * (occ * 0.55 + contact * 1.6);',
     '  light += bayer(gl_FragCoord.xy) * 0.012;',
     '  vec3 cloud = palette(light);',
@@ -416,7 +417,7 @@
       'uErosion', 'uRelief', 'uReference', 'uSoftness', 'uHeightUnit', 'uPacked', 'uDepth']);
     this._shadeProg = link(gl, VS, SHADE_FS);
     this._shadeU = uniforms(gl, this._shadeProg, ['uField', 'uTexel', 'uLight', 'uAspect', 'uHeightUnit',
-      'uShadow', 'uHighlight', 'uFill', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
+      'uShadow', 'uResScale', 'uHighlight', 'uFill', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
 
     // billow tile (static asset; baked once)
     this._tile = gl.createTexture();
@@ -563,6 +564,7 @@
     gl.uniform1f(su.uAspect, aspect);
     gl.uniform1f(su.uHeightUnit, heightUnit);
     gl.uniform1f(su.uShadow, shadow);
+    gl.uniform1f(su.uResScale, Math.max(1, this.stats.fieldW / 320));
     gl.uniform1f(su.uHighlight, num(look.highlight, 0.68));
     gl.uniform1f(su.uFill, num(look.fill, 0.2));
     gl.uniform1f(su.uDebug, num(look.debug, 0));
