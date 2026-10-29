@@ -257,19 +257,26 @@
     // per-parcel sphere cap, smooth-max'd per branch: every parcel reads as its own billow (the
     // branch-wide dome alone plateaus wherever parcels overlap deeply)
     '    float Rc = rEff * 1.08; float hc = 0.85 * sqrt(max(Rc * Rc - dot(q, q), 0.0));',   // near-hemispheres: steep flanks, distinct billows
-    // sub-spheres: six smaller caps per parcel, each born near the centre, travelling outward and
-    // shrinking away at the rim (the scoop roll made of spheres, not of texture). With roll = 0 they
-    // sit still at seeded positions.
-    '    for(int sidx = 0; sidx < 6; sidx++){',
+    // sub-spheres riding ON the parent sphere: each sits at a latitude on the sphere and orbits a
+    // tilted axis, projected to the screen. They sweep across the face, foreshorten toward the rim
+    // and slip around the back (the scoop curl). Slightly different rates per sub-sphere = churn.
+    '    float axA = b.w * 2.399 + 0.6;',
+    '    vec3 axis = normalize(vec3(cos(axA), sin(axA), 0.35));',
+    '    vec3 U = normalize(cross(axis, vec3(0.0, 0.0, 1.0)));',
+    '    vec3 V = cross(axis, U);',
+    '    for(int sidx = 0; sidx < 8; sidx++){',
     '      float fs = float(sidx);',
-    '      float ang = fs * 1.0472 + b.w * 6.2832 + 0.4 * sin(b.w * 7.0 + fs);',
-    '      float phs = fract(uTime * 0.035 * uRoll + fract(b.w * 13.7 + fs * 0.618));',
-    '      float rad = rEff * (0.1 + 0.85 * phs);',
-    '      float sz = rEff * 0.5 * sin(phs * 3.14159);',
-    '      vec2 c = vec2(cos(ang), sin(ang)) * rad;',
+    '      float lat = (fract(b.w * 5.13 + fs * 0.381) - 0.5) * 2.4;',               // -1.2..1.2 rad
+    '      float rate = 0.12 * uRoll * (0.7 + 0.6 * fract(b.w * 3.7 + fs * 0.713));',
+    '      float lon = uTime * rate + fs * 0.785 + b.w * 6.2832;',
+    '      lat += 0.25 * sin(uTime * rate * 1.7 + fs);',                              // slow bob: churn
+    '      vec3 P = axis * sin(lat) + cos(lat) * (U * cos(lon) + V * sin(lon));',
+    '      float vis = smoothstep(-0.15, 0.35, P.z);',                                // gone around the back
+    '      float sz = rEff * (0.28 + 0.18 * fract(b.w * 9.1 + fs * 0.532)) * (0.55 + 0.45 * vis) * vis;',
+    '      vec2 c = P.xy * rEff * 0.9;',
     '      float dd = length(q - c);',
     '      float base = 0.85 * sqrt(max(Rc * Rc - dot(c, c), 0.0));',   // main sphere height under the sub-sphere
-    '      float hs = sqrt(max(sz * sz - dd * dd, 0.0)) + base;',   // a full sphere sitting ON the main cap: protrudes by its whole radius
+    '      float hs = sqrt(max(sz * sz - dd * dd, 0.0)) + base;',          // a full sphere sitting ON the main cap
     '      hc = -smin(-hc, -hs, k * 0.15);',
     '      di = smin(di, dd - sz * 0.95, k * 0.25);',
     '    }',
