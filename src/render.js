@@ -143,7 +143,11 @@
     '#version 300 es',
     'precision highp float;',
     'in vec2 vUv;',
-    'out vec4 fragColor;',
+    'layout(location = 0) out vec4 fragColor;',
+    // Candidate A (TOENAIL research): the shading normal of the sphere patch that is VISIBLE at this
+    // texel, carried beside the height. A cap's outline is an occlusion contour, not a surface:
+    // differencing the height across it invents a near-vertical wall (the bright+dark pair).
+    'layout(location = 1) out vec4 fragNormal;',   // screen-space normal * 0.5 + 0.5 (x right, y up, z toward viewer)
     'uniform vec4 uBlobs[' + MAX_BLOBS + '];',
     'uniform vec4 uAux[' + MAX_BLOBS + '];',
     'uniform int uCount;',
@@ -183,8 +187,8 @@
     'void main(){',
     '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);',   // world: y top-down
     // per-branch accumulators: height as a log-sum-exp of its parcels (soft max), coverage as a union
-    '  float bH[NB]; float bW[NB]; float bC[NB];',
-    '  for(int j = 0; j < NB; j++){ bH[j] = 0.0; bW[j] = 0.0; bC[j] = 0.0; }',
+    '  float bH[NB]; float bW[NB]; float bC[NB]; vec3 bN[NB];',
+    '  for(int j = 0; j < NB; j++){ bH[j] = 0.0; bW[j] = 0.0; bC[j] = 0.0; bN[j] = vec3(0.0); }',
     '  float detail = 0.0;',
     '  float T = max(0.002, uReference * 0.08 * uSoftness);',   // blend temperature (world units)
     '  float floorH = uReference * 1.5;',                        // cloud base: a parcel buried below it is invisible
@@ -207,6 +211,8 @@
     '    float sd = (rho - core) * r;',
     '    float coreH = sqrt(max(core * core - dot(q, q), 0.0)) * r;',
     '    float cap = coreH;',
+    // normal of the visible patch, starting with the core sphere (world y is top-down: flip for screen)
+    '    vec3 nP = vec3(q.x, -q.y, sqrt(max(core * core - dot(q, q), 0.0))) / core;',
     // a rigid skin of 8..20 sphere caps spread over the whole 3D sphere (Fibonacci-ish). Caps on the
     // back have a reduced projected radius, so they shrink away around the rim instead of popping.
     '    int skinN = int(clamp(floor((8.0 + hash(b.w + 91.7) * 13.0) * (0.5 + 0.25 * clamp(uBillow, 0.0, 4.0))), 4.0, 20.0));',
@@ -251,6 +257,10 @@
     // a cap's edge is a crisp step (the shade pass reads steps as occluding edges, like stacked
     // spheres in pixel art); a ramp here was lit on one side and shaded on the other: a double line
     '      float join = smoothstep(0.0, rad * 0.02, -sDist);',
+    // the cap's own sphere normal replaces the patch normal where the (unramped) cap is the visible
+    // surface; blended only inside the smooth-max band, i.e. where the two surfaces genuinely meet
+    '      float wN = clamp(0.5 + 0.5 * (max(lh, 0.0) * r - cap) / (r * 0.02), 0.0, 1.0) * step(sqrt(dd), pr);',
+    '      nP = normalize(mix(nP, vec3(dq.x, -dq.y, sqrt(max(rad * rad - dd, 0.0))) / rad, wN));',
     '      cap = -smin(-cap, -max(lh, 0.0) * r * join, r * 0.02);',
     '    }',
     // material rides on the skin: tile read by the inverse-rotated sphere normal
@@ -281,7 +291,8 @@
     '    float depth = (ax.y - 0.5) * uReference * uDepth * 1.5;',
     '    float h = floorH + max(cap, bridgeCap > 0.0 ? bridgeCap : -r * 4.0) + depth - r * 2.2 * (1.0 - ax.w);',
     '    float cov = (1.0 - smoothstep(-0.002, 0.002, sd)) * smoothstep(0.0, 0.3, ax.w) * smoothstep(floorH - 0.002, floorH + 0.002, h);',
-    '    bW[bi] += cov * exp(clamp((h - floorH) / T, -25.0, 18.0));',
+    '    float wE = cov * exp(clamp((h - floorH) / T, -25.0, 18.0));',
+    '    bW[bi] += wE; bN[bi] += wE * nP;',
     '    bC[bi] = 1.0 - (1.0 - bC[bi]) * (1.0 - cov);',
     '    detail = max(detail, caps * envel);',
     '  }',
@@ -289,15 +300,17 @@
     '  for(int j = 0; j < NB; j++){ bH[j] = max(0.0, floorH + T * log(max(1e-20, bW[j]))); top = max(top, bH[j]); }',
     // coverage-weighted soft max across branches: no winner / runner-up switch, so no seams
     '  float T2 = max(0.002, uReference * 0.09 * uSoftness * uBlend);',
-    '  float den = 0.0; float unc = 1.0; float ovl = 0.0;',
+    '  float den = 0.0; float unc = 1.0; float ovl = 0.0; vec3 nSum = vec3(0.0);',
     '  for(int j = 0; j < NB; j++){',
-    '    float c = bC[j]; den += c * exp(clamp((bH[j] - top) / T2, -25.0, 0.0));',
+    '    float c = bC[j]; float e = c * exp(clamp((bH[j] - top) / T2, -25.0, 0.0)); den += e;',
+    '    if(bW[j] > 1e-20) nSum += e * normalize(bN[j] / bW[j] + vec3(0.0, 0.0, 1e-6));',
     '    unc *= 1.0 - c; ovl += c;',
     '  }',
     '  float height = max(0.0, top + T2 * log(max(1e-20, den)));',
     '  float mask = 1.0 - unc;',
     '  float contact = smoothstep(0.9, 2.2, ovl) * 0.35;',   // overlapping branches: contact darkening
     '  float hN = clamp(height / uHeightUnit, 0.0, 1.0);',
+    '  fragNormal = vec4(normalize(nSum + vec3(0.0, 0.0, 1e-6)) * 0.5 + 0.5, 1.0);',
     '  if(uPacked > 0.5){',
     '    float hi = floor(hN * 255.0) / 255.0;',
     '    float lo = fract(hN * 255.0);',
@@ -335,6 +348,9 @@
     'uniform float uToneB;',     // direct+ambient threshold for the mid tone
     'uniform float uFlatten;',   // blend normals toward a blurred field (solid, painted lighting)
     'uniform float uInk;',       // ink line strength (silhouette + depth steps, near side)
+    'uniform sampler2D uNormal;', // visible-patch normal from the field pass (Candidate A)
+    'uniform float uPatchN;',    // 1: shade with the patch normal; 0: finite differences of the height
+    'uniform float uReliefH;',   // world height per unit of the detail channel (relief bumps re-added as a slope)
     'vec2 suv;',
     'vec4 fieldAt(vec2 uv){',      // returns (height, mask, detail, contact)
     '  vec4 t = textureLod(uField, uv, 0.0);',
@@ -383,6 +399,16 @@
     '  float dx = gradient(vec2(t.x * 2.0 * uResScale, 0.0), 0.0);',
     '  float dy = gradient(vec2(0.0, t.y * 2.0 * uResScale), 0.0);',
     '  vec3 n = normalize(vec3(-dx, -dy, 1.0));',
+    '  if(uPatchN > 0.5){',
+    '    vec3 np = textureLod(uNormal, suv, 0.0).xyz * 2.0 - 1.0;',
+    // relief rides on the patch: the tile bumps are a height term, so their slope (from the detail
+    // channel) is added to the patch slope; the patch itself contributes no invented wall
+    '    vec2 od = vec2(t.x * uResScale, 0.0), oe = vec2(0.0, t.y * uResScale);',
+    '    float gx = (fieldAt(suv + od).b - fieldAt(suv - od).b) * uReliefH / (2.0 * od.x);',
+    '    float gy = (fieldAt(suv + oe).b - fieldAt(suv - oe).b) * uReliefH / (2.0 * oe.y * uAspect);',
+    '    vec2 sl = -np.xy / max(np.z, 0.05) + vec2(gx, gy);',
+    '    n = normalize(vec3(-sl, 1.0));',
+    '  }',
     // T2 normal flattening: blend toward the normal of a blurred field so the shadow line is one clean
     // shape instead of following every bump (the talk edits / flattens normals for solid lighting)
     '  if(uFlatten > 0.001){',
@@ -489,7 +515,7 @@
       'uErosion', 'uRelief', 'uReference', 'uSoftness', 'uBlend', 'uHeightUnit', 'uPacked', 'uDepth']);
     this._shadeProg = link(gl, VS, SHADE_FS);
     this._shadeU = uniforms(gl, this._shadeProg, ['uField', 'uTexel', 'uLight', 'uAspect', 'uHeightUnit',
-      'uShadow', 'uResScale', 'uJumpW', 'uHighlight', 'uFill', 'uPixelated', 'uToon', 'uToneA', 'uToneB', 'uFlatten', 'uInk', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
+      'uShadow', 'uResScale', 'uJumpW', 'uHighlight', 'uFill', 'uPixelated', 'uToon', 'uToneA', 'uToneB', 'uFlatten', 'uInk', 'uNormal', 'uPatchN', 'uReliefH', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
 
     // billow tile (static asset; baked once)
     this._tile = gl.createTexture();
@@ -503,6 +529,7 @@
 
     this._vao = gl.createVertexArray();
     this._tex = null;
+    this._ntex = null;
     this._fbo = null;
     this._filter = null;
     this._zeroBlobs = new Float32Array(MAX_BLOBS * 4);
@@ -519,6 +546,7 @@
   CloudRenderer.prototype._allocField = function (w, h, useFloat) {
     var gl = this.gl;
     if (this._tex) gl.deleteTexture(this._tex);
+    if (this._ntex) gl.deleteTexture(this._ntex);
     if (this._fbo) gl.deleteFramebuffer(this._fbo);
     this._tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._tex);
@@ -536,6 +564,16 @@
     this._fbo = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, this._fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this._tex, 0);
+    // visible-patch normal (RGBA8 is plenty for a unit vector); no mips, read at lod 0 only
+    this._ntex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this._ntex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, this._ntex, 0);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
     var ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return ok;
@@ -628,10 +666,16 @@
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
       this._filter = filter;
     }
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this._ntex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
     var az = sun * Math.PI / 180, el = Math.max(8, Math.min(85, elevation)) * Math.PI / 180;
     var lx = Math.cos(az) * Math.cos(el), ly = Math.sin(az) * Math.cos(el), lz = Math.sin(el);
     var su = this._shadeU;
     gl.uniform1i(su.uField, 0);
+    gl.uniform1i(su.uNormal, 2);
+    gl.uniform1f(su.uPatchN, look.patchN ? 1 : 0);
+    gl.uniform1f(su.uReliefH, 0.14 * relief * maxR);
     gl.uniform2f(su.uTexel, 1 / this.stats.fieldW, 1 / this.stats.fieldH);
     gl.uniform3f(su.uLight, lx, ly, lz);
     gl.uniform1f(su.uAspect, aspect);
@@ -661,6 +705,7 @@
   CloudRenderer.prototype.dispose = function () {
     var gl = this.gl;
     if (this._tex) gl.deleteTexture(this._tex);
+    if (this._ntex) gl.deleteTexture(this._ntex);
     if (this._tile) gl.deleteTexture(this._tile);
     if (this._fbo) gl.deleteFramebuffer(this._fbo);
     if (this._vao) gl.deleteVertexArray(this._vao);

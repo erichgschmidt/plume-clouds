@@ -9,7 +9,7 @@
     seed: 7401,
     preset: 'confluence',
     settings: { speed: 1, cohesion: .6, breakup: .5, buoyancy: .5, turbulence: 1, coverage: .6 },
-    look: { billow: 2, softness: .79, blend: 1, erosion: 1, relief: 2, depth: .55, roll: .6, sun: 81, elevation: -17, shadow: .64, highlight: .68, fill: .2, bands: 5, toneA: .485, toneB: .89, flatten: .3, ink: .5, sky: true, pixelated: true, toon: false },
+    look: { billow: 2, softness: .79, blend: 1, erosion: 1, relief: 2, depth: .55, roll: .6, sun: 81, elevation: -17, shadow: .64, highlight: .68, fill: .2, bands: 5, toneA: .485, toneB: .89, flatten: .3, ink: .5, sky: true, pixelated: true, toon: false, patchN: false },
     resolution: 160
   };
   var PRESETS = (window.CloudSim && window.CloudSim.PRESETS) || ['single', 'plumes', 'lavalamp', 'islands', 'confluence'];
@@ -124,6 +124,9 @@
   var toonToggle = makeToggle(lookBody, 'Toon',
     function () { return state.look.toon; },
     function (v) { state.look.toon = v; });
+  var patchToggle = makeToggle(lookBody, 'Patch normals',
+    function () { return state.look.patchN; },
+    function (v) { state.look.patchN = v; });
 
   var presetButtons = {};
   PRESETS.forEach(function (p) {
@@ -262,6 +265,7 @@
       if (typeof obj.look.sky === 'boolean') state.look.sky = obj.look.sky;
       if (typeof obj.look.pixelated === 'boolean') state.look.pixelated = obj.look.pixelated;
       if (typeof obj.look.toon === 'boolean') state.look.toon = obj.look.toon;
+      if (typeof obj.look.patchN === 'boolean') state.look.patchN = obj.look.patchN;
     }
     if (RESOLUTIONS.indexOf(Number(obj.resolution)) >= 0) state.resolution = Number(obj.resolution);
     refreshAll();
@@ -276,6 +280,7 @@
     skyToggle.checked = state.look.sky;
     pixToggle.checked = state.look.pixelated;
     toonToggle.checked = !!state.look.toon;
+    patchToggle.checked = !!state.look.patchN;
     applyPixelated();
   }
   function refreshPresets() {
