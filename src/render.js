@@ -231,8 +231,9 @@
     // own edge (a hemisphere) instead of ending in an equator-high cliff with a flat top (the "thumb")
     '      float lhOut = sqrt(max(pr * pr - dd, 0.0));',
     '      lh = mix(lh, lhOut, smoothstep(core - 0.15, core + 0.05, rho));',
-    '      float join = smoothstep(0.0, rad * 0.18, -sDist);',
-    '      cap = -smin(-cap, -max(lh, 0.0) * r * join, r * 0.14);',
+    // the cap/parent join follows Softness: a sharp two-sphere crease drew a thin dark ring at high res
+    '      float join = smoothstep(0.0, rad * 0.14 * uSoftness, -sDist);',
+    '      cap = -smin(-cap, -max(lh, 0.0) * r * join, r * 0.11 * uSoftness);',
     '    }',
     // material rides on the skin: tile read by the inverse-rotated sphere normal
     '    vec3 nrm = normalize(vec3(q, sqrt(max(1.0 - min(dot(q, q), 0.999), 0.001))));',
@@ -299,6 +300,8 @@
     'uniform float uAspect;',
     'uniform float uHeightUnit;', // world units of height per 1.0 in the field texture
     'uniform float uShadow;',
+    'uniform float uHighlight;', // 0: tight specular-like lit side .. 1: broad soft falloff
+    'uniform float uFill;',      // bounce light lifting the shadow side
     'uniform float uBands;',
     'uniform float uSky;',
     'uniform float uPacked;',
@@ -354,7 +357,7 @@
     '    occ = max(occ, sh * (1.0 - float(i) / 21.0));',
     '  }',
     '  float contact = fieldLod(vUv, 1.0).a * 0.025;',
-    '  float light = 0.18 + 0.84 * pow(max(0.0, lambert), 0.85) + 0.20 * bounce - uShadow * (occ * 0.55 + contact * 1.6);',
+    '  float light = 0.18 + 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) + uFill * bounce - uShadow * (occ * 0.55 + contact * 1.6);',
     '  light += bayer(gl_FragCoord.xy) * 0.012;',
     '  vec3 cloud = palette(light);',
     // thin cream rim where the silhouette faces the sun
@@ -413,7 +416,7 @@
       'uErosion', 'uRelief', 'uReference', 'uSoftness', 'uHeightUnit', 'uPacked', 'uDepth']);
     this._shadeProg = link(gl, VS, SHADE_FS);
     this._shadeU = uniforms(gl, this._shadeProg, ['uField', 'uTexel', 'uLight', 'uAspect', 'uHeightUnit',
-      'uShadow', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
+      'uShadow', 'uHighlight', 'uFill', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
 
     // billow tile (static asset; baked once)
     this._tile = gl.createTexture();
@@ -560,6 +563,8 @@
     gl.uniform1f(su.uAspect, aspect);
     gl.uniform1f(su.uHeightUnit, heightUnit);
     gl.uniform1f(su.uShadow, shadow);
+    gl.uniform1f(su.uHighlight, num(look.highlight, 0.68));
+    gl.uniform1f(su.uFill, num(look.fill, 0.2));
     gl.uniform1f(su.uDebug, num(look.debug, 0));
     gl.uniform1f(su.uBands, bands);
     gl.uniform1f(su.uSky, sky ? 1 : 0);

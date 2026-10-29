@@ -19,6 +19,8 @@
     "sun": 81,
     "elevation": -17,
     "shadow": 0.64,
+    "highlight": 0.68,
+    "fill": 0.2,
     "bands": 5,
     "sky": false,
     "pixelated": true
