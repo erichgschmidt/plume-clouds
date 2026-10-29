@@ -36,7 +36,7 @@
     ['coverage', 'Coverage', 0, 1, 0.01]
   ];
   var LOOK_SPEC = [
-    ['billow', 'Billow', 0, 2, 0.01],
+    ['billow', 'Billow', 0, 4, 0.01],
     ['softness', 'Softness', 0.2, 2, 0.01],
     ['erosion', 'Erosion', 0, 1, 0.01],
     ['relief', 'Relief', 0, 2, 0.01],

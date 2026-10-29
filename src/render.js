@@ -216,7 +216,7 @@
     '      float az = float(j) * 2.399963 + b.w * 2.7 + jit * 0.8;',
     '      float sr = sqrt(max(1.0 - zz * zz, 0.0));',
     '      vec3 cen = rotAxis(vec3(sr * cos(az), sr * sin(az), zz), axis, angle) * 0.78;',
-    '      float rad = mix(0.28, 0.46, hash(b.w + float(j) * 17.0)) * 0.84 * sqrt(clamp(uBillow, 0.0, 2.0));',
+    '      float rad = mix(0.28, 0.46, hash(b.w + float(j) * 17.0)) * 0.84 * sqrt(clamp(uBillow, 0.0, 4.0));',
     '      float zc = min(cen.z, 0.0);',
     '      float pr = sqrt(max(rad * rad - zc * zc, 0.0));',
     '      if(pr <= 1e-4) continue;',
@@ -234,8 +234,8 @@
     // the cap/parent join follows Softness: a sharp two-sphere crease drew a thin dark ring at high res
     // a cap's edge is a crisp step (the shade pass reads steps as occluding edges, like stacked
     // spheres in pixel art); a ramp here was lit on one side and shaded on the other: a double line
-    '      float join = smoothstep(0.0, rad * 0.06, -sDist);',
-    '      cap = -smin(-cap, -max(lh, 0.0) * r * join, r * 0.05);',
+    '      float join = smoothstep(0.0, rad * 0.02, -sDist);',
+    '      cap = -smin(-cap, -max(lh, 0.0) * r * join, r * 0.02);',
     '    }',
     // material rides on the skin: tile read by the inverse-rotated sphere normal
     '    vec3 nrm = normalize(vec3(q, sqrt(max(1.0 - min(dot(q, q), 0.999), 0.001))));',
@@ -244,10 +244,12 @@
     '    float envel = 1.0 - smoothstep(0.65, 0.95, rho);',   // relief stays on the parent: beyond its rim the sphere normal is flat and the tile smears
     // the skin flattens toward the crown: a smooth top, a bumpy rim
     '    cap = mix(cap, coreH + (cap - coreH) * 0.55, smoothstep(0.0, 0.16, core - rho));',
-    '    cap += (caps - 0.55) * r * 0.045 * uRelief * envel;',
-    // erosion: slowly drifting tufts on the silhouette (world-space tile read, very blurred)
-    '    float tuft = textureLod(uTile, p * 2.0 + vec2(uTime * 0.001 * uRoll, 0.0), 4.0).r;',
-    '    sd += (tuft - 0.5) * r * 0.018 * uErosion * ax.w;',
+    '    cap += (caps - 0.55) * r * 0.14 * uRelief * envel;',
+    // erosion: slowly drifting tufts on the silhouette. Analytic (smooth) noise: a coarse mip read
+    // here was piecewise-linear, and its slope jumps showed as a faint grid of lines in the normals
+    '    vec2 pe = p * 6.2832 + vec2(uTime * 0.02 * uRoll, 0.0);',
+    '    float tuft = 0.5 + 0.17 * (sin(pe.x * 5.1 + 1.3) * sin(pe.y * 4.3 + 0.7) + 0.6 * sin(pe.x * 9.7 + 2.1) * sin(pe.y * 8.9 + 1.9) + sin(pe.x * 2.9 + pe.y * 3.7));',
+    '    sd += (tuft - 0.5) * r * 0.07 * uErosion * ax.w;',
     // junction: a child root bridges to its parent parcel with a capsule, only when both are grown and the pair is not over-stretched
     '    float bridgeCap = 0.0;',
     '    if(pi >= 0 && pi < uCount && pi != i && int(uAux[pi].x + 0.5) != bi){',
@@ -311,6 +313,8 @@
     'uniform float uPacked;',
     'uniform vec3 uSkyColor;',
     'uniform float uDebug;',
+    'uniform float uPixelated;', // 1: every field read snaps to the texel centre (one shade per texel)
+    'vec2 suv;',
     'vec4 fieldAt(vec2 uv){',      // returns (height, mask, detail, contact)
     '  vec4 t = textureLod(uField, uv, 0.0);',
     '  if(uPacked > 0.5) return vec4(t.r + t.g / 255.0, t.b, 0.5, t.a);',
@@ -322,7 +326,7 @@
     '}',
     // world-space slope, mask-weighted so the silhouette cliff does not bend the normals
     'float gradient(vec2 off){',
-    '  vec4 c = fieldAt(vUv), a = fieldAt(vUv - off), b = fieldAt(vUv + off);',
+    '  vec4 c = fieldAt(suv), a = fieldAt(suv - off), b = fieldAt(suv + off);',
     '  float span = length(off * vec2(1.0, uAspect));',
     '  float wa = smoothstep(0.05, 0.95, a.g), wb = smoothstep(0.05, 0.95, b.g);',
     // a step (a cap edge) is where one side changes several times more than the other; a sphere
@@ -345,7 +349,11 @@
     '  return mix(a, c, f);',
     '}',
     'void main(){',
-    '  vec4 f = fieldAt(vUv); vec2 t = uTexel;',
+    '  vec2 t = uTexel;',
+    // pixelated: shade each field texel once, at its centre. Reading blurred mips at the exact
+    // fragment position varied inside a texel and drew a faint sawtooth (vertical lines at low sun)
+    '  suv = (uPixelated > 0.5) ? (floor(vUv / t) + 0.5) * t : vUv;',
+    '  vec4 f = fieldAt(suv);',
     '  vec4 sky = (uSky > 0.5) ? vec4(uSkyColor, 1.0) : vec4(0.0);',
     '  if(uDebug > 0.5){ float cv = fract(f.x * 25.0); fragColor = vec4(vec3(f.x * 2.0 * (0.5 + 0.5 * step(0.5, cv))), 1.0); return; }',
     '  if(f.g < 0.01){ fragColor = sky; return; }',
@@ -357,20 +365,23 @@
     // self-shadow: march toward the sun over the height field, reading blurrier mips with distance (penumbra)
     '  float occ = 0.0; vec2 dir = normalize(uLight.xy + vec2(1e-5, 0.0));',
     '  float h0 = f.r * uHeightUnit;',
+    // per-pixel jitter of the march start: fixed step distances quantise shadow length into faint
+    // bands perpendicular to the sun; the Bayer offset turns them into dither
+    '  float jit = bayer((uPixelated > 0.5) ? floor(vUv / t) : gl_FragCoord.xy) + 0.5;',
     '  for(int i = 1; i <= 16; i++){',
-    '    float dist = float(i) * 0.006; float pen = 0.007 + dist * 0.30;',
-    '    vec2 coord = vUv + dir * dist / vec2(1.0, uAspect);',
+    '    float dist = (float(i) - 0.5 + jit) * 0.006; float pen = 0.007 + dist * 0.30;',
+    '    vec2 coord = suv + dir * dist / vec2(1.0, uAspect);',
     '    vec4 caster = fieldLod(coord, log2((1.0 + float(i) * 0.4) * uResScale));',
     '    float ray = h0 + dist * uLight.z / max(0.15, length(uLight.xy));',
     '    float sh = smoothstep(-pen, pen, caster.r * uHeightUnit - ray - 0.010) * caster.g;',
     '    occ = max(occ, sh * (1.0 - float(i) / 21.0));',
     '  }',
-    '  float contact = fieldLod(vUv, 1.0 + log2(uResScale)).a * 0.025;',
+    '  float contact = fieldLod(suv, 1.0 + log2(uResScale)).a * 0.025;',
     '  float light = 0.18 + 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) + uFill * bounce - uShadow * (occ * 0.55 + contact * 1.6);',
-    '  light += bayer(gl_FragCoord.xy) * 0.012;',
+    '  light += bayer((uPixelated > 0.5) ? floor(vUv / t) : gl_FragCoord.xy) * 0.012;',
     '  vec3 cloud = palette(light);',
     // thin cream rim where the silhouette faces the sun
-    '  float edge = 1.0 - min(min(fieldAt(vUv + vec2(t.x, 0.0)).g, fieldAt(vUv - vec2(t.x, 0.0)).g), min(fieldAt(vUv + vec2(0.0, t.y)).g, fieldAt(vUv - vec2(0.0, t.y)).g));',
+    '  float edge = 1.0 - min(min(fieldAt(suv + vec2(t.x, 0.0)).g, fieldAt(suv - vec2(t.x, 0.0)).g), min(fieldAt(suv + vec2(0.0, t.y)).g, fieldAt(suv - vec2(0.0, t.y)).g));',
     '  cloud = mix(cloud, vec3(1.0, 0.98, 0.86), edge * max(0.0, lambert) * 0.20);',
     '  fragColor = (uSky > 0.5) ? vec4(mix(sky.rgb, cloud, f.g), 1.0) : vec4(cloud * f.g, f.g);',
     '}'
@@ -425,7 +436,7 @@
       'uErosion', 'uRelief', 'uReference', 'uSoftness', 'uHeightUnit', 'uPacked', 'uDepth']);
     this._shadeProg = link(gl, VS, SHADE_FS);
     this._shadeU = uniforms(gl, this._shadeProg, ['uField', 'uTexel', 'uLight', 'uAspect', 'uHeightUnit',
-      'uShadow', 'uResScale', 'uJumpW', 'uHighlight', 'uFill', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
+      'uShadow', 'uResScale', 'uJumpW', 'uHighlight', 'uFill', 'uPixelated', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
 
     // billow tile (static asset; baked once)
     this._tile = gl.createTexture();
@@ -574,6 +585,7 @@
     gl.uniform1f(su.uShadow, shadow);
     gl.uniform1f(su.uResScale, Math.max(1, this.stats.fieldW / 320));
     gl.uniform1f(su.uJumpW, 0.05 * maxR);
+    gl.uniform1f(su.uPixelated, pixelated ? 1 : 0);
     gl.uniform1f(su.uHighlight, num(look.highlight, 0.68));
     gl.uniform1f(su.uFill, num(look.fill, 0.2));
     gl.uniform1f(su.uDebug, num(look.debug, 0));
