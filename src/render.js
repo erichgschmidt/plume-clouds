@@ -230,7 +230,8 @@
     // outside the parent's rim the cap has nothing behind it: its height curves down to zero at its
     // own edge (a hemisphere) instead of ending in an equator-high cliff with a flat top (the "thumb")
     '      float lhOut = sqrt(max(pr * pr - dd, 0.0));',
-    '      lh = mix(lh, lhOut, smoothstep(core - 0.15, core + 0.05, rho));',
+    // keyed on the CAP's position, not the pixel's: keyed on rho it injected a steep hidden ramp across every cap near the rim
+    '      lh = mix(lh, lhOut, smoothstep(core - 0.15, core + 0.05, length(cen.xy)));',
     // the cap/parent join follows Softness: a sharp two-sphere crease drew a thin dark ring at high res
     // a cap's edge is a crisp step (the shade pass reads steps as occluding edges, like stacked
     // spheres in pixel art); a ramp here was lit on one side and shaded on the other: a double line
@@ -332,8 +333,10 @@
     // a step (a cap edge) is where one side changes several times more than the other; a sphere
     // flank changes alike on both sides. Drop the stepping side so the normal never tilts across it.
     '  float da = abs(a.r - c.r) + 1e-6, db = abs(b.r - c.r) + 1e-6;',
-    '  wa *= 1.0 - smoothstep(2.0, 4.0, da / db) * step(uJumpW * 0.25, da * uHeightUnit);',
-    '  wb *= 1.0 - smoothstep(2.0, 4.0, db / da) * step(uJumpW * 0.25, db * uHeightUnit);',
+    // gate on the DIFFERENCE reaching a real step: a ratio test fired on ordinary sphere curvature
+    // just inside a cap's edge (one side only) and flattened a ring of texels into a bright band
+    '  wa *= 1.0 - smoothstep(uJumpW * 0.5, uJumpW, (da - db) * uHeightUnit);',
+    '  wb *= 1.0 - smoothstep(uJumpW * 0.5, uJumpW, (db - da) * uHeightUnit);',
     '  return ((c.r - a.r) * wa + (b.r - c.r) * wb) * uHeightUnit / (span * max(1e-4, wa + wb));',
     '}',
     'float bayer(vec2 p){ ivec2 a = ivec2(mod(p, 4.0)); int n = a.x + 4 * a.y;',
