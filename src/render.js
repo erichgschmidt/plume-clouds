@@ -185,7 +185,7 @@
     '  float bH[NB]; float bW[NB]; float bC[NB];',
     '  for(int j = 0; j < NB; j++){ bH[j] = 0.0; bW[j] = 0.0; bC[j] = 0.0; }',
     '  float detail = 0.0;',
-    '  float T = max(0.002, uReference * 0.14 * uSoftness);',   // blend temperature (world units)
+    '  float T = max(0.002, uReference * 0.08 * uSoftness);',   // blend temperature (world units)
     '  float floorH = uReference * 1.5;',                        // cloud base: a parcel buried below it is invisible
     '  for(int i = 0; i < ' + MAX_BLOBS + '; i++){',
     '    if(i >= uCount) break;',
@@ -262,7 +262,7 @@
     '  float top = 0.0;',
     '  for(int j = 0; j < NB; j++){ bH[j] = max(0.0, floorH + T * log(max(1e-20, bW[j]))); top = max(top, bH[j]); }',
     // coverage-weighted soft max across branches: no winner / runner-up switch, so no seams
-    '  float T2 = max(0.002, uReference * 0.15 * uSoftness);',
+    '  float T2 = max(0.002, uReference * 0.09 * uSoftness);',
     '  float den = 0.0; float unc = 1.0; float ovl = 0.0;',
     '  for(int j = 0; j < NB; j++){',
     '    float c = bC[j]; den += c * exp(clamp((bH[j] - top) / T2, -25.0, 0.0));',

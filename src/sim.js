@@ -30,7 +30,7 @@
   var MAX_BRANCHES = 16;
   var SUBSTEP = 1 / 60;
   var MARGIN = 0.04;
-  var R_ROOT = 0.13, R_TIP = 0.075;        // child branch taper
+  var R_ROOT = 0.15, R_TIP = 0.10;         // child branch taper: a billow is nearly trunk-sized
   var TRUNK_ROOT = 0.16, TRUNK_TIP = 0.12; // trunk taper (broad, not tall)
   var MAX_L = 0.35;                        // max chain length (world units)
   var R_OUT_MIN = 0.02;        // parcels below this are not emitted
