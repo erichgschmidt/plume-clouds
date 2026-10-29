@@ -9,7 +9,7 @@
     seed: 7401,
     preset: 'single',
     settings: { speed: 1, cohesion: .6, breakup: .5, buoyancy: .5, turbulence: .4, coverage: .6 },
-    look: { billow: .15, softness: .3, erosion: .1, relief: 0, roll: .6, sun: 120, elevation: 17, shadow: .8, bands: 7, sky: true, pixelated: true },
+    look: { billow: 1, softness: 1.3, erosion: .2, relief: 1, depth: 1, roll: .6, sun: 135, elevation: 32, shadow: .55, bands: 5, sky: true, pixelated: true },
     resolution: 320
   };
   var PRESETS = (window.CloudSim && window.CloudSim.PRESETS) || ['single', 'plumes', 'lavalamp', 'islands', 'confluence'];
@@ -36,15 +36,16 @@
     ['coverage', 'Coverage', 0, 1, 0.01]
   ];
   var LOOK_SPEC = [
-    ['billow', 'Billow', 0, 1, 0.01],
-    ['softness', 'Softness', 0, 1, 0.01],
+    ['billow', 'Billow', 0, 2, 0.01],
+    ['softness', 'Softness', 0.2, 2, 0.01],
     ['erosion', 'Erosion', 0, 1, 0.01],
-    ['relief', 'Relief', 0, 1, 0.01],
+    ['relief', 'Relief', 0, 2, 0.01],
+    ['depth', 'Depth', 0, 2, 0.01],
     ['roll', 'Roll', 0, 1, 0.01],
     ['sun', 'Sun', 0, 360, 1],
     ['elevation', 'Elevation', -60, 60, 1],
     ['shadow', 'Shadow', 0, 1, 0.01],
-    ['bands', 'Bands', 4, 32, 1]
+    ['bands', 'Bands', 3, 5, 1]
   ];
   var sliders = {}; // key -> {range, val, spec, target}
 

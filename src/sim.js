@@ -82,12 +82,12 @@
   var PRESETS = {
     // one upright lobe, no budding, no rotation: isolates the surface roll
     single: {
-      plumes: [{ u: 0.5, v: 0.6, angle: -Math.PI / 2, trunkN: 3, children: [0, 0], curl: 0, spin: [0, 0], tower: 1, maxL: 0.14, rMul: 1.1, maxDepth: 0, still: true }],
+      plumes: [{ u: 0.5, v: 0.6, angle: -Math.PI / 2, trunkN: 1, children: [0, 0], curl: 0, spin: [0, 0], tower: 1, maxL: 0.14, rMul: 1.1, maxDepth: 0, still: true }],
       crossBud: false,
       defaults: { speed: 1, cohesion: 0.8, breakup: 0, buoyancy: 0.3, turbulence: 0.15, coverage: 0.6 }
     },
     plumes: {
-      plumes: [{ u: 0.4, v: 0.66, angle: -0.25, trunkN: 5, children: [3, 4], curl: 1.2, spin: [0.05, 0.12], tower: 1, maxL: 0.2, rMul: 0.8, maxDepth: 2 }],
+      plumes: [{ u: 0.4, v: 0.66, angle: -0.1, trunkN: 5, children: [3, 4], curl: 1.2, spin: [0.05, 0.12], tower: 1, maxL: 0.2, rMul: 0.8, maxDepth: 2 }],
       crossBud: false,
       defaults: { speed: 1, cohesion: 0.6, breakup: 0.5, buoyancy: 0.5, turbulence: 0.4, coverage: 0.6 }
     },
@@ -290,7 +290,7 @@
   CloudSim.prototype._layout = function (b, turbulence) {
     var S = this.settings, cohesion = clamp(+S.cohesion || 0, 0, 1), coverage = clamp(+S.coverage || 0, 0, 1);
     var rScale = (0.75 + 0.5 * coverage) * (0.75 + 0.25 * b.plume.def.tower) * (b.plume.def.rMul || 1);
-    var spacing = 0.6 - 0.1 * cohesion;   // centre distance / (r1+r2): fat lobes, not strings
+    var spacing = 0.4 - 0.1 * cohesion;   // centre distance / (r1+r2): parcels overlap deeply into one broad mass
     var t = this.time;
 
     // root
@@ -306,13 +306,13 @@
     // root parcel sits half a parent radius out from the attach point: overlaps the parent by >= 50% of r
     // while growing (or retracting) the whole chain starts deep inside the parent and extends out of it
     var ge = b.grow * b.grow * (3 - 2 * b.grow);
-    if (b.parent) { b.rootX += Math.cos(heading) * attachR * (0.35 * ge - 0.3 * (1 - ge)); b.rootY += Math.sin(heading) * attachR * (0.35 * ge - 0.3 * (1 - ge)); }
+    if (b.parent) { b.rootX += Math.cos(heading) * attachR * (0.5 * ge - 0.3 * (1 - ge)); b.rootY += Math.sin(heading) * attachR * (0.5 * ge - 0.3 * (1 - ge)); }
 
     // chain length from tapered radii
     var n = b.n, L = 0, i;
     for (i = 0; i < n - 1; i++) L += spacing * (b.taper(i / (n - 1)) + b.taper((i + 1) / (n - 1))) * rScale;
     L = Math.min(L, b.plume.def.maxL || MAX_L, MAX_L);
-    if (b.parent) L = Math.min(L, 2.0 * attachR) * (0.15 + 0.85 * ge);   // a lobe stays within reach of the volume it grew from
+    if (b.parent) L = Math.min(L, 0.5 * attachR) * (0.15 + 0.85 * ge);   // a billow is a hump on its parent, not an arm: its parcels stack within half a parent radius
     b.L = L;
 
     // polyline with curvature (8 segments)

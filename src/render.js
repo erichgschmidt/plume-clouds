@@ -137,25 +137,6 @@
     '}'
   ].join('\n');
 
-  var NOISE = [
-    'float hash3(vec3 p){',
-    '  p = fract(p * vec3(0.1031, 0.1030, 0.0973));',
-    '  p += dot(p, p.yxz + 33.33);',
-    '  return fract((p.x + p.y) * p.z);',
-    '}',
-    'float vnoise(vec3 p){',
-    '  vec3 i = floor(p); vec3 f = fract(p);',
-    '  f = f * f * (3.0 - 2.0 * f);',
-    '  float a = hash3(i), b = hash3(i + vec3(1,0,0)), c = hash3(i + vec3(0,1,0)), d = hash3(i + vec3(1,1,0));',
-    '  float e = hash3(i + vec3(0,0,1)), g = hash3(i + vec3(1,0,1)), h = hash3(i + vec3(0,1,1)), k = hash3(i + vec3(1,1,1));',
-    '  return mix(mix(mix(a,b,f.x), mix(c,d,f.x), f.y), mix(mix(e,g,f.x), mix(h,k,f.x), f.y), f.z);',
-    '}',
-    'float fbm3(vec3 p){',
-    '  float v = 0.0; float a = 0.5; float n = 0.0;',
-    '  for(int o = 0; o < 3; o++){ v += a * vnoise(p); n += a; p = p * 2.07 + vec3(17.1, 9.3, 3.7); a *= 0.5; }',
-    '  return v / n;',
-    '}'
-  ].join('\n');
 
   // ---------- Pass 1: field ----------
   var FIELD_FS = [
@@ -173,16 +154,13 @@
     'uniform float uRoll;',
     'uniform float uErosion;',
     'uniform float uRelief;',
-    'uniform float uSmoothK;',
-    'uniform float uDomeR;',
+    'uniform float uReference;',
+    'uniform float uSoftness;',
     'uniform float uHeightUnit;',
-    'uniform float uTexelWorld;',
-    'uniform float uMeanR;',
     'uniform float uPacked;',
     'uniform float uDepth;',
     'const float TILE_WORLD = ' + TILE_WORLD.toFixed(4) + ';',
     'const int NB = 16;',
-    NOISE,
     'float smin(float a, float b, float k){',
     '  float h = max(k - abs(a - b), 0.0) / k;',
     '  return min(a, b) - h * h * k * 0.25;',
@@ -193,137 +171,111 @@
     '  return length(pa - ba * h) - r;',
     '}',
     'vec2 seedOffset(float s){ return vec2(fract(s * 7.31 + 0.17), fract(s * 3.77 + 0.59)); }',
-    'const float MAT_K = 1.7;',   // tile repeats per 1.7 parcel radii: a few large sub-lobes per lobe
-    'float domeH(float d, float R){',
-    '  float Rb = R * uDomeR;',
-    '  float t = clamp(-d / Rb, 0.0, 1.0);',
-    '  return sqrt(max(t * (2.0 - t), 0.0)) * Rb;',          // sphere cap over the branch SDF
-    '}',
-    'float reliefH(float d, vec2 tv){',
-    '  float ra = clamp(tv.x / 0.22, 0.0, 1.0), rb = clamp(tv.y / 0.22, 0.0, 1.0);',
-    '  float comp = max(0.0, tv.x + ((ra + rb - ra * rb) * 0.22 - tv.x) * (0.4 + 0.6 * uBillow));',
-    '  float edge = min(1.0, -d / (0.055 * TILE_WORLD));',
-    '  float env = sqrt(max(edge * (2.0 - edge), 0.0));',
-    '  return comp * TILE_WORLD * env * uRelief * 1.2;',
+    'float hash(float x){ return fract(sin(x * 12.9898) * 43758.5453); }',
+    'vec3 rotAxis(vec3 p, vec3 a, float t){ float c = cos(t), s = sin(t); return p * c + cross(a, p) * s + a * dot(a, p) * (1.0 - c); }',
+    // triplanar read of the billow tile by a sphere normal: the material rides on the rotating skin
+    'vec2 materialTile(vec3 p, float seed){',
+    '  vec3 w = pow(abs(p), vec3(4.0)); w /= max(w.x + w.y + w.z, 0.001);',
+    '  vec2 o = vec2(seed * 0.173, seed * 0.317);',
+    '  return textureLod(uTile, p.yz * 0.38 + o, 2.8).gb * w.x + textureLod(uTile, p.xz * 0.38 + o, 2.8).gb * w.y + textureLod(uTile, p.xy * 0.38 + o, 2.8).gb * w.z;',
     '}',
     'void main(){',
     '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);',   // world: y top-down
-    '  float k = max(uSmoothK, 1e-4);',
-    // per-branch accumulators
-    '  float dB[NB]; float wB[NB]; float rB[NB]; float zB[NB]; vec2 tB[NB]; float cB[NB];',
-    '  for(int j = 0; j < NB; j++){ dB[j] = 1e3; wB[j] = 0.0; rB[j] = 0.0; zB[j] = 0.0; tB[j] = vec2(0.0); cB[j] = 0.0; }',
-    // nearest bridge capsule (child root -> parent parcel) for seamless junction blending
-    '  float brD = 1e3; float brT = 0.0; int brChild = -1; int brParent = -1;',
+    // per-branch accumulators: height as a log-sum-exp of its parcels (soft max), coverage as a union
+    '  float bH[NB]; float bW[NB]; float bC[NB];',
+    '  for(int j = 0; j < NB; j++){ bH[j] = 0.0; bW[j] = 0.0; bC[j] = 0.0; }',
+    '  float detail = 0.0;',
+    '  float T = max(0.002, uReference * 0.14 * uSoftness);',   // blend temperature (world units)
+    '  float floorH = uReference * 1.5;',                        // cloud base: a parcel buried below it is invisible
     '  for(int i = 0; i < ' + MAX_BLOBS + '; i++){',
     '    if(i >= uCount) break;',
-    '    vec4 b = uBlobs[i];',
-    '    if(b.z <= 1e-5) continue;',
-    '    vec4 ax = uAux[i];',
+    '    vec4 b = uBlobs[i]; vec4 ax = uAux[i];',
+    '    if(b.z <= 1e-4 || ax.w <= 1e-6) continue;',
     '    int bi = clamp(int(ax.x + 0.5), 0, NB - 1);',
-    '    vec2 q = p - b.xy; float rEff0 = b.z;',
-    // material coords: tile rides with the parcel (origin = blob centre, offset by its seed)
-    // scoop roll: the billow texture flows outward from the parcel centre and curls under at the
-    // rim (zero flow at centre and rim, fastest half-way: a ring vortex seen from above). Two
-    // phases crossfaded (flow mapping) so the distortion never accumulates.
-    '    vec2 dq = q / max(rEff0, 1e-4); float rr = length(dq); vec2 rd = dq / max(rr, 1e-4);',
-    '    float roll = sin(clamp(rr, 0.0, 1.0) * 3.14159) * 0.35 * uRoll / MAT_K;',   // small offsets only: larger ones shear the tile into rings
-    '    float ph = uTime * 0.14 + b.w; float fA = fract(ph), fB = fract(ph + 0.5); float wPh = abs(2.0 * fA - 1.0);',
-    '    vec2 base = q / (rEff0 * MAT_K) + seedOffset(b.w);',   // material coords in parcel-radius units: sub-lobes scale with the lobe
-    '    vec2 muvA = base - rd * roll * fA;',
-    '    vec2 muvB = base - rd * roll * fB + vec2(0.37, 0.61);',
-    '    vec3 ts = mix(textureLod(uTile, muvA, 1.75).rgb, textureLod(uTile, muvB, 1.75).rgb, wPh);',
-    '    vec3 tsSil = mix(textureLod(uTile, muvA, 2.5).rgb, textureLod(uTile, muvB, 2.5).rgb, wPh);',
-    '    float rEff = b.z * (1.0 + 0.03 * (ts.r - 0.76));',
-    // lobe caps poke out of the silhouette; scaled by the parcel's size so a newborn / regrowing
-    // parcel (r -> 0) does not pop in at full bump size
-    '    float bump = (tsSil.g + 0.6 * tsSil.b) * TILE_WORLD * 0.3 * uBillow * smoothstep(0.0, 0.6 * uMeanR, b.z);',
-    '    float di = length(q) - rEff - bump;',
-    // root parcel: bridge capsule to its parent-branch parcel, smooth-min'd into the CHILD branch
+    '    vec2 q = (p - b.xy) / b.z; float r = b.z; float rho = length(q);',
+    '    if(rho > 1.6) continue;',
+    // growth direction from the parent parcel (a lone lobe grows up; world y is top-down). The
+    // skin rotates about the axis perpendicular to it, in the screen plane: the top of the lobe
+    // rolls toward the viewer and down its front, tucks under, and comes back up behind (ring vortex).
     '    int pi = int(ax.z + 0.5);',
-    '    if(ax.w > 0.001 && pi >= 0 && pi < uCount && pi != i){',
-    '      vec4 pb = uBlobs[pi];',
-    '      float cr = 0.6 * min(b.z, pb.z) * ax.w;',
-    '      vec2 pa = p - b.xy, ba = pb.xy - b.xy;',
-    // a faded (regrowing) end or an over-stretched pair would draw a long thin rod: skip the capsule then
-    '      if(min(b.z, pb.z) < 0.45 * max(b.z, pb.z) || dot(ba, ba) > 2.0 * (b.z + pb.z) * (b.z + pb.z)) ba = vec2(0.0);',
-    '      float tc = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);',
-    '      float dc = length(pa - ba * tc) - cr;',
-    '      di = smin(di, dc, k * 0.6);',
-    '      if(dc < brD){ brD = dc; brT = tc; brChild = bi; brParent = clamp(int(uAux[pi].x + 0.5), 0, NB - 1); }',
+    '    vec2 growth = vec2(0.16, -1.0);',
+    '    if(pi >= 0 && pi < uCount && pi != i){ vec2 dl = b.xy - uBlobs[pi].xy; if(dot(dl, dl) > 1e-8) growth = dl; }',
+    '    growth = normalize(growth); vec3 axis = vec3(growth.y, -growth.x, 0.0);',
+    '    float angle = uTime * 0.16 * uRoll * (0.85 + 0.3 * hash(b.w));',
+    '    float core = 0.93;',
+    '    float sd = (rho - core) * r;',
+    '    float coreH = sqrt(max(core * core - dot(q, q), 0.0)) * r;',
+    '    float cap = coreH;',
+    // a rigid skin of 8..20 sphere caps spread over the whole 3D sphere (Fibonacci-ish). Caps on the
+    // back have a reduced projected radius, so they shrink away around the rim instead of popping.
+    '    int skinN = 8 + int(floor(hash(b.w + 91.7) * 13.0));',
+    '    for(int j = 0; j < 20; j++){',
+    '      if(j >= skinN) break;',
+    '      float jit = hash(b.w + float(j) * 31.7) - 0.5;',
+    '      float zz = 1.0 - 2.0 * (float(j) + 0.5 + jit * 0.55) / float(skinN);',
+    '      float az = float(j) * 2.399963 + b.w * 2.7 + jit * 0.8;',
+    '      float sr = sqrt(max(1.0 - zz * zz, 0.0));',
+    '      vec3 cen = rotAxis(vec3(sr * cos(az), sr * sin(az), zz), axis, angle) * 0.78;',
+    '      float rad = mix(0.28, 0.46, hash(b.w + float(j) * 17.0)) * 0.84 * sqrt(clamp(uBillow, 0.0, 2.0));',
+    '      float zc = min(cen.z, 0.0);',
+    '      float pr = sqrt(max(rad * rad - zc * zc, 0.0));',
+    '      if(pr <= 1e-4) continue;',
+    '      vec2 dq = q - cen.xy; float dd = dot(dq, dq);',
+    '      float sDist = sqrt(dd) - pr;',
+    '      float lh = cen.z + sqrt(max(rad * rad - dd, 0.0));',
+    '      sd = smin(sd, sDist * r, r * 0.045);',
+    '      float join = smoothstep(0.0, rad * 0.38, -sDist);',
+    '      cap = -smin(-cap, -max(lh, 0.0) * r * join, r * 0.29);',
     '    }',
-    '    float w = exp(-clamp(di, -3.0 * k, 4.0 * k) / k);',
-    '    wB[bi] += w; rB[bi] += w * b.z; tB[bi] += w * ts.gb; zB[bi] += w * ax.y;',   // z is weight-blended along the branch
-    '    dB[bi] = smin(dB[bi], di, k);',
-    // per-parcel sphere cap, smooth-max'd per branch: every parcel reads as its own billow (the
-    // branch-wide dome alone plateaus wherever parcels overlap deeply)
-    '    float Rc = rEff * 1.08; float hc = 0.85 * sqrt(max(Rc * Rc - dot(q, q), 0.0));',   // near-hemispheres: steep flanks, distinct billows
-    // ring-vortex roll (mushroom cloud): sub-puffs follow meridians of the parent sphere. Each
-    // is born small at the apex, rolls outward and down its side growing as it goes, and tucks
-    // under at the bottom where it shrinks away; then it re-emerges at the apex. Azimuth is fixed
-    // per sub-puff (front half only), so the top always flows out and the underside pulls in.
-    '    for(int sidx = 0; sidx < 7; sidx++){',
-    '      float fs = float(sidx);',
-    '      float phi = 0.25 + 2.64 * fract(b.w * 5.13 + fs * 0.381);',               // azimuth across the front half
-    '      float psi = fract(uTime * 0.045 * uRoll + fract(b.w * 3.7 + fs * 0.713)) * 3.14159;',   // 0 apex .. pi bottom
-    '      vec3 P = vec3(sin(psi) * cos(phi), -cos(psi), sin(psi) * sin(phi));',    // y down on screen: -cos(psi) is the top at psi=0
-    '      float grow = sin(psi);',                                                   // small at the apex, full at the sides
-    '      float tuck = 1.0 - smoothstep(2.3, 3.0, psi);',                            // shrinks away as it tucks under
-    '      float born = smoothstep(0.0, 0.5, psi);',
-    '      float sz = rEff * (0.3 + 0.15 * fract(b.w * 9.1 + fs * 0.532)) * (0.4 + 0.6 * grow) * tuck * born;',
-    '      vec2 c = P.xy * rEff * 0.9;',
-    '      float dd = length(q - c);',
-    '      float base = 0.85 * sqrt(max(Rc * Rc - dot(c, c), 0.0));',   // main sphere height under the sub-puff
-    '      float hs = sqrt(max(sz * sz - dd * dd, 0.0)) + base;',          // a full sphere sitting ON the main cap
-    '      hc = -smin(-hc, -hs, k * 0.15);',
-    '      di = smin(di, dd - sz * 0.95, k * 0.25);',
+    // material rides on the skin: tile read by the inverse-rotated sphere normal
+    '    vec3 nrm = normalize(vec3(q, sqrt(max(1.0 - min(dot(q, q), 0.999), 0.001))));',
+    '    vec2 tile = materialTile(rotAxis(nrm, axis, -angle), b.w);',
+    '    float caps = 1.0 - (1.0 - tile.x) * (1.0 - tile.y * 0.55);',
+    '    float envel = 1.0 - smoothstep(0.65, 1.15, rho);',
+    // the skin flattens toward the crown: a smooth top, a bumpy rim
+    '    cap = mix(cap, coreH + (cap - coreH) * 0.34, smoothstep(0.0, 0.16, core - rho));',
+    '    cap += (caps - 0.55) * r * 0.045 * uRelief * envel;',
+    // erosion: slowly drifting tufts on the silhouette (world-space tile read, very blurred)
+    '    float tuft = textureLod(uTile, p * 2.0 + vec2(uTime * 0.001 * uRoll, 0.0), 4.0).r;',
+    '    sd += (tuft - 0.5) * r * 0.018 * uErosion * ax.w;',
+    // junction: a child root bridges to its parent parcel with a capsule, only when both are grown and the pair is not over-stretched
+    '    float bridgeCap = 0.0;',
+    '    if(pi >= 0 && pi < uCount && pi != i && int(uAux[pi].x + 0.5) != bi){',
+    '      vec4 pb = uBlobs[pi]; float dist = length(b.xy - pb.xy);',
+    '      if(dist < 1.4 * pb.z && dist > 0.0){',
+    '        float cr = min(r, pb.z) * 0.62; float cd = sdCapsule(p, b.xy, pb.xy, cr);',
+    '        float join = smoothstep(0.5, 1.0, ax.w) * smoothstep(0.5, 1.0, uAux[pi].w) * (1.0 - smoothstep(1.1, 1.4, dist / pb.z));',
+    '        sd = mix(sd, smin(sd, cd, r * 0.07), join);',
+    '        bridgeCap = sqrt(max(cr * cr - pow(max(0.0, cd + cr), 2.0), 0.0)) * join;',
+    '      }',
     '    }',
-    '    cB[bi] = -smin(-cB[bi], -hc, k);',
+    // emergence changes burial, never size: a new parcel rises out of the cloud base
+    '    float depth = (ax.y - 0.5) * uReference * uDepth * 1.5;',
+    '    float h = floorH + max(cap, bridgeCap > 0.0 ? bridgeCap : -r * 4.0) + depth - r * 2.2 * (1.0 - ax.w);',
+    '    float cov = (1.0 - smoothstep(-0.002, 0.002, sd)) * smoothstep(0.0, 0.3, ax.w) * smoothstep(floorH - 0.002, floorH + 0.002, h);',
+    '    bW[bi] += cov * exp(clamp((h - floorH) / T, -25.0, 18.0));',
+    '    bC[bi] = 1.0 - (1.0 - bC[bi]) * (1.0 - cov);',
+    '    detail = max(detail, caps * envel);',
     '  }',
-    // world-space erosion, slowly drifting: ragged tufts instead of clean necks
-    '  vec2 drift = vec2(uTime * 0.012, uTime * 0.008);',
-    '  float wf = 1.2 / max(uMeanR, 0.02);',
-    '  float e = fbm3(vec3((p + drift) * wf, uTime * 0.05 + 3.1));',
-    '  float eros = uErosion * (e - 0.5) * uMeanR * 0.6;',
-    // per-branch height; the tallest covering branch wins the pixel (hard occlusion)
-    '  float hB[NB]; float lbB[NB];',
-    '  int win = -1; float hWin = -1.0; float dWin = 1e3; float hSecond = -1e3;',
+    '  float top = 0.0;',
+    '  for(int j = 0; j < NB; j++){ bH[j] = max(0.0, floorH + T * log(max(1e-20, bW[j]))); top = max(top, bH[j]); }',
+    // coverage-weighted soft max across branches: no winner / runner-up switch, so no seams
+    '  float T2 = max(0.002, uReference * 0.15 * uSoftness);',
+    '  float den = 0.0; float unc = 1.0; float ovl = 0.0;',
     '  for(int j = 0; j < NB; j++){',
-    '    float dj = dB[j] + eros; dB[j] = dj;',
-    '    float Rj = (wB[j] > 0.0) ? rB[j] / wB[j] : uMeanR;',
-    '    vec2 tvj = (wB[j] > 0.0) ? tB[j] / wB[j] : vec2(0.0);',
-    '    lbB[j] = tvj.x; zB[j] = (wB[j] > 0.0) ? zB[j] / wB[j] : 0.0;',
-    '    float dome = -smin(-cB[j], -0.3 * domeH(dj, Rj), k);',   // caps carry the interior, the SDF dome carries the eroded silhouette
-    // the depth offset rolls off toward the silhouette so a front lobe slopes down onto the one
-    // behind it (a full-height cliff at the edge shaded as a hard dark outline)
-    '    float zf = smoothstep(0.0, 1.2 * Rj, -dj);',
-    '    hB[j] = dome + reliefH(dj, tvj) + zB[j] * uDepth * zf;',
-    '    if(dj < 0.0){ if(hB[j] > hWin){ hSecond = hWin; hWin = hB[j]; win = j; dWin = dj; } else if(hB[j] > hSecond) hSecond = hB[j]; }',
+    '    float c = bC[j]; den += c * exp(clamp((bH[j] - top) / T2, -25.0, 0.0));',
+    '    unc *= 1.0 - c; ovl += c;',
     '  }',
-    '  float hw = 0.0; float mask = 0.0; float lb = 0.0; float contact = 0.0;',
-    '  if(win >= 0){',
-    '    hw = hWin; lb = clamp(lbB[win] / 0.22, 0.0, 1.0);',
-'    float ks = max(1.0 * uDepth, 1e-4);',                                  // soft seam: smooth-max with the runner-up when the z gap is small
-'    if(hSecond > -1e2){ float hs = max(ks - abs(hWin - hSecond), 0.0) / ks; hw = hWin + hs * hs * ks * 0.25; }',
-    // junction: the bridge capsule is already in the child's SDF and z is blended along the branch; the
-    // soft-max seam above handles the remaining height gap (an explicit capsule height blend carved trenches)
-    // contact: a branch in FRONT (higher z) whose silhouette is within a few texels casts a contact shadow on this one
-    '    for(int j = 0; j < NB; j++){',
-    '      if(j == win || wB[j] <= 0.0 || zB[j] <= zB[win] + 0.02) continue;',
-    '      float cz = clamp((zB[j] - zB[win]) / 0.3, 0.2, 1.0);',   // deeper gap -> longer, softer contact shadow
-    '      float cs = 1.0 - smoothstep(-1.0 * uTexelWorld, (4.0 + 10.0 * cz) * uTexelWorld, dB[j]);',
-    '      contact = max(contact, cs * cs);',
-    '    }',
-    '  }',
-    // coverage mask = union of all branches (never the winner alone, or interior branch silhouettes would read as rims)
-    '  float dn = 1e3; for(int j = 0; j < NB; j++) dn = min(dn, dB[j]);',
-    '  mask = smoothstep(0.0, 5.0 * uTexelWorld, -dn);',
-    '  float h = clamp(hw / uHeightUnit, 0.0, 1.0);',
+    '  float height = max(0.0, top + T2 * log(max(1e-20, den)));',
+    '  float mask = 1.0 - unc;',
+    '  float contact = smoothstep(0.9, 2.2, ovl) * 0.35;',   // overlapping branches: contact darkening
+    '  float hN = clamp(height / uHeightUnit, 0.0, 1.0);',
     '  if(uPacked > 0.5){',
-    '    float hi = floor(h * 255.0) / 255.0;',
-    '    float lo = fract(h * 255.0);',
-    '    fragColor = vec4(hi, lo, mask, contact);',          // packed: billow dropped, contact in A
+    '    float hi = floor(hN * 255.0) / 255.0;',
+    '    float lo = fract(hN * 255.0);',
+    '    fragColor = vec4(hi, lo, mask, contact);',          // packed: detail dropped, contact in A
     '  } else {',
-    '    fragColor = vec4(h, mask, lb, contact);',
+    '    fragColor = vec4(hN, mask, detail, contact);',
     '  }',
     '}'
   ].join('\n');
@@ -337,17 +289,15 @@
     'uniform sampler2D uField;',
     'uniform vec2 uTexel;',
     'uniform vec3 uLight;',       // unit vector, screen space (x right, y up, z toward viewer)
-    'uniform float uSinEl;',
-    'uniform float uTanEl;',
-    'uniform float uHeightScale;',// height 1.0 == this many texels
+    'uniform float uAspect;',
+    'uniform float uHeightUnit;', // world units of height per 1.0 in the field texture
     'uniform float uShadow;',
-    'uniform float uJump;',
     'uniform float uBands;',
     'uniform float uSky;',
     'uniform float uPacked;',
     'uniform vec3 uSkyColor;',
     'uniform float uDebug;',
-    'vec4 fieldAt(vec2 uv){',      // returns (height, mask, billow, contact)
+    'vec4 fieldAt(vec2 uv){',      // returns (height, mask, detail, contact)
     '  vec4 t = textureLod(uField, uv, 0.0);',
     '  if(uPacked > 0.5) return vec4(t.r + t.g / 255.0, t.b, 0.5, t.a);',
     '  return t;',
@@ -356,67 +306,54 @@
     '  if(uPacked > 0.5) return fieldAt(uv);',
     '  return textureLod(uField, uv, lod);',
     '}',
-    'vec3 palette(float t){',
-    '  vec3 c0 = vec3(0.247, 0.478, 0.592);', // #3f7a97 shadow blue
-    '  vec3 c1 = vec3(0.435, 0.639, 0.722);', // #6fa3b8 mid blue
-    '  vec3 c2 = vec3(0.663, 0.824, 0.839);', // #a9d2d6 light cyan
-    '  vec3 c3 = vec3(0.914, 0.925, 0.788);', // #e9ecc9 lit cream
-    '  vec3 c4 = vec3(0.965, 0.953, 0.890);', // #f6f3e3 rim highlight
-'  if(t < 0.30) return mix(c0, c1, t / 0.30);',
-    '  if(t < 0.55) return mix(c1, c2, (t - 0.30) / 0.25);',
-'  if(t < 0.93) return mix(c2, c3, (t - 0.55) / 0.38);',
-    '  return mix(c3, c4, (t - 0.93) / 0.07);',
+    // world-space slope, mask-weighted so the silhouette cliff does not bend the normals
+    'float gradient(vec2 off){',
+    '  vec4 c = fieldAt(vUv), a = fieldAt(vUv - off), b = fieldAt(vUv + off);',
+    '  float span = length(off * vec2(1.0, uAspect));',
+    '  float wa = smoothstep(0.05, 0.95, a.g), wb = smoothstep(0.05, 0.95, b.g);',
+    '  return ((c.r - a.r) * wa + (b.r - c.r) * wb) * uHeightUnit / (span * max(1e-4, wa + wb));',
+    '}',
+    'float bayer(vec2 p){ ivec2 a = ivec2(mod(p, 4.0)); int n = a.x + 4 * a.y;',
+    '  const float m[16] = float[16](0.,8.,2.,10.,12.,4.,14.,6.,3.,11.,1.,9.,15.,7.,13.,5.); return m[n] / 16.0 - 0.5; }',
+    // five flat tones, deep blue -> cream, with a short soft edge between bands
+    'vec3 palette(float l){',
+    '  vec3 deep = vec3(0.10, 0.35, 0.52), blue = vec3(0.30, 0.54, 0.65), cyan = vec3(0.56, 0.73, 0.75), pale = vec3(0.80, 0.86, 0.80), cream = vec3(0.99, 0.97, 0.85);',
+    '  float levels = clamp(uBands, 3.0, 5.0); float b = clamp(l, 0.0, 0.999) * (levels - 1.0);',
+    '  float band = floor(b) + smoothstep(0.08, 0.92, fract(b));',
+    '  float q = band / (levels - 1.0) * 4.0; int idx = int(min(q, 3.0)); float f = q - float(idx);',
+    '  vec3 a = idx == 0 ? deep : idx == 1 ? blue : idx == 2 ? cyan : pale;',
+    '  vec3 c = idx == 0 ? blue : idx == 1 ? cyan : idx == 2 ? pale : cream;',
+    '  return mix(a, c, f);',
     '}',
     'void main(){',
-    '  vec4 f = fieldAt(vUv);',
+    '  vec4 f = fieldAt(vUv); vec2 t = uTexel;',
     '  vec4 sky = (uSky > 0.5) ? vec4(uSkyColor, 1.0) : vec4(0.0);',
     '  if(uDebug > 0.5){ float cv = fract(f.x * 25.0); fragColor = vec4(vec3(f.x * 2.0 * (0.5 + 0.5 * step(0.5, cv))), 1.0); return; }',
-    '  if(f.y < 0.08){ fragColor = sky; return; }',
-    '  float h0 = f.x;',
-    '  float hL = fieldAt(vUv - vec2(uTexel.x, 0.0)).x + fieldAt(vUv - vec2(2.0 * uTexel.x, 0.0)).x;',
-    '  float hR = fieldAt(vUv + vec2(uTexel.x, 0.0)).x + fieldAt(vUv + vec2(2.0 * uTexel.x, 0.0)).x;',
-    '  float hD = fieldAt(vUv - vec2(0.0, uTexel.y)).x + fieldAt(vUv - vec2(0.0, 2.0 * uTexel.y)).x;',
-    '  float hU = fieldAt(vUv + vec2(0.0, uTexel.y)).x + fieldAt(vUv + vec2(0.0, 2.0 * uTexel.y)).x;',
-    '  vec3 n = normalize(vec3(-(hR - hL) / 6.0 * uHeightScale, -(hU - hD) / 6.0 * uHeightScale, 1.0));',
-    '  float ndl = dot(n, uLight);',
-    // flat-facing areas sit in the light-cyan band; slopes toward the sun go cream, away go blue
-    '  float dl = ndl - uSinEl;',
-    '  float light = clamp(0.55 + dl * (dl > 0.0 ? 0.7 : 1.1), 0.0, 1.0);',
-    // bounce / under light from the side opposite the sun, low over the horizon: the shaded
-    // hemisphere keeps a gradient instead of going flat, so the puffs read as spheres
-    '  vec3 fillDir = normalize(vec3(-uLight.xy, 0.45));',
-    '  float bounce = max(0.0, dot(n, fillDir));',
-    '  light += 0.12 * bounce * bounce * (1.0 - smoothstep(0.0, 0.6, dl));',
-'  float rimness = 1.0 - smoothstep(0.3, 1.0, f.y);',                      // low height == near the silhouette
-'  light += 0.2 * rimness * smoothstep(0.25, 0.8, ndl);',                  // sun-facing rim catches light
-
-    // self-shadow: march toward the sun over the height field
-    '  vec2 dir = normalize(uLight.xy + vec2(1e-5, 0.0));',
-    '  float occ = 0.0;',
-    // soft: accumulate occlusion over a longer march, each sample fading with distance, and
-    // blend from the nearest-layer gate rather than cutting it (a step() here gave hard shadow edges)
-    '  float stepTex = 1.75; float maxDist = 8.0 * stepTex;',
-    '  for(int s = 1; s <= 8; s++){',
-    '    float dist = float(s) * stepTex;',
-    '    vec4 fa = fieldLod(vUv + dir * uTexel * dist, 1.0 + dist / maxDist * 1.5);',   // blur grows with distance: penumbra
-    '    float need = h0 + uTanEl * dist / uHeightScale;',
-    '    float rise = clamp(fa.x - need, 0.0, uJump) / max(uJump, 1e-4);',   // 0..1 within the near-layer window
-    '    float nearLayer = 1.0 - smoothstep(0.5 * uJump, 1.5 * uJump, fa.x - h0);',   // far layers handled by the contact term
-    '    float fall = 1.0 - dist / maxDist; fall *= fall;',
-    '    occ += rise * fa.y * nearLayer * fall;',
+    '  if(f.g < 0.01){ fragColor = sky; return; }',
+    '  float dx = gradient(vec2(t.x * 2.0, 0.0));',
+    '  float dy = gradient(vec2(0.0, t.y * 2.0));',
+    '  vec3 n = normalize(vec3(-dx, -dy, 1.0)); float lambert = dot(n, uLight);',
+    // bounce fill from opposite the sun, low over the horizon: the shaded side keeps a gradient
+    '  float bounce = max(0.0, dot(n, normalize(vec3(-uLight.x, -uLight.y, 0.25))));',
+    // self-shadow: march toward the sun over the height field, reading blurrier mips with distance (penumbra)
+    '  float occ = 0.0; vec2 dir = normalize(uLight.xy + vec2(1e-5, 0.0));',
+    '  float h0 = f.r * uHeightUnit;',
+    '  for(int i = 1; i <= 16; i++){',
+    '    float dist = float(i) * 0.006; float pen = 0.007 + dist * 0.30;',
+    '    vec2 coord = vUv + dir * dist / vec2(1.0, uAspect);',
+    '    vec4 caster = fieldLod(coord, log2(1.0 + float(i) * 0.4));',
+    '    float ray = h0 + dist * uLight.z / max(0.15, length(uLight.xy));',
+    '    float sh = smoothstep(-pen, pen, caster.r * uHeightUnit - ray - 0.010) * caster.g;',
+    '    occ = max(occ, sh * (1.0 - float(i) / 21.0));',
     '  }',
-    '  occ /= 2.2;',
-    '  light *= 1.0 - uShadow * 0.5 * smoothstep(0.0, 1.0, occ);',
-    '  float cw = fieldLod(vUv, 2.0).w;',
-    '  light *= 1.0 - uShadow * 0.4 * smoothstep(0.0, 1.0, cw);',   // contact shadow where a front plume overlaps this one (blurred)
-    // rim: the outermost texels sink toward the shadow blue and fade into the sky
-    '  light *= mix(0.3, 1.0, smoothstep(0.1, 0.9, f.y));',
-    '  float bands = max(uBands, 2.0);',
-    '  vec2 tc = floor(vUv / uTexel);',
-    '  float dith = mod(tc.x + 2.0 * mod(tc.y, 2.0), 4.0) / 4.0 - 0.375;',   // 2x2 ordered dither, +-3/8 band
-    '  float q = floor(light * bands + 0.5 + dith * 0.4) / bands;',
-    '  float alpha = smoothstep(0.1, 0.5, f.y);',
-    '  fragColor = mix(sky, vec4(palette(q), 1.0), alpha);',
+    '  float contact = fieldLod(vUv, 1.0).a * 0.025;',
+    '  float light = 0.18 + 0.84 * pow(max(0.0, lambert), 0.85) + 0.20 * bounce - uShadow * (occ * 0.36 + contact);',
+    '  light += bayer(gl_FragCoord.xy) * 0.012;',
+    '  vec3 cloud = palette(light);',
+    // thin cream rim where the silhouette faces the sun
+    '  float edge = 1.0 - min(min(fieldAt(vUv + vec2(t.x, 0.0)).g, fieldAt(vUv - vec2(t.x, 0.0)).g), min(fieldAt(vUv + vec2(0.0, t.y)).g, fieldAt(vUv - vec2(0.0, t.y)).g));',
+    '  cloud = mix(cloud, vec3(1.0, 0.98, 0.86), edge * max(0.0, lambert) * 0.20);',
+    '  fragColor = (uSky > 0.5) ? vec4(mix(sky.rgb, cloud, f.g), 1.0) : vec4(cloud * f.g, f.g);',
     '}'
   ].join('\n');
 
@@ -466,10 +403,10 @@
 
     this._fieldProg = link(gl, VS, FIELD_FS);
     this._fieldU = uniforms(gl, this._fieldProg, ['uBlobs', 'uAux', 'uCount', 'uTile', 'uAspect', 'uTime', 'uBillow', 'uRoll',
-      'uErosion', 'uRelief', 'uSmoothK', 'uDomeR', 'uHeightUnit', 'uTexelWorld', 'uMeanR', 'uPacked', 'uDepth']);
+      'uErosion', 'uRelief', 'uReference', 'uSoftness', 'uHeightUnit', 'uPacked', 'uDepth']);
     this._shadeProg = link(gl, VS, SHADE_FS);
-    this._shadeU = uniforms(gl, this._shadeProg, ['uField', 'uTexel', 'uLight', 'uSinEl', 'uTanEl', 'uHeightScale',
-      'uShadow', 'uJump', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
+    this._shadeU = uniforms(gl, this._shadeProg, ['uField', 'uTexel', 'uLight', 'uAspect', 'uHeightUnit',
+      'uShadow', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
 
     // billow tile (static asset; baked once)
     this._tile = gl.createTexture();
@@ -545,9 +482,9 @@
     var gl = this.gl;
     var t0 = (typeof performance !== 'undefined') ? performance.now() : Date.now();
     look = look || {};
-    var billow = num(look.billow, 0.5), softness = num(look.softness, 0.3), erosion = num(look.erosion, 0.4);
-    var sun = num(look.sun, 120), elevation = num(look.elevation, 17), shadow = num(look.shadow, 0.8);
-    var bands = num(look.bands, 18), relief = num(look.relief, 0.5);
+    var billow = num(look.billow, 1), softness = num(look.softness, 1.3), erosion = num(look.erosion, 0.2);
+    var sun = num(look.sun, 135), elevation = num(look.elevation, 32), shadow = num(look.shadow, 0.55);
+    var bands = num(look.bands, 5), relief = num(look.relief, 1);
     var sky = look.sky !== false, pixelated = look.pixelated !== false;
     var time = num(timeSeconds, 0);
 
@@ -562,12 +499,11 @@
     // reference radii must NOT follow the live parcels: budding / dying / regrowing parcels would
     // rescale the whole height field every frame (visible as a global stutter). Prefer the sim's
     // static reference, fall back to fixed values.
-    var maxR = num(sim.refRadius, 0.16), meanR = num(sim.meanRadius, maxR * 0.7);
+    var maxR = num(sim.refRadius, 0.16);
 
-    var smoothK = meanR * (0.4 + 0.8 * softness) * 0.9;
-    var depth = num(look.depth, 0.5);
-    var zScale = depth * 3.0 * maxR;   // world units of height between z=0 and z=1 (0.5 -> 1.5*maxR)
-    var heightUnit = maxR * 4.5 + zScale;   // never clip the dome of the largest parcel   // world units that map to height 1.0 in the field texture
+    var depth = num(look.depth, 1);
+    // tallest possible point: cloud base (1.5 R) + skin (1.2 r) + depth offset; never clip it
+    var heightUnit = maxR * (3.0 + 0.8 * depth);
 
     // ---- pass 1: field ----
     gl.bindFramebuffer(gl.FRAMEBUFFER, this._fbo);
@@ -588,12 +524,10 @@
     gl.uniform1f(fu.uRoll, num(look.roll, 0.6));
     gl.uniform1f(fu.uErosion, erosion);
     gl.uniform1f(fu.uRelief, relief);
-    gl.uniform1f(fu.uSmoothK, smoothK);
-    gl.uniform1f(fu.uDomeR, 2.0 + 1.5 * softness);
+    gl.uniform1f(fu.uReference, maxR);
+    gl.uniform1f(fu.uSoftness, Math.max(0.2, softness));
     gl.uniform1f(fu.uHeightUnit, heightUnit);
-    gl.uniform1f(fu.uDepth, zScale);
-    gl.uniform1f(fu.uTexelWorld, 1 / this.stats.fieldW);
-    gl.uniform1f(fu.uMeanR, meanR);
+    gl.uniform1f(fu.uDepth, depth);
     gl.uniform1f(fu.uPacked, this._packed ? 1 : 0);
     gl.bindVertexArray(this._vao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -610,23 +544,20 @@
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
       this._filter = filter;
     }
-    var az = sun * Math.PI / 180, el = Math.max(2, Math.min(88, elevation)) * Math.PI / 180;
+    var az = sun * Math.PI / 180, el = Math.max(8, Math.min(85, elevation)) * Math.PI / 180;
     var lx = Math.cos(az) * Math.cos(el), ly = Math.sin(az) * Math.cos(el), lz = Math.sin(el);
     var su = this._shadeU;
     gl.uniform1i(su.uField, 0);
     gl.uniform2f(su.uTexel, 1 / this.stats.fieldW, 1 / this.stats.fieldH);
     gl.uniform3f(su.uLight, lx, ly, lz);
-    gl.uniform1f(su.uSinEl, lz);
-    gl.uniform1f(su.uTanEl, Math.tan(el));
-    // height 1.0 == heightUnit world units == that many texels, exaggerated for steeper shading
-    gl.uniform1f(su.uHeightScale, Math.max(2, heightUnit * this.stats.fieldW * 0.9));   // ~true world slopes: spheres shade as spheres
+    gl.uniform1f(su.uAspect, aspect);
+    gl.uniform1f(su.uHeightUnit, heightUnit);
     gl.uniform1f(su.uShadow, shadow);
     gl.uniform1f(su.uDebug, num(look.debug, 0));
-    gl.uniform1f(su.uJump, 0.3 * zScale / heightUnit);   // height-field jump clamp (field units)
     gl.uniform1f(su.uBands, bands);
     gl.uniform1f(su.uSky, sky ? 1 : 0);
     gl.uniform1f(su.uPacked, this._packed ? 1 : 0);
-    gl.uniform3f(su.uSkyColor, 0x0a / 255, 0x6f / 255, 0x8b / 255);
+    gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);   // flat teal (the reference's sky at 0.35)
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindVertexArray(null);
 
