@@ -9,7 +9,7 @@
     seed: 7401,
     preset: 'confluence',
     settings: { speed: 1, cohesion: .6, breakup: .5, buoyancy: .5, turbulence: 1, coverage: .6 },
-    look: { billow: 2, softness: .79, blend: 1, erosion: 1, relief: 2, depth: .55, roll: .6, sun: 81, elevation: -17, shadow: .64, highlight: .68, fill: .2, bands: 5, toneA: .485, toneB: .89, flatten: .3, ink: .5, sky: true, pixelated: true, toon: false, patchN: false },
+    look: { billow: 2, softness: .79, blend: 1, erosion: 1, relief: 2, depth: .55, roll: .6, sun: 81, elevation: -17, shadow: .64, highlight: .68, fill: .2, bands: 5, toneA: .485, toneB: .89, flatten: .3, ink: .5, sky: true, pixelated: true, toon: false, patchN: true },
     resolution: 160
   };
   var PRESETS = (window.CloudSim && window.CloudSim.PRESETS) || ['single', 'plumes', 'lavalamp', 'islands', 'confluence'];
