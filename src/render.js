@@ -329,6 +329,11 @@
     'uniform vec3 uSkyColor;',
     'uniform float uDebug;',
     'uniform float uPixelated;', // 1: every field read snaps to the texel centre (one shade per texel)
+    'uniform float uToon;',      // 1: toon path (energies thresholded, input dither, ink lines)
+    'uniform float uToneA;',     // direct-energy threshold for the lit tone
+    'uniform float uToneB;',     // direct+ambient threshold for the mid tone
+    'uniform float uFlatten;',   // blend normals toward a blurred field (solid, painted lighting)
+    'uniform float uInk;',       // ink line strength (silhouette + depth steps, near side)
     'vec2 suv;',
     'vec4 fieldAt(vec2 uv){',      // returns (height, mask, detail, contact)
     '  vec4 t = textureLod(uField, uv, 0.0);',
@@ -340,8 +345,8 @@
     '  return textureLod(uField, uv, lod);',
     '}',
     // world-space slope, mask-weighted so the silhouette cliff does not bend the normals
-    'float gradient(vec2 off){',
-    '  vec4 c = fieldAt(suv), a = fieldAt(suv - off), b = fieldAt(suv + off);',
+    'float gradient(vec2 off, float lod){',
+    '  vec4 c = fieldLod(suv, lod), a = fieldLod(suv - off, lod), b = fieldLod(suv + off, lod);',
     '  float span = length(off * vec2(1.0, uAspect));',
     '  float wa = smoothstep(0.05, 0.95, a.g), wb = smoothstep(0.05, 0.95, b.g);',
     // a step (a cap edge) is where one side changes several times more than the other; a sphere
@@ -374,9 +379,17 @@
     '  vec4 sky = (uSky > 0.5) ? vec4(uSkyColor, 1.0) : vec4(0.0);',
     '  if(uDebug > 0.5){ float cv = fract(f.x * 25.0); fragColor = vec4(vec3(f.x * 2.0 * (0.5 + 0.5 * step(0.5, cv))), 1.0); return; }',
     '  if(f.g < 0.01){ fragColor = sky; return; }',
-    '  float dx = gradient(vec2(t.x * 2.0 * uResScale, 0.0));',
-    '  float dy = gradient(vec2(0.0, t.y * 2.0 * uResScale));',
-    '  vec3 n = normalize(vec3(-dx, -dy, 1.0)); float lambert = dot(n, uLight);',
+    '  float dx = gradient(vec2(t.x * 2.0 * uResScale, 0.0), 0.0);',
+    '  float dy = gradient(vec2(0.0, t.y * 2.0 * uResScale), 0.0);',
+    '  vec3 n = normalize(vec3(-dx, -dy, 1.0));',
+    // T2 normal flattening: blend toward the normal of a blurred field so the shadow line is one clean
+    // shape instead of following every bump (the talk edits / flattens normals for solid lighting)
+    '  if(uFlatten > 0.001){',
+    '    float lodS = 2.0 + log2(uResScale);',
+    '    float sx = gradient(vec2(t.x * 4.0 * uResScale, 0.0), lodS), sy = gradient(vec2(0.0, t.y * 4.0 * uResScale), lodS);',
+    '    n = normalize(mix(n, normalize(vec3(-sx, -sy, 1.0)), uFlatten));',
+    '  }',
+    '  float lambert = dot(n, uLight);',
     // bounce fill from opposite the sun, low over the horizon: the shaded side keeps a gradient
     '  float bounce = max(0.0, dot(n, normalize(vec3(-uLight.x, -uLight.y, 0.25))));',
     // self-shadow: march toward the sun over the height field, reading blurrier mips with distance (penumbra)
@@ -394,12 +407,34 @@
     '    occ = max(occ, sh * (1.0 - float(i) / 21.0));',
     '  }',
     '  float contact = fieldLod(suv, 1.0 + log2(uResScale)).a * 0.025;',
-    '  float light = 0.18 + 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) + uFill * bounce - uShadow * (occ * 0.55 + contact * 1.6);',
-    '  light += bayer((uPixelated > 0.5) ? floor(vUv / t) : gl_FragCoord.xy) * 0.012;',
-    '  vec3 cloud = palette(light);',
-    // thin cream rim where the silhouette faces the sun
     '  float edge = 1.0 - min(min(fieldAt(suv + vec2(t.x, 0.0)).g, fieldAt(suv - vec2(t.x, 0.0)).g), min(fieldAt(suv + vec2(0.0, t.y)).g, fieldAt(suv - vec2(0.0, t.y)).g));',
-    '  cloud = mix(cloud, vec3(1.0, 0.98, 0.86), edge * max(0.0, lambert) * 0.20);',
+    '  vec3 cloud;',
+    '  if(uToon > 0.5){',
+    // T1 (the Never's End cloud rule): lighting as two energies, thresholded into three tones. The
+    // dither shifts the ENERGY on alternate texels before the threshold (not the output colour), so
+    // band edges become a one-band checkerboard and nothing else is touched.
+    '    float direct = pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - uShadow * occ);',
+    '    float ambient = 0.35 + uFill * bounce - uShadow * contact * 4.0;',
+    '    vec2 ti = (uPixelated > 0.5) ? floor(vUv / t) : floor(gl_FragCoord.xy);',
+    '    if(mod(ti.x + ti.y, 2.0) > 0.5){ direct -= 0.087; ambient -= 0.087; }',
+    '    float tone = (direct > uToneA) ? 1.0 : (((direct + ambient) > uToneB) ? 0.4 : 0.0);',
+    '    cloud = mix(vec3(0.30, 0.54, 0.65), vec3(0.99, 0.97, 0.85), tone);',
+    // T3 ink: 1-texel line on the silhouette and on the NEAR side of a depth step (the nearer
+    // billow reads in front); colour is the tone darkened, never black
+    '    float h0w = f.r * uHeightUnit; float drop = 0.0;',
+    '    drop = max(drop, h0w - fieldAt(suv + vec2(t.x, 0.0)).r * uHeightUnit);',
+    '    drop = max(drop, h0w - fieldAt(suv - vec2(t.x, 0.0)).r * uHeightUnit);',
+    '    drop = max(drop, h0w - fieldAt(suv + vec2(0.0, t.y)).r * uHeightUnit);',
+    '    drop = max(drop, h0w - fieldAt(suv - vec2(0.0, t.y)).r * uHeightUnit);',
+    '    float ink = max(smoothstep(uJumpW, 2.0 * uJumpW, drop), step(0.5, edge)) * uInk;',
+    '    cloud *= 1.0 - 0.55 * ink;',
+    '  } else {',
+    '    float light = 0.18 + 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) + uFill * bounce - uShadow * (occ * 0.55 + contact * 1.6);',
+    '    light += bayer((uPixelated > 0.5) ? floor(vUv / t) : gl_FragCoord.xy) * 0.012;',
+    '    cloud = palette(light);',
+    // thin cream rim where the silhouette faces the sun
+    '    cloud = mix(cloud, vec3(1.0, 0.98, 0.86), edge * max(0.0, lambert) * 0.20);',
+    '  }',
     '  fragColor = (uSky > 0.5) ? vec4(mix(sky.rgb, cloud, f.g), 1.0) : vec4(cloud * f.g, f.g);',
     '}'
   ].join('\n');
@@ -453,7 +488,7 @@
       'uErosion', 'uRelief', 'uReference', 'uSoftness', 'uHeightUnit', 'uPacked', 'uDepth']);
     this._shadeProg = link(gl, VS, SHADE_FS);
     this._shadeU = uniforms(gl, this._shadeProg, ['uField', 'uTexel', 'uLight', 'uAspect', 'uHeightUnit',
-      'uShadow', 'uResScale', 'uJumpW', 'uHighlight', 'uFill', 'uPixelated', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
+      'uShadow', 'uResScale', 'uJumpW', 'uHighlight', 'uFill', 'uPixelated', 'uToon', 'uToneA', 'uToneB', 'uFlatten', 'uInk', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
 
     // billow tile (static asset; baked once)
     this._tile = gl.createTexture();
@@ -603,6 +638,11 @@
     gl.uniform1f(su.uResScale, Math.max(1, this.stats.fieldW / 320));
     gl.uniform1f(su.uJumpW, 0.05 * maxR);
     gl.uniform1f(su.uPixelated, pixelated ? 1 : 0);
+    gl.uniform1f(su.uToon, look.toon ? 1 : 0);
+    gl.uniform1f(su.uToneA, num(look.toneA, 0.485));
+    gl.uniform1f(su.uToneB, num(look.toneB, 0.89));
+    gl.uniform1f(su.uFlatten, num(look.flatten, 0.3));
+    gl.uniform1f(su.uInk, num(look.ink, 0.5));
     gl.uniform1f(su.uHighlight, num(look.highlight, 0.68));
     gl.uniform1f(su.uFill, num(look.fill, 0.2));
     gl.uniform1f(su.uDebug, num(look.debug, 0));
