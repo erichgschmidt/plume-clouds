@@ -208,7 +208,7 @@
     '    float cap = coreH;',
     // a rigid skin of 8..20 sphere caps spread over the whole 3D sphere (Fibonacci-ish). Caps on the
     // back have a reduced projected radius, so they shrink away around the rim instead of popping.
-    '    int skinN = 8 + int(floor(hash(b.w + 91.7) * 13.0));',
+    '    int skinN = int(clamp(floor((8.0 + hash(b.w + 91.7) * 13.0) * (0.5 + 0.25 * clamp(uBillow, 0.0, 4.0))), 4.0, 20.0));',
     '    for(int j = 0; j < 20; j++){',
     '      if(j >= skinN) break;',
     '      float jit = hash(b.w + float(j) * 31.7) - 0.5;',
@@ -216,7 +216,21 @@
     '      float az = float(j) * 2.399963 + b.w * 2.7 + jit * 0.8;',
     '      float sr = sqrt(max(1.0 - zz * zz, 0.0));',
     '      vec3 cen = rotAxis(vec3(sr * cos(az), sr * sin(az), zz), axis, angle) * 0.78;',
-    '      float rad = mix(0.28, 0.46, hash(b.w + float(j) * 17.0)) * 0.84 * sqrt(clamp(uBillow, 0.0, 4.0));',
+    // cap size saturates at half the parent radius: a cap as big as its parent meets it in a long
+    // circular crease (a ring). Past billow 2, billow adds caps instead of inflating them.
+    '      float rad = min(0.5, mix(0.28, 0.46, hash(b.w + float(j) * 17.0)) * 0.84 * sqrt(clamp(uBillow, 0.0, 2.0)));',
+    // a billow lives on ONE sphere: where a neighbouring parcel of the same branch is higher at the
+    // cap's centre, the cap shrinks away (evaluated per cap, so nothing is cut into a crescent)
+    '      vec2 pc = b.xy + cen.xy * r;',
+    '      float selfH = sqrt(max(0.8649 - dot(cen.xy, cen.xy), 0.0)) * r; float otherH = 0.0;',
+    '      for(int i2 = 0; i2 < ' + MAX_BLOBS + '; i2++){',
+    '        if(i2 >= uCount) break;',
+    '        if(i2 == i) continue;',
+    '        vec4 b2 = uBlobs[i2]; if(b2.z <= 1e-4 || uAux[i2].w <= 1e-6 || int(uAux[i2].x + 0.5) != bi) continue;',
+    '        vec2 q2 = (pc - b2.xy) / b2.z; float d2 = dot(q2, q2);',
+    '        if(d2 < 0.8649) otherH = max(otherH, sqrt(0.8649 - d2) * b2.z);',
+    '      }',
+    '      rad *= smoothstep(-0.15 * r, 0.05 * r, selfH - otherH);',
     '      float zc = min(cen.z, 0.0);',
     '      float pr = sqrt(max(rad * rad - zc * zc, 0.0));',
     '      if(pr <= 1e-4) continue;',
