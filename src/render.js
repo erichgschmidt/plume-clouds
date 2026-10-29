@@ -257,25 +257,22 @@
     // per-parcel sphere cap, smooth-max'd per branch: every parcel reads as its own billow (the
     // branch-wide dome alone plateaus wherever parcels overlap deeply)
     '    float Rc = rEff * 1.08; float hc = 0.85 * sqrt(max(Rc * Rc - dot(q, q), 0.0));',   // near-hemispheres: steep flanks, distinct billows
-    // sub-spheres riding ON the parent sphere: each sits at a latitude on the sphere and orbits a
-    // tilted axis, projected to the screen. They sweep across the face, foreshorten toward the rim
-    // and slip around the back (the scoop curl). Slightly different rates per sub-sphere = churn.
-    '    float axA = b.w * 2.399 + 0.6;',
-    '    vec3 axis = normalize(vec3(cos(axA), sin(axA), 0.35));',
-    '    vec3 U = normalize(cross(axis, vec3(0.0, 0.0, 1.0)));',
-    '    vec3 V = cross(axis, U);',
-    '    for(int sidx = 0; sidx < 8; sidx++){',
+    // ring-vortex roll (mushroom cloud): sub-puffs follow meridians of the parent sphere. Each
+    // is born small at the apex, rolls outward and down its side growing as it goes, and tucks
+    // under at the bottom where it shrinks away; then it re-emerges at the apex. Azimuth is fixed
+    // per sub-puff (front half only), so the top always flows out and the underside pulls in.
+    '    for(int sidx = 0; sidx < 7; sidx++){',
     '      float fs = float(sidx);',
-    '      float lat = (fract(b.w * 5.13 + fs * 0.381) - 0.5) * 2.4;',               // -1.2..1.2 rad
-    '      float rate = 0.12 * uRoll * (0.7 + 0.6 * fract(b.w * 3.7 + fs * 0.713));',
-    '      float lon = uTime * rate + fs * 0.785 + b.w * 6.2832;',
-    '      lat += 0.25 * sin(uTime * rate * 1.7 + fs);',                              // slow bob: churn
-    '      vec3 P = axis * sin(lat) + cos(lat) * (U * cos(lon) + V * sin(lon));',
-    '      float vis = smoothstep(-0.15, 0.35, P.z);',                                // gone around the back
-    '      float sz = rEff * (0.28 + 0.18 * fract(b.w * 9.1 + fs * 0.532)) * (0.55 + 0.45 * vis) * vis;',
+    '      float phi = 0.25 + 2.64 * fract(b.w * 5.13 + fs * 0.381);',               // azimuth across the front half
+    '      float psi = fract(uTime * 0.045 * uRoll + fract(b.w * 3.7 + fs * 0.713)) * 3.14159;',   // 0 apex .. pi bottom
+    '      vec3 P = vec3(sin(psi) * cos(phi), -cos(psi), sin(psi) * sin(phi));',    // y down on screen: -cos(psi) is the top at psi=0
+    '      float grow = sin(psi);',                                                   // small at the apex, full at the sides
+    '      float tuck = 1.0 - smoothstep(2.3, 3.0, psi);',                            // shrinks away as it tucks under
+    '      float born = smoothstep(0.0, 0.5, psi);',
+    '      float sz = rEff * (0.3 + 0.15 * fract(b.w * 9.1 + fs * 0.532)) * (0.4 + 0.6 * grow) * tuck * born;',
     '      vec2 c = P.xy * rEff * 0.9;',
     '      float dd = length(q - c);',
-    '      float base = 0.85 * sqrt(max(Rc * Rc - dot(c, c), 0.0));',   // main sphere height under the sub-sphere
+    '      float base = 0.85 * sqrt(max(Rc * Rc - dot(c, c), 0.0));',   // main sphere height under the sub-puff
     '      float hs = sqrt(max(sz * sz - dd * dd, 0.0)) + base;',          // a full sphere sitting ON the main cap
     '      hc = -smin(-hc, -hs, k * 0.15);',
     '      di = smin(di, dd - sz * 0.95, k * 0.25);',

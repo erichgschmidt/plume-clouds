@@ -82,7 +82,7 @@
   var PRESETS = {
     // one upright lobe, no budding, no rotation: isolates the surface roll
     single: {
-      plumes: [{ u: 0.5, v: 0.6, angle: -Math.PI / 2, trunkN: 3, children: [0, 0], curl: 0, spin: [0, 0], tower: 1, maxL: 0.14, rMul: 1.1, maxDepth: 0 }],
+      plumes: [{ u: 0.5, v: 0.6, angle: -Math.PI / 2, trunkN: 3, children: [0, 0], curl: 0, spin: [0, 0], tower: 1, maxL: 0.14, rMul: 1.1, maxDepth: 0, still: true }],
       crossBud: false,
       defaults: { speed: 1, cohesion: 0.8, breakup: 0, buoyancy: 0.3, turbulence: 0.15, coverage: 0.6 }
     },
@@ -300,7 +300,8 @@
 
     // sway from curl noise at the root + slow breathing of the heading
     this._curl(b.rootX, b.rootY, _flow);
-    var sway = (_flow[0] * 0.3 + _flow[1] * 0.2) * turbulence * 0.7 + Math.sin(t * 0.15 + b.swayPhase) * 0.12;
+    var still = !!b.plume.def.still;
+    var sway = still ? 0 : (_flow[0] * 0.3 + _flow[1] * 0.2) * turbulence * 0.7 + Math.sin(t * 0.15 + b.swayPhase) * 0.12;
     var heading = b.angle + sway * (b.isTrunk ? 0.5 : 1);
     // root parcel sits half a parent radius out from the attach point: overlaps the parent by >= 50% of r
     // while growing (or retracting) the whole chain starts deep inside the parent and extends out of it
@@ -343,7 +344,7 @@
       var p = b.parcels[i];
       this._pointAt(b, p.u, _pt);
       p.tx = clamp(_pt[0], MARGIN, 1 - MARGIN); p.ty = clamp(_pt[1], MARGIN, this.aspect - MARGIN);
-      var breathe = 1 + 0.1 * p.u * Math.sin(t * 0.9 + p.seed * 3.1);
+      var breathe = still ? 1 : 1 + 0.1 * p.u * Math.sin(t * 0.9 + p.seed * 3.1);
       p.tr = b.taper(p.u) * rScale * breathe * g * p.fade;
     }
   };
@@ -400,6 +401,7 @@
     var B = this.branches, i, k, b, p;
 
     var feedRate = 0.035 * (0.4 + buoyancy);   // chain parameter units per second (full traverse ~20-30 s)
+    if (this.plumes.length && this.plumes[0].def.still) feedRate = 0;
     var ease = 1 - Math.exp(-h / 0.35);
 
     // order: parents before children (branches are pushed after their parents)
