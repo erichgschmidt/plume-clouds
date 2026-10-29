@@ -265,12 +265,6 @@
     '    vec2 pe = p * 6.2832 + vec2(uTime * 0.02 * uRoll, 0.0);',
     '    float tuft = 0.5 + 0.17 * (sin(pe.x * 5.1 + 1.3) * sin(pe.y * 4.3 + 0.7) + 0.6 * sin(pe.x * 9.7 + 2.1) * sin(pe.y * 8.9 + 1.9) + sin(pe.x * 2.9 + pe.y * 3.7));',
     '    sd += (tuft - 0.5) * r * 0.07 * uErosion * ax.w;',
-    // shelf: inside the (lumpy, eroded) outline the surface rises at 45 degrees to 0.3 r and the
-    // body is max'd over it. The sphere's own rim falls to zero with a vertical tangent just inside
-    // the outline; that steep band showed through the skin as a hard contour line and left the
-    // rim caps floating over a cliff. Zero at the outline itself, so no cliff against the sky.
-    '    float shelf = 0.3 * r * smoothstep(0.0, 0.3 * r, -sd);',
-    '    cap = -smin(-cap, -shelf, r * 0.08);',
     // junction: a child root bridges to its parent parcel with a capsule, only when both are grown and the pair is not over-stretched
     '    float bridgeCap = 0.0;',
     '    if(pi >= 0 && pi < uCount && pi != i && int(uAux[pi].x + 0.5) != bi){',
