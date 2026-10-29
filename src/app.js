@@ -7,10 +7,10 @@
   // ---------- state ----------
   var DEFAULTS = {
     seed: 7401,
-    preset: 'single',
-    settings: { speed: 1, cohesion: .6, breakup: .5, buoyancy: .5, turbulence: .4, coverage: .6 },
-    look: { billow: 1, softness: 1.3, erosion: .2, relief: 1, depth: 1, roll: .6, sun: 135, elevation: 32, shadow: .55, bands: 5, sky: true, pixelated: true },
-    resolution: 320
+    preset: 'confluence',
+    settings: { speed: 1, cohesion: .6, breakup: .5, buoyancy: .5, turbulence: 1, coverage: .6 },
+    look: { billow: 2, softness: .79, erosion: 1, relief: 2, depth: .55, roll: .6, sun: 81, elevation: -17, shadow: .64, bands: 5, sky: true, pixelated: true },
+    resolution: 160
   };
   var PRESETS = (window.CloudSim && window.CloudSim.PRESETS) || ['single', 'plumes', 'lavalamp', 'islands', 'confluence'];
   var RESOLUTIONS = [160, 240, 320, 480];

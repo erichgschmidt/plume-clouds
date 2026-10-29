@@ -1,0 +1,27 @@
+{
+  "seed": 7401,
+  "preset": "confluence",
+  "settings": {
+    "speed": 1,
+    "cohesion": 0.6,
+    "breakup": 0.5,
+    "buoyancy": 0.5,
+    "turbulence": 1,
+    "coverage": 0.6
+  },
+  "look": {
+    "billow": 2,
+    "softness": 0.79,
+    "erosion": 1,
+    "relief": 2,
+    "depth": 0.55,
+    "roll": 0.6,
+    "sun": 81,
+    "elevation": -17,
+    "shadow": 0.64,
+    "bands": 5,
+    "sky": false,
+    "pixelated": true
+  },
+  "resolution": 160
+}

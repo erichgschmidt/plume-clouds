@@ -35,7 +35,7 @@
   var MAX_L = 0.35;                        // max chain length (world units)
   var R_OUT_MIN = 0.02;        // parcels below this are not emitted
   var FADE_S = 0.5;            // parcel fade in/out at chain ends
-  var BIRTH_S = 7.0;           // branch link / growth ramp: a lobe emerges slowly from inside its parent
+  var BIRTH_S = 12.0;           // branch link / growth ramp: a lobe emerges slowly from inside its parent
   var PHI = 1.618;             // golden ratio: successor size 1/PHI, successor speed x PHI
   var SPAWN_ARC = 0.7;         // rad a billow travels before its successor buds behind it
   var DIE_ARC = 1.4;           // rad a billow travels before it sinks back into the body
@@ -192,7 +192,7 @@
     var isTrunk = !parent;
     var hand = opt.hand || plume.hand || 1;
     var gen = opt.gen || 0;   // 0: seed billow; each successor behind it is one generation smaller / quicker
-    var spin = isTrunk ? 0 : (d.spin[0] + rng() * (d.spin[1] - d.spin[0])) * hand * Math.pow(PHI, gen);   // a billow keeps turning one way about its root
+    var spin = isTrunk ? 0 : (d.spin[0] + rng() * (d.spin[1] - d.spin[0])) * hand * Math.pow(1.27, gen);   // a billow keeps turning one way about its root; successors a little quicker (sqrt phi per generation)
     var z = isTrunk ? 0.5 : clamp(parent.z + (0.12 + rng() * 0.18) * (rng() < 0.5 ? -1 : 1), 0, 1);
     var b = {
       id: slot, plume: plume, parent: parent, uAttach: parent ? (opt.uAttach !== undefined ? opt.uAttach : 0.15 + rng() * 0.7) : 0,
@@ -517,7 +517,7 @@
         Bo[o] = p.x; Bo[o + 1] = p.y; Bo[o + 2] = Math.min(p.r, 0.25); Bo[o + 3] = p.seed;
         A[o] = b.id; A[o + 1] = this._zAt(b, p.u);
         A[o + 2] = (p === root) ? pb : -1;
-        A[o + 3] = b.link;
+        A[o + 3] = b.link * b.link * (3 - 2 * b.link);   // eased: a lobe starts rising slowly and settles slowly
       }
     }
     for (i = n * 4; i < MAX_BLOBS * 4; i++) { Bo[i] = 0; A[i] = 0; }
