@@ -232,8 +232,10 @@
     '      float lhOut = sqrt(max(pr * pr - dd, 0.0));',
     '      lh = mix(lh, lhOut, smoothstep(core - 0.15, core + 0.05, rho));',
     // the cap/parent join follows Softness: a sharp two-sphere crease drew a thin dark ring at high res
-    '      float join = smoothstep(0.0, rad * 0.14 * uSoftness, -sDist);',
-    '      cap = -smin(-cap, -max(lh, 0.0) * r * join, r * 0.11 * uSoftness);',
+    // a cap's edge is a crisp step (the shade pass reads steps as occluding edges, like stacked
+    // spheres in pixel art); a ramp here was lit on one side and shaded on the other: a double line
+    '      float join = smoothstep(0.0, rad * 0.03, -sDist);',
+    '      cap = -smin(-cap, -max(lh, 0.0) * r * join, r * 0.03);',
     '    }',
     // material rides on the skin: tile read by the inverse-rotated sphere normal
     '    vec3 nrm = normalize(vec3(q, sqrt(max(1.0 - min(dot(q, q), 0.999), 0.001))));',
@@ -300,7 +302,8 @@
     'uniform float uAspect;',
     'uniform float uHeightUnit;', // world units of height per 1.0 in the field texture
     'uniform float uShadow;',
-    'uniform float uResScale;',  // field width / 320: shading footprints stay constant in world space
+    'uniform float uResScale;',
+    'uniform float uJumpW;',     // world height difference that counts as a step (an occluding edge)  // field width / 320: shading footprints stay constant in world space
     'uniform float uHighlight;', // 0: tight specular-like lit side .. 1: broad soft falloff
     'uniform float uFill;',      // bounce light lifting the shadow side
     'uniform float uBands;',
@@ -322,6 +325,8 @@
     '  vec4 c = fieldAt(vUv), a = fieldAt(vUv - off), b = fieldAt(vUv + off);',
     '  float span = length(off * vec2(1.0, uAspect));',
     '  float wa = smoothstep(0.05, 0.95, a.g), wb = smoothstep(0.05, 0.95, b.g);',
+    '  wa *= 1.0 - smoothstep(uJumpW, 2.0 * uJumpW, abs(a.r - c.r) * uHeightUnit);',
+    '  wb *= 1.0 - smoothstep(uJumpW, 2.0 * uJumpW, abs(b.r - c.r) * uHeightUnit);',
     '  return ((c.r - a.r) * wa + (b.r - c.r) * wb) * uHeightUnit / (span * max(1e-4, wa + wb));',
     '}',
     'float bayer(vec2 p){ ivec2 a = ivec2(mod(p, 4.0)); int n = a.x + 4 * a.y;',
@@ -358,7 +363,11 @@
     '    occ = max(occ, sh * (1.0 - float(i) / 21.0));',
     '  }',
     '  float contact = fieldLod(vUv, 1.0 + log2(uResScale)).a * 0.025;',
-    '  float light = 0.18 + 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) + uFill * bounce - uShadow * (occ * 0.55 + contact * 1.6);',
+    '  float ao = 0.0; float h0w = f.r * uHeightUnit;',
+    '  for(int d = 0; d < 8; d++){ float an = float(d) * 0.7854; vec2 off = vec2(cos(an), sin(an)) * t * 2.5 * uResScale;',
+    '    ao += max(0.0, (fieldAt(vUv + off).r * uHeightUnit - h0w) - uJumpW) / uJumpW; }',
+    '  ao = clamp(ao * 0.35, 0.0, 1.0);',
+    '  float light = 0.18 + 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) + uFill * bounce - uShadow * (occ * 0.55 + contact * 1.6 + ao * 0.3);',
     '  light += bayer(gl_FragCoord.xy) * 0.012;',
     '  vec3 cloud = palette(light);',
     // thin cream rim where the silhouette faces the sun
@@ -417,7 +426,7 @@
       'uErosion', 'uRelief', 'uReference', 'uSoftness', 'uHeightUnit', 'uPacked', 'uDepth']);
     this._shadeProg = link(gl, VS, SHADE_FS);
     this._shadeU = uniforms(gl, this._shadeProg, ['uField', 'uTexel', 'uLight', 'uAspect', 'uHeightUnit',
-      'uShadow', 'uResScale', 'uHighlight', 'uFill', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
+      'uShadow', 'uResScale', 'uJumpW', 'uHighlight', 'uFill', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
 
     // billow tile (static asset; baked once)
     this._tile = gl.createTexture();
@@ -565,6 +574,7 @@
     gl.uniform1f(su.uHeightUnit, heightUnit);
     gl.uniform1f(su.uShadow, shadow);
     gl.uniform1f(su.uResScale, Math.max(1, this.stats.fieldW / 320));
+    gl.uniform1f(su.uJumpW, 0.05 * maxR);
     gl.uniform1f(su.uHighlight, num(look.highlight, 0.68));
     gl.uniform1f(su.uFill, num(look.fill, 0.2));
     gl.uniform1f(su.uDebug, num(look.debug, 0));
