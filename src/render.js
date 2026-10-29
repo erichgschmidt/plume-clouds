@@ -170,6 +170,7 @@
     'uniform float uAspect;',
     'uniform float uTime;',
     'uniform float uBillow;',
+    'uniform float uRoll;',
     'uniform float uErosion;',
     'uniform float uRelief;',
     'uniform float uSmoothK;',
@@ -224,8 +225,8 @@
     // rim (zero flow at centre and rim, fastest half-way: a ring vortex seen from above). Two
     // phases crossfaded (flow mapping) so the distortion never accumulates.
     '    vec2 dq = q / max(rEff0, 1e-4); float rr = length(dq); vec2 rd = dq / max(rr, 1e-4);',
-    '    float roll = sin(clamp(rr, 0.0, 1.0) * 3.14159) * 0.3 * rEff0 / TILE_WORLD;',   // a fraction of the parcel radius per cycle
-    '    float ph = uTime * 0.09 + b.w; float fA = fract(ph), fB = fract(ph + 0.5); float wPh = abs(2.0 * fA - 1.0);',
+    '    float roll = sin(clamp(rr, 0.0, 1.0) * 3.14159) * 0.9 * uRoll * rEff0 / TILE_WORLD;',   // up to ~0.9 parcel radii per cycle
+    '    float ph = uTime * 0.14 + b.w; float fA = fract(ph), fB = fract(ph + 0.5); float wPh = abs(2.0 * fA - 1.0);',
     '    vec2 base = q / TILE_WORLD + seedOffset(b.w);',
     '    vec2 muvA = base - rd * roll * fA;',
     '    vec2 muvB = base - rd * roll * fB + vec2(0.37, 0.61);',
@@ -441,7 +442,7 @@
     this._packed = !this._floatOk;
 
     this._fieldProg = link(gl, VS, FIELD_FS);
-    this._fieldU = uniforms(gl, this._fieldProg, ['uBlobs', 'uAux', 'uCount', 'uTile', 'uAspect', 'uTime', 'uBillow',
+    this._fieldU = uniforms(gl, this._fieldProg, ['uBlobs', 'uAux', 'uCount', 'uTile', 'uAspect', 'uTime', 'uBillow', 'uRoll',
       'uErosion', 'uRelief', 'uSmoothK', 'uDomeR', 'uHeightUnit', 'uTexelWorld', 'uMeanR', 'uPacked', 'uDepth']);
     this._shadeProg = link(gl, VS, SHADE_FS);
     this._shadeU = uniforms(gl, this._shadeProg, ['uField', 'uTexel', 'uLight', 'uSinEl', 'uTanEl', 'uHeightScale',
@@ -561,6 +562,7 @@
     gl.uniform1f(fu.uAspect, aspect);
     gl.uniform1f(fu.uTime, time);
     gl.uniform1f(fu.uBillow, billow);
+    gl.uniform1f(fu.uRoll, num(look.roll, 0.6));
     gl.uniform1f(fu.uErosion, erosion);
     gl.uniform1f(fu.uRelief, relief);
     gl.uniform1f(fu.uSmoothK, smoothK);

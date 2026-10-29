@@ -9,7 +9,7 @@
     seed: 7401,
     preset: 'plumes',
     settings: { speed: 1, cohesion: .6, breakup: .5, buoyancy: .5, turbulence: .4, coverage: .6 },
-    look: { billow: .5, softness: .3, erosion: .4, relief: .5, sun: 120, elevation: 17, shadow: .8, bands: 18, sky: true, pixelated: true },
+    look: { billow: .5, softness: .3, erosion: .4, relief: .5, roll: .6, sun: 120, elevation: 17, shadow: .8, bands: 18, sky: true, pixelated: true },
     resolution: 320
   };
   var PRESETS = (window.CloudSim && window.CloudSim.PRESETS) || ['plumes', 'lavalamp', 'islands', 'confluence'];
@@ -40,6 +40,7 @@
     ['softness', 'Softness', 0, 1, 0.01],
     ['erosion', 'Erosion', 0, 1, 0.01],
     ['relief', 'Relief', 0, 1, 0.01],
+    ['roll', 'Roll', 0, 1, 0.01],
     ['sun', 'Sun', 0, 360, 1],
     ['elevation', 'Elevation', -60, 60, 1],
     ['shadow', 'Shadow', 0, 1, 0.01],
