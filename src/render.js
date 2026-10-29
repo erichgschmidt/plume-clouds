@@ -256,7 +256,23 @@
     '    dB[bi] = smin(dB[bi], di, k);',
     // per-parcel sphere cap, smooth-max'd per branch: every parcel reads as its own billow (the
     // branch-wide dome alone plateaus wherever parcels overlap deeply)
-    '    float Rc = rEff * 1.25; float hc = 0.7 * sqrt(max(Rc * Rc - dot(q, q), 0.0));',   // near-hemispheres: steep flanks, distinct billows
+    '    float Rc = rEff * 1.08; float hc = 0.85 * sqrt(max(Rc * Rc - dot(q, q), 0.0));',   // near-hemispheres: steep flanks, distinct billows
+    // sub-spheres: six smaller caps per parcel, each born near the centre, travelling outward and
+    // shrinking away at the rim (the scoop roll made of spheres, not of texture). With roll = 0 they
+    // sit still at seeded positions.
+    '    for(int sidx = 0; sidx < 6; sidx++){',
+    '      float fs = float(sidx);',
+    '      float ang = fs * 1.0472 + b.w * 6.2832 + 0.4 * sin(b.w * 7.0 + fs);',
+    '      float phs = fract(uTime * 0.035 * uRoll + fract(b.w * 13.7 + fs * 0.618));',
+    '      float rad = rEff * (0.1 + 0.85 * phs);',
+    '      float sz = rEff * 0.5 * sin(phs * 3.14159);',
+    '      vec2 c = vec2(cos(ang), sin(ang)) * rad;',
+    '      float dd = length(q - c);',
+    '      float base = 0.85 * sqrt(max(Rc * Rc - dot(c, c), 0.0));',   // main sphere height under the sub-sphere
+    '      float hs = sqrt(max(sz * sz - dd * dd, 0.0)) + base;',   // a full sphere sitting ON the main cap: protrudes by its whole radius
+    '      hc = -smin(-hc, -hs, k * 0.15);',
+    '      di = smin(di, dd - sz * 0.95, k * 0.25);',
+    '    }',
     '    cB[bi] = -smin(-cB[bi], -hc, k);',
     '  }',
     // world-space erosion, slowly drifting: ragged tufts instead of clean necks
@@ -272,10 +288,10 @@
     '    float Rj = (wB[j] > 0.0) ? rB[j] / wB[j] : uMeanR;',
     '    vec2 tvj = (wB[j] > 0.0) ? tB[j] / wB[j] : vec2(0.0);',
     '    lbB[j] = tvj.x; zB[j] = (wB[j] > 0.0) ? zB[j] / wB[j] : 0.0;',
-    '    float dome = -smin(-cB[j], -0.55 * domeH(dj, Rj), k);',   // caps carry the interior, the SDF dome carries the eroded silhouette
+    '    float dome = -smin(-cB[j], -0.3 * domeH(dj, Rj), k);',   // caps carry the interior, the SDF dome carries the eroded silhouette
     // the depth offset rolls off toward the silhouette so a front lobe slopes down onto the one
     // behind it (a full-height cliff at the edge shaded as a hard dark outline)
-    '    float zf = smoothstep(0.0, 0.6 * Rj, -dj);',
+    '    float zf = smoothstep(0.0, 1.2 * Rj, -dj);',
     '    hB[j] = dome + reliefH(dj, tvj) + zB[j] * uDepth * zf;',
     '    if(dj < 0.0){ if(hB[j] > hWin){ hSecond = hWin; hWin = hB[j]; win = j; dWin = dj; } else if(hB[j] > hSecond) hSecond = hB[j]; }',
     '  }',
@@ -326,6 +342,7 @@
     'uniform float uSky;',
     'uniform float uPacked;',
     'uniform vec3 uSkyColor;',
+    'uniform float uDebug;',
     'vec4 fieldAt(vec2 uv){',      // returns (height, mask, billow, contact)
     '  vec4 t = textureLod(uField, uv, 0.0);',
     '  if(uPacked > 0.5) return vec4(t.r + t.g / 255.0, t.b, 0.5, t.a);',
@@ -349,6 +366,7 @@
     'void main(){',
     '  vec4 f = fieldAt(vUv);',
     '  vec4 sky = (uSky > 0.5) ? vec4(uSkyColor, 1.0) : vec4(0.0);',
+    '  if(uDebug > 0.5){ float cv = fract(f.x * 25.0); fragColor = vec4(vec3(f.x * 2.0 * (0.5 + 0.5 * step(0.5, cv))), 1.0); return; }',
     '  if(f.y < 0.08){ fragColor = sky; return; }',
     '  float h0 = f.x;',
     '  float hL = fieldAt(vUv - vec2(uTexel.x, 0.0)).x + fieldAt(vUv - vec2(2.0 * uTexel.x, 0.0)).x;',
@@ -447,7 +465,7 @@
       'uErosion', 'uRelief', 'uSmoothK', 'uDomeR', 'uHeightUnit', 'uTexelWorld', 'uMeanR', 'uPacked', 'uDepth']);
     this._shadeProg = link(gl, VS, SHADE_FS);
     this._shadeU = uniforms(gl, this._shadeProg, ['uField', 'uTexel', 'uLight', 'uSinEl', 'uTanEl', 'uHeightScale',
-      'uShadow', 'uJump', 'uBands', 'uSky', 'uPacked', 'uSkyColor']);
+      'uShadow', 'uJump', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
 
     // billow tile (static asset; baked once)
     this._tile = gl.createTexture();
@@ -597,8 +615,9 @@
     gl.uniform1f(su.uSinEl, lz);
     gl.uniform1f(su.uTanEl, Math.tan(el));
     // height 1.0 == heightUnit world units == that many texels, exaggerated for steeper shading
-    gl.uniform1f(su.uHeightScale, Math.max(2, heightUnit * this.stats.fieldW * 0.38));
+    gl.uniform1f(su.uHeightScale, Math.max(2, heightUnit * this.stats.fieldW * 0.9));   // ~true world slopes: spheres shade as spheres
     gl.uniform1f(su.uShadow, shadow);
+    gl.uniform1f(su.uDebug, num(look.debug, 0));
     gl.uniform1f(su.uJump, 0.3 * zScale / heightUnit);   // height-field jump clamp (field units)
     gl.uniform1f(su.uBands, bands);
     gl.uniform1f(su.uSky, sky ? 1 : 0);

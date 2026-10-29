@@ -9,7 +9,7 @@
     seed: 7401,
     preset: 'single',
     settings: { speed: 1, cohesion: .6, breakup: .5, buoyancy: .5, turbulence: .4, coverage: .6 },
-    look: { billow: .5, softness: .3, erosion: .4, relief: .5, roll: .6, sun: 120, elevation: 17, shadow: .8, bands: 18, sky: true, pixelated: true },
+    look: { billow: .15, softness: .3, erosion: .1, relief: 0, roll: .6, sun: 120, elevation: 17, shadow: .8, bands: 7, sky: true, pixelated: true },
     resolution: 320
   };
   var PRESETS = (window.CloudSim && window.CloudSim.PRESETS) || ['single', 'plumes', 'lavalamp', 'islands', 'confluence'];
@@ -319,6 +319,7 @@
   stage.addEventListener('pointerup', endDrag);
   stage.addEventListener('pointercancel', endDrag);
 
+  if (/[?&]debug=1/.test(location.search)) state.look.debug = 1;   // height-field view
   fitCanvas();
   if (window.ResizeObserver) new ResizeObserver(fitCanvas).observe(stage);
   window.addEventListener('resize', fitCanvas);
