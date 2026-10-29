@@ -9,7 +9,7 @@
     seed: 7401,
     preset: 'confluence',
     settings: { speed: 1, cohesion: .6, breakup: .5, buoyancy: .5, turbulence: 1, coverage: .6 },
-    look: { billow: 2, softness: .79, erosion: 1, relief: 2, depth: .55, roll: .6, sun: 81, elevation: -17, shadow: .64, highlight: .68, fill: .2, bands: 5, toneA: .485, toneB: .89, flatten: .3, ink: .5, sky: true, pixelated: true, toon: false },
+    look: { billow: 2, softness: .79, blend: 1, erosion: 1, relief: 2, depth: .55, roll: .6, sun: 81, elevation: -17, shadow: .64, highlight: .68, fill: .2, bands: 5, toneA: .485, toneB: .89, flatten: .3, ink: .5, sky: true, pixelated: true, toon: false },
     resolution: 160
   };
   var PRESETS = (window.CloudSim && window.CloudSim.PRESETS) || ['single', 'plumes', 'lavalamp', 'islands', 'confluence'];
@@ -38,6 +38,7 @@
   var LOOK_SPEC = [
     ['billow', 'Billow', 0, 4, 0.01],
     ['softness', 'Softness', 0.2, 2, 0.01],
+    ['blend', 'Blend', 0.3, 4, 0.01],
     ['erosion', 'Erosion', 0, 1, 0.01],
     ['relief', 'Relief', 0, 2, 0.01],
     ['depth', 'Depth', 0, 2, 0.01],

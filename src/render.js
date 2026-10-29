@@ -156,6 +156,7 @@
     'uniform float uRelief;',
     'uniform float uReference;',
     'uniform float uSoftness;',
+    'uniform float uBlend;',     // cross-branch blend width multiplier (how far one volume fades into its neighbour)
     'uniform float uHeightUnit;',
     'uniform float uPacked;',
     'uniform float uDepth;',
@@ -287,7 +288,7 @@
     '  float top = 0.0;',
     '  for(int j = 0; j < NB; j++){ bH[j] = max(0.0, floorH + T * log(max(1e-20, bW[j]))); top = max(top, bH[j]); }',
     // coverage-weighted soft max across branches: no winner / runner-up switch, so no seams
-    '  float T2 = max(0.002, uReference * 0.09 * uSoftness);',
+    '  float T2 = max(0.002, uReference * 0.09 * uSoftness * uBlend);',
     '  float den = 0.0; float unc = 1.0; float ovl = 0.0;',
     '  for(int j = 0; j < NB; j++){',
     '    float c = bC[j]; den += c * exp(clamp((bH[j] - top) / T2, -25.0, 0.0));',
@@ -485,7 +486,7 @@
 
     this._fieldProg = link(gl, VS, FIELD_FS);
     this._fieldU = uniforms(gl, this._fieldProg, ['uBlobs', 'uAux', 'uCount', 'uTile', 'uAspect', 'uTime', 'uBillow', 'uRoll',
-      'uErosion', 'uRelief', 'uReference', 'uSoftness', 'uHeightUnit', 'uPacked', 'uDepth']);
+      'uErosion', 'uRelief', 'uReference', 'uSoftness', 'uBlend', 'uHeightUnit', 'uPacked', 'uDepth']);
     this._shadeProg = link(gl, VS, SHADE_FS);
     this._shadeU = uniforms(gl, this._shadeProg, ['uField', 'uTexel', 'uLight', 'uAspect', 'uHeightUnit',
       'uShadow', 'uResScale', 'uJumpW', 'uHighlight', 'uFill', 'uPixelated', 'uToon', 'uToneA', 'uToneB', 'uFlatten', 'uInk', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
@@ -608,6 +609,7 @@
     gl.uniform1f(fu.uRelief, relief);
     gl.uniform1f(fu.uReference, maxR);
     gl.uniform1f(fu.uSoftness, Math.max(0.2, softness));
+    gl.uniform1f(fu.uBlend, num(look.blend, 1));
     gl.uniform1f(fu.uHeightUnit, heightUnit);
     gl.uniform1f(fu.uDepth, depth);
     gl.uniform1f(fu.uPacked, this._packed ? 1 : 0);
