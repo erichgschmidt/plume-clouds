@@ -344,8 +344,8 @@
       var p = b.parcels[i];
       this._pointAt(b, p.u, _pt);
       p.tx = clamp(_pt[0], MARGIN, 1 - MARGIN); p.ty = clamp(_pt[1], MARGIN, this.aspect - MARGIN);
-      var breathe = still ? 1 : 1 + 0.1 * p.u * Math.sin(t * 0.9 + p.seed * 3.1);
-      p.tr = b.taper(p.u) * rScale * breathe * g * p.fade;
+      // radius is constant: emergence is burial in the renderer (one clock: b.link), never a size ramp
+      p.tr = b.taper(p.u) * rScale * p.fade;
     }
   };
 
@@ -400,8 +400,7 @@
     var rng = this.rng;
     var B = this.branches, i, k, b, p;
 
-    var feedRate = 0.035 * (0.4 + buoyancy);   // chain parameter units per second (full traverse ~20-30 s)
-    if (this.plumes.length && this.plumes[0].def.still) feedRate = 0;
+    var feedRate = 0;   // feeding (parcels creeping along the chain and wrapping with a fade) popped at every wrap; off
     var ease = 1 - Math.exp(-h / 0.35);
 
     // order: parents before children (branches are pushed after their parents)

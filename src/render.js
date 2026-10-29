@@ -222,10 +222,12 @@
     '      if(pr <= 1e-4) continue;',
     '      vec2 dq = q - cen.xy; float dd = dot(dq, dq);',
     '      float sDist = sqrt(dd) - pr;',
-    '      float lh = cen.z + sqrt(max(rad * rad - dd, 0.0));',
     '      sd = smin(sd, sDist * r, r * 0.045);',
-    '      float join = smoothstep(0.0, rad * 0.38, -sDist);',
-    '      cap = -smin(-cap, -max(lh, 0.0) * r * join, r * 0.29);',
+    // a hemisphere sitting ON the parent surface: full height at its centre, zero at its own rim,
+    // so it reads as a round bump (an edge-ramped sphere read as a disc under a membrane)
+    '      float base = sqrt(max(core * core - dot(q, q), 0.0));',
+    '      float hs = (base + 0.8 * sqrt(max(pr * pr - dd, 0.0))) * r;',
+    '      cap = -smin(-cap, -hs, r * 0.08);',
     '    }',
     // material rides on the skin: tile read by the inverse-rotated sphere normal
     '    vec3 nrm = normalize(vec3(q, sqrt(max(1.0 - min(dot(q, q), 0.999), 0.001))));',
@@ -233,7 +235,7 @@
     '    float caps = 1.0 - (1.0 - tile.x) * (1.0 - tile.y * 0.55);',
     '    float envel = 1.0 - smoothstep(0.65, 1.15, rho);',
     // the skin flattens toward the crown: a smooth top, a bumpy rim
-    '    cap = mix(cap, coreH + (cap - coreH) * 0.34, smoothstep(0.0, 0.16, core - rho));',
+    '    cap = mix(cap, coreH + (cap - coreH) * 0.55, smoothstep(0.0, 0.16, core - rho));',
     '    cap += (caps - 0.55) * r * 0.045 * uRelief * envel;',
     // erosion: slowly drifting tufts on the silhouette (world-space tile read, very blurred)
     '    float tuft = textureLod(uTile, p * 2.0 + vec2(uTime * 0.001 * uRoll, 0.0), 4.0).r;',
