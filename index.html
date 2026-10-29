@@ -62,7 +62,7 @@
   .group.collapsed > .body { display: none; }
   .body { padding: 2px 0; }
 
-  .row {
+  .row { min-width: 0;
     display: flex; align-items: center; height: 22px; padding: 0 6px; gap: 6px;
     background: var(--row);
   }
@@ -98,8 +98,12 @@
   .btn.grow { flex: 1 1 0; text-align: center; }
   input[type=number] { flex: 1 1 auto; min-width: 0; cursor: text; background: #1b1b1b; }
   input[type=number]:focus { border-color: var(--accent); }
-  .seg { display: flex; flex: 1 1 auto; }
-  .seg .btn { flex: 1 1 0; border-radius: 0; margin-left: -1px; text-align: center; padding: 0 2px; }
+  .row.wrap { height: auto; flex-wrap: wrap; padding: 3px 6px; row-gap: 3px; }
+  .row.wrap .seg { flex-basis: 100%; }
+  .seg { display: flex; flex: 1 1 auto; min-width: 0; }
+  /* buttons may shrink below their text: a row wider than the panel scrolls the hidden overflow
+     sideways when a button is clicked, hiding the left of every control */
+  .seg .btn { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 0; margin-left: -1px; text-align: center; padding: 0; font-size: 10px; }
   .seg .btn:first-child { border-radius: 2px 0 0 2px; margin-left: 0; }
   .seg .btn:last-child { border-radius: 0 2px 2px 0; }
 
@@ -138,7 +142,7 @@
           <input type="number" id="seed" min="0" max="999999999" step="1">
           <button class="btn" id="btnShuffle">Shuffle</button>
         </div>
-        <div class="row"><label>Preset</label><div class="seg" id="presets"></div></div>
+        <div class="row wrap"><label>Preset</label><div class="seg" id="presets"></div></div>
       </div>
     </section>
 
@@ -167,8 +171,8 @@
   </div>
 </div>
 
-<script src="src/sim.js?v=41"></script>
-<script src="src/render.js?v=41"></script>
-<script src="src/app.js?v=41"></script>
+<script src="src/sim.js?v=44"></script>
+<script src="src/render.js?v=44"></script>
+<script src="src/app.js?v=44"></script>
 </body>
 </html>
