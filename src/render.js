@@ -234,8 +234,8 @@
     // the cap/parent join follows Softness: a sharp two-sphere crease drew a thin dark ring at high res
     // a cap's edge is a crisp step (the shade pass reads steps as occluding edges, like stacked
     // spheres in pixel art); a ramp here was lit on one side and shaded on the other: a double line
-    '      float join = smoothstep(0.0, rad * 0.03, -sDist);',
-    '      cap = -smin(-cap, -max(lh, 0.0) * r * join, r * 0.03);',
+    '      float join = smoothstep(0.0, rad * 0.06, -sDist);',
+    '      cap = -smin(-cap, -max(lh, 0.0) * r * join, r * 0.05);',
     '    }',
     // material rides on the skin: tile read by the inverse-rotated sphere normal
     '    vec3 nrm = normalize(vec3(q, sqrt(max(1.0 - min(dot(q, q), 0.999), 0.001))));',
@@ -325,8 +325,11 @@
     '  vec4 c = fieldAt(vUv), a = fieldAt(vUv - off), b = fieldAt(vUv + off);',
     '  float span = length(off * vec2(1.0, uAspect));',
     '  float wa = smoothstep(0.05, 0.95, a.g), wb = smoothstep(0.05, 0.95, b.g);',
-    '  wa *= 1.0 - smoothstep(uJumpW, 2.0 * uJumpW, abs(a.r - c.r) * uHeightUnit);',
-    '  wb *= 1.0 - smoothstep(uJumpW, 2.0 * uJumpW, abs(b.r - c.r) * uHeightUnit);',
+    // a step (a cap edge) is where one side changes several times more than the other; a sphere
+    // flank changes alike on both sides. Drop the stepping side so the normal never tilts across it.
+    '  float da = abs(a.r - c.r) + 1e-6, db = abs(b.r - c.r) + 1e-6;',
+    '  wa *= 1.0 - smoothstep(2.0, 4.0, da / db) * step(uJumpW * 0.25, da * uHeightUnit);',
+    '  wb *= 1.0 - smoothstep(2.0, 4.0, db / da) * step(uJumpW * 0.25, db * uHeightUnit);',
     '  return ((c.r - a.r) * wa + (b.r - c.r) * wb) * uHeightUnit / (span * max(1e-4, wa + wb));',
     '}',
     'float bayer(vec2 p){ ivec2 a = ivec2(mod(p, 4.0)); int n = a.x + 4 * a.y;',
@@ -363,11 +366,7 @@
     '    occ = max(occ, sh * (1.0 - float(i) / 21.0));',
     '  }',
     '  float contact = fieldLod(vUv, 1.0 + log2(uResScale)).a * 0.025;',
-    '  float ao = 0.0; float h0w = f.r * uHeightUnit;',
-    '  for(int d = 0; d < 8; d++){ float an = float(d) * 0.7854; vec2 off = vec2(cos(an), sin(an)) * t * 2.5 * uResScale;',
-    '    ao += max(0.0, (fieldAt(vUv + off).r * uHeightUnit - h0w) - uJumpW) / uJumpW; }',
-    '  ao = clamp(ao * 0.35, 0.0, 1.0);',
-    '  float light = 0.18 + 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) + uFill * bounce - uShadow * (occ * 0.55 + contact * 1.6 + ao * 0.3);',
+    '  float light = 0.18 + 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) + uFill * bounce - uShadow * (occ * 0.55 + contact * 1.6);',
     '  light += bayer(gl_FragCoord.xy) * 0.012;',
     '  vec3 cloud = palette(light);',
     // thin cream rim where the silhouette faces the sun
