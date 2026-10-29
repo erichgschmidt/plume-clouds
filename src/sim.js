@@ -101,17 +101,17 @@
     },
     islands: {
       plumes: [
-        { u: 0.12, v: 0.72, angle: -0.4, trunkN: 4, children: [2, 3], curl: 1.5, spin: [0.08, 0.15], tower: 0.6, maxL: 0.25 },
-        { u: 0.42, v: 0.38, angle: 0.2, trunkN: 4, children: [2, 3], curl: 1.5, spin: [0.08, 0.15], tower: 0.6, maxL: 0.25 },
-        { u: 0.7, v: 0.76, angle: -0.3, trunkN: 4, children: [2, 3], curl: 1.5, spin: [0.08, 0.15], tower: 0.6, maxL: 0.25 }
+        { u: 0.14, v: 0.62, angle: -0.4, trunkN: 4, children: [2, 3], curl: 1.5, spin: [0.08, 0.15], tower: 0.6, maxL: 0.25, rMul: 0.45 },
+        { u: 0.46, v: 0.3, angle: 0.2, trunkN: 4, children: [2, 3], curl: 1.5, spin: [0.08, 0.15], tower: 0.6, maxL: 0.25, rMul: 0.45 },
+        { u: 0.78, v: 0.64, angle: -0.3, trunkN: 4, children: [2, 3], curl: 1.5, spin: [0.08, 0.15], tower: 0.6, maxL: 0.25, rMul: 0.45 }
       ],
       crossBud: false,
       defaults: { speed: 1, cohesion: 0.5, breakup: 0.5, buoyancy: 0.5, turbulence: 0.5, coverage: 0.6 }
     },
     confluence: {
       plumes: [
-        { u: 0.2, v: 0.62, angle: -0.5, trunkN: 5, children: [2, 4], curl: 1.0, spin: [0.05, 0.12], tower: 0.8, maxL: 0.26, lean: 0.5 },
-        { u: 0.8, v: 0.62, angle: Math.PI + 0.5, trunkN: 5, children: [2, 4], curl: -1.0, spin: [0.05, 0.12], tower: 0.8, maxL: 0.26, lean: -0.5 }
+        { u: 0.22, v: 0.5, angle: -0.5, trunkN: 5, children: [2, 4], curl: 1.0, spin: [0.05, 0.12], tower: 0.8, maxL: 0.26, rMul: 0.6, lean: 0.5 },
+        { u: 0.78, v: 0.5, angle: Math.PI + 0.5, trunkN: 5, children: [2, 4], curl: -1.0, spin: [0.05, 0.12], tower: 0.8, maxL: 0.26, rMul: 0.6, lean: -0.5 }
       ],
       crossBud: true,
       defaults: { speed: 1, cohesion: 0.6, breakup: 0.5, buoyancy: 0.6, turbulence: 0.35, coverage: 0.6 }
