@@ -36,6 +36,9 @@
   var R_OUT_MIN = 0.02;        // parcels below this are not emitted
   var FADE_S = 0.5;            // parcel fade in/out at chain ends
   var BIRTH_S = 7.0;           // branch link / growth ramp: a lobe emerges slowly from inside its parent
+  var PHI = 1.618;             // golden ratio: successor size 1/PHI, successor speed x PHI
+  var SPAWN_ARC = 0.7;         // rad a billow travels before its successor buds behind it
+  var DIE_ARC = 1.4;           // rad a billow travels before it sinks back into the body
   var TWO_PI = Math.PI * 2;
 
   // ---------------------------------------------------------------- PRNG ---
@@ -187,7 +190,9 @@
     if (this._parcelCount() + n + 1 > MAX_BLOBS) return null;
     var rng = this.rng, d = plume.def;
     var isTrunk = !parent;
-    var spin = isTrunk ? 0 : (d.spin[0] + rng() * (d.spin[1] - d.spin[0])) * (rng() < 0.5 ? -1 : 1);
+    var hand = opt.hand || plume.hand || 1;
+    var gen = opt.gen || 0;   // 0: seed billow; each successor behind it is one generation smaller / quicker
+    var spin = isTrunk ? 0 : (d.spin[0] + rng() * (d.spin[1] - d.spin[0])) * hand * Math.pow(PHI, gen);   // a billow keeps turning one way about its root
     var z = isTrunk ? 0.5 : clamp(parent.z + (0.12 + rng() * 0.18) * (rng() < 0.5 ? -1 : 1), 0, 1);
     var b = {
       id: slot, plume: plume, parent: parent, uAttach: parent ? (opt.uAttach !== undefined ? opt.uAttach : 0.15 + rng() * 0.7) : 0,
@@ -197,7 +202,7 @@
       n: n, seed: rng() * 100, age: 0, link: born ? 0 : 1, grow: born ? 0 : 1, dying: false,
       rootX: 0, rootY: 0, pts: [], L: 0, parcels: [], children: 0, isTrunk: isTrunk,
       taper: isTrunk ? trunkTaper : childTaper,
-      swayPhase: rng() * TWO_PI, life: 20 + rng() * 40   // nominal lifetime (s), divided by breakup
+      swayPhase: rng() * TWO_PI, spawned: false, gen: gen, sizeMul: Math.pow(1 / PHI, gen)
     };
     // n chain slots + 1 extra parcel so one can always be in a fade zone without opening a gap
     var du = 1 / Math.max(1, n - 1);
@@ -234,7 +239,7 @@
       var b = this.branches[i];
       if (b.dying) continue;
       var sameP = b.plume === pl;
-      if (sameP && b.children < (b.isTrunk ? 4 : 3) && b.depth < (pl.def.maxDepth || 2)) cands.push(b);
+      if (sameP && b.isTrunk && b.children < 6) cands.push(b);
       else if (!sameP && this.def.crossBud && b.isTrunk && b.children < 4) cands.push(b);
     }
     if (!cands.length) return null;
@@ -246,11 +251,7 @@
     var mature = [], c;
     for (c = 0; c < cands.length; c++) if (!cands[c].isTrunk && cands[c].link >= 1 && cands[c].age > 4 && cands[c].plume === pl) mature.push(cands[c]);
     var parent = null, uAttach, angle, n = 3 + Math.round(rng() * 1.5);
-    if (mature.length && rng() < 0.55) {
-      parent = mature[(rng() * mature.length) | 0];
-      uAttach = 0.6 + rng() * 0.3;
-      this._tangentAt(parent, uAttach, _pt);
-      angle = Math.atan2(_pt[1], _pt[0]) + pl.hand * (0.5 + rng() * 0.5);
+    if (false) {
     } else {
       for (c = 0; c < cands.length; c++) if (cands[c].isTrunk && cands[c].plume === pl) { parent = cands[c]; break; }
       if (!parent) parent = cands[(rng() * cands.length) | 0];
@@ -289,7 +290,7 @@
   // Compute root point, polyline and parcel target positions/radii for branch b.
   CloudSim.prototype._layout = function (b, turbulence) {
     var S = this.settings, cohesion = clamp(+S.cohesion || 0, 0, 1), coverage = clamp(+S.coverage || 0, 0, 1);
-    var rScale = (0.75 + 0.5 * coverage) * (0.75 + 0.25 * b.plume.def.tower) * (b.plume.def.rMul || 1);
+    var rScale = (0.75 + 0.5 * coverage) * (0.75 + 0.25 * b.plume.def.tower) * (b.plume.def.rMul || 1) * (b.sizeMul || 1);
     var spacing = 0.4 - 0.1 * cohesion;   // centre distance / (r1+r2): parcels overlap deeply into one broad mass
     var t = this.time;
 
@@ -301,7 +302,7 @@
     // sway from curl noise at the root + slow breathing of the heading
     this._curl(b.rootX, b.rootY, _flow);
     var still = !!b.plume.def.still;
-    var sway = still ? 0 : (_flow[0] * 0.3 + _flow[1] * 0.2) * turbulence * 0.7 + Math.sin(t * 0.15 + b.swayPhase) * 0.12;
+    var sway = still ? 0 : (_flow[0] * 0.3 + _flow[1] * 0.2) * turbulence * 0.3;   // slow drift only: no back-and-forth
     var heading = b.angle + sway * (b.isTrunk ? 0.5 : 1);
     // root parcel sits half a parent radius out from the attach point: overlaps the parent by >= 50% of r
     // while growing (or retracting) the whole chain starts deep inside the parent and extends out of it
@@ -407,12 +408,7 @@
     for (i = 0; i < B.length; i++) {
       b = B[i];
       b.age += h;
-      if (!b.isTrunk) {
-        b.angle += b.spin * h;
-        var swing = 1.0 - 0.4 * b.plume.def.tower;
-        if (b.angle > b.angle0 + swing) { b.angle = b.angle0 + swing; b.spin = -Math.abs(b.spin); }
-        else if (b.angle < b.angle0 - swing) { b.angle = b.angle0 - swing; b.spin = Math.abs(b.spin); }
-      }
+      if (!b.isTrunk) b.angle += b.spin * h * (1 - 0.5 * Math.min(1, Math.abs(b.angle - b.angle0) / DIE_ARC));   // one direction, never reverses; the outermost slow down
       // birth / death ramps
       if (b.dying) { b.link = Math.max(0, b.link - h / BIRTH_S); b.grow = b.link; }
       else if (b.link < 1) { b.link = Math.min(1, b.link + h / BIRTH_S); b.grow = b.link; }
@@ -445,29 +441,36 @@
     }
 
     // --- budding / dying per plume
-    var budRate = 0.25 * breakup, dieRate = 0.2 * breakup;
+    // A billow rolls over the body in one direction. Once it has travelled SPAWN_ARC its successor
+    // buds BEHIND it (at the heading it started from, same attach point), and once it has travelled
+    // DIE_ARC it sinks back into the body while still moving. Processions, not random buds and deaths.
     for (i = 0; i < this.plumes.length; i++) {
-      var pl = this.plumes[i], d = pl.def, count = 0, leaves = [];
+      var pl = this.plumes[i], d = pl.def, count = 0, movers = [];
       for (k = 0; k < B.length; k++) {
         b = B[k];
         if (b.plume !== pl || b.isTrunk) continue;
         if (!b.dying) count++;
-        if (!b.dying && b.children === 0 && b.link >= 1 && b.age > 6) leaves.push(b);
+        if (!b.dying) movers.push(b);
       }
-      if (count < d.children[1] && rng() < (budRate + (count < d.children[0] ? 0.3 : 0)) * h) this._bud(pl, true);
-      if (count > d.children[0] && leaves.length) {
-        // random death on breakup, plus a guaranteed death once a leaf outlives its lifetime
-        var victim = null;
-        for (k = 0; k < leaves.length; k++) if (leaves[k].age > leaves[k].life / (0.25 + breakup)) { victim = leaves[k]; break; }
-        if (!victim && rng() < dieRate * h) victim = leaves[(rng() * leaves.length) | 0];
-        if (victim) { victim.dying = true; this.stats.deaths++; }
+      for (k = 0; k < movers.length; k++) {
+        b = movers[k];
+        var arc = Math.abs(b.angle - b.angle0);
+        if (!b.spawned && arc >= SPAWN_ARC) {   // a procession is not bounded by the seed count, only by the blob budget
+          b.spawned = true;
+          var s2 = (b.gen < 2) ? this._newBranch(pl, b.parent, b.n, b.angle0 + (rng() - 0.5) * 0.2, true, { uAttach: b.uAttach, hand: pl.hand, gen: b.gen + 1 }) : null;
+          if (s2) { this.stats.buds++; count++; }
+        }
+        if (arc >= DIE_ARC) { b.dying = true; this.stats.deaths++; }
       }
+      // seed a procession where there is none yet (initial population / a slot that ran out)
+      if (count < d.children[0] && rng() < 0.3 * h) this._bud(pl, true);
     }
 
     // --- remove dead branches
+    for (i = 0; i < B.length; i++) { b = B[i]; if (b.parent && b.parent.dying && !b.dying) { b.dying = true; this.stats.deaths++; } }
     for (i = B.length - 1; i >= 0; i--) {
       b = B[i];
-      if (b.dying && b.link <= 0) {
+      if (b.dying && b.link <= 0 && b.children === 0) {
         this.slots[b.id] = false;
         if (b.parent) b.parent.children--;
         B.splice(i, 1);
