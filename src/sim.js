@@ -80,6 +80,12 @@
   // child count range, curl (curvature of child branches, rad per world unit), spin (rotation
   // rate range for children), crossBud (may bud onto another plume's trunk).
   var PRESETS = {
+    // one upright lobe, no budding, no rotation: isolates the surface roll
+    single: {
+      plumes: [{ u: 0.5, v: 0.6, angle: -Math.PI / 2, trunkN: 3, children: [0, 0], curl: 0, spin: [0, 0], tower: 1, maxL: 0.14, rMul: 1.1, maxDepth: 0 }],
+      crossBud: false,
+      defaults: { speed: 1, cohesion: 0.8, breakup: 0, buoyancy: 0.3, turbulence: 0.15, coverage: 0.6 }
+    },
     plumes: {
       plumes: [{ u: 0.4, v: 0.66, angle: -0.25, trunkN: 5, children: [3, 4], curl: 1.2, spin: [0.05, 0.12], tower: 1, maxL: 0.2, rMul: 0.8, maxDepth: 2 }],
       crossBud: false,
@@ -108,7 +114,7 @@
       defaults: { speed: 1, cohesion: 0.6, breakup: 0.5, buoyancy: 0.6, turbulence: 0.35, coverage: 0.6 }
     }
   };
-  var PRESET_NAMES = ['plumes', 'lavalamp', 'islands', 'confluence'];
+  var PRESET_NAMES = ['single', 'plumes', 'lavalamp', 'islands', 'confluence'];
 
   // ------------------------------------------------------------ CloudSim ---
   function CloudSim(opts) {

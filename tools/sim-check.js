@@ -61,8 +61,10 @@ for (const preset of CloudSim.PRESETS) {
     if (failures > 30) break;
   }
   console.log(`${preset.padEnd(11)} blobs ${minCount}..${maxCount}  branches ${minBr}..${maxBr}  buds ${sim.stats.buds}  deaths ${sim.stats.deaths}  max|v| ${maxV.toFixed(3)} world/s`);
-  assert(sim.stats.buds > 0 && sim.stats.deaths > 0, `${preset}: expected buds and deaths`);
-  assert(roots > 0, `${preset}: no root parcels seen`);
+  if (preset !== 'single') {
+    assert(sim.stats.buds > 0 && sim.stats.deaths > 0, `${preset}: expected buds and deaths`);
+    assert(roots > 0, `${preset}: no root parcels seen`);
+  }
   assert(maxV < 1.0, `${preset}: velocity too high (${maxV})`);
   if (failures > 30) break;
 }

@@ -7,12 +7,12 @@
   // ---------- state ----------
   var DEFAULTS = {
     seed: 7401,
-    preset: 'plumes',
+    preset: 'single',
     settings: { speed: 1, cohesion: .6, breakup: .5, buoyancy: .5, turbulence: .4, coverage: .6 },
     look: { billow: .5, softness: .3, erosion: .4, relief: .5, roll: .6, sun: 120, elevation: 17, shadow: .8, bands: 18, sky: true, pixelated: true },
     resolution: 320
   };
-  var PRESETS = (window.CloudSim && window.CloudSim.PRESETS) || ['plumes', 'lavalamp', 'islands', 'confluence'];
+  var PRESETS = (window.CloudSim && window.CloudSim.PRESETS) || ['single', 'plumes', 'lavalamp', 'islands', 'confluence'];
   var RESOLUTIONS = [160, 240, 320, 480];
 
   var state = clone(DEFAULTS);

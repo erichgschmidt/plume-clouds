@@ -193,6 +193,7 @@
     '  return length(pa - ba * h) - r;',
     '}',
     'vec2 seedOffset(float s){ return vec2(fract(s * 7.31 + 0.17), fract(s * 3.77 + 0.59)); }',
+    'const float MAT_K = 1.7;',   // tile repeats per 1.7 parcel radii: a few large sub-lobes per lobe
     'float domeH(float d, float R){',
     '  float Rb = R * uDomeR;',
     '  float t = clamp(-d / Rb, 0.0, 1.0);',
@@ -203,7 +204,7 @@
     '  float comp = max(0.0, tv.x + ((ra + rb - ra * rb) * 0.22 - tv.x) * (0.4 + 0.6 * uBillow));',
     '  float edge = min(1.0, -d / (0.055 * TILE_WORLD));',
     '  float env = sqrt(max(edge * (2.0 - edge), 0.0));',
-    '  return comp * TILE_WORLD * env * uRelief * 0.8;',
+    '  return comp * TILE_WORLD * env * uRelief * 1.2;',
     '}',
     'void main(){',
     '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);',   // world: y top-down
@@ -225,12 +226,12 @@
     // rim (zero flow at centre and rim, fastest half-way: a ring vortex seen from above). Two
     // phases crossfaded (flow mapping) so the distortion never accumulates.
     '    vec2 dq = q / max(rEff0, 1e-4); float rr = length(dq); vec2 rd = dq / max(rr, 1e-4);',
-    '    float roll = sin(clamp(rr, 0.0, 1.0) * 3.14159) * 0.9 * uRoll * rEff0 / TILE_WORLD;',   // up to ~0.9 parcel radii per cycle
+    '    float roll = sin(clamp(rr, 0.0, 1.0) * 3.14159) * 0.35 * uRoll / MAT_K;',   // small offsets only: larger ones shear the tile into rings
     '    float ph = uTime * 0.14 + b.w; float fA = fract(ph), fB = fract(ph + 0.5); float wPh = abs(2.0 * fA - 1.0);',
-    '    vec2 base = q / TILE_WORLD + seedOffset(b.w);',
+    '    vec2 base = q / (rEff0 * MAT_K) + seedOffset(b.w);',   // material coords in parcel-radius units: sub-lobes scale with the lobe
     '    vec2 muvA = base - rd * roll * fA;',
     '    vec2 muvB = base - rd * roll * fB + vec2(0.37, 0.61);',
-    '    vec3 ts = mix(textureLod(uTile, muvA, 2.0).rgb, textureLod(uTile, muvB, 2.0).rgb, wPh);',
+    '    vec3 ts = mix(textureLod(uTile, muvA, 1.75).rgb, textureLod(uTile, muvB, 1.75).rgb, wPh);',
     '    vec3 tsSil = mix(textureLod(uTile, muvA, 2.5).rgb, textureLod(uTile, muvB, 2.5).rgb, wPh);',
     '    float rEff = b.z * (1.0 + 0.03 * (ts.r - 0.76));',
     // lobe caps poke out of the silhouette; scaled by the parcel's size so a newborn / regrowing
