@@ -35,7 +35,7 @@
   var MAX_L = 0.35;                        // max chain length (world units)
   var R_OUT_MIN = 0.02;        // parcels below this are not emitted
   var FADE_S = 0.5;            // parcel fade in/out at chain ends
-  var BIRTH_S = 12.0;           // branch link / growth ramp: a lobe emerges slowly from inside its parent
+  var BIRTH_S = 20.0;           // branch link / growth ramp: a lobe emerges slowly from inside its parent
   var PHI = 1.618;             // golden ratio: successor size 1/PHI, successor speed x PHI
   var SPAWN_ARC = 0.7;         // rad a billow travels before its successor buds behind it
   var DIE_ARC = 1.4;           // rad a billow travels before it sinks back into the body
