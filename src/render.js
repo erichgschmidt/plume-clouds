@@ -349,7 +349,7 @@
     '    occ = max(occ, sh * (1.0 - float(i) / 21.0));',
     '  }',
     '  float contact = fieldLod(vUv, 1.0).a * 0.025;',
-    '  float light = 0.18 + 0.84 * pow(max(0.0, lambert), 0.85) + 0.20 * bounce - uShadow * (occ * 0.36 + contact);',
+    '  float light = 0.18 + 0.84 * pow(max(0.0, lambert), 0.85) + 0.20 * bounce - uShadow * (occ * 0.55 + contact * 1.6);',
     '  light += bayer(gl_FragCoord.xy) * 0.012;',
     '  vec3 cloud = palette(light);',
     // thin cream rim where the silhouette faces the sun

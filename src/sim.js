@@ -306,7 +306,7 @@
     // root parcel sits half a parent radius out from the attach point: overlaps the parent by >= 50% of r
     // while growing (or retracting) the whole chain starts deep inside the parent and extends out of it
     var ge = b.grow * b.grow * (3 - 2 * b.grow);
-    if (b.parent) { b.rootX += Math.cos(heading) * attachR * (0.5 * ge - 0.3 * (1 - ge)); b.rootY += Math.sin(heading) * attachR * (0.5 * ge - 0.3 * (1 - ge)); }
+    if (b.parent) { b.rootX += Math.cos(heading) * attachR * (0.7 * ge - 0.3 * (1 - ge)); b.rootY += Math.sin(heading) * attachR * (0.7 * ge - 0.3 * (1 - ge)); }
 
     // chain length from tapered radii
     var n = b.n, L = 0, i;
