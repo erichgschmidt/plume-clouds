@@ -223,11 +223,12 @@
     '      vec2 dq = q - cen.xy; float dd = dot(dq, dq);',
     '      float sDist = sqrt(dd) - pr;',
     '      sd = smin(sd, sDist * r, r * 0.045);',
-    // a hemisphere sitting ON the parent surface: full height at its centre, zero at its own rim,
-    // so it reads as a round bump (an edge-ramped sphere read as a disc under a membrane)
-    '      float base = sqrt(max(core * core - dot(q, q), 0.0));',
-    '      float hs = (base + 0.8 * sqrt(max(pr * pr - dd, 0.0))) * r;',
-    '      cap = -smin(-cap, -hs, r * 0.08);',
+    // union of spheres: the cap's own height, max'd with the parent. A cap that crosses the parent's
+    // rim hides the rim's vertical crease (adding the cap ON the parent carried that crease through as
+    // a faint perfect circle). Only a short rounding at the cap's edge (a long ramp read as a disc).
+    '      float lh = cen.z + sqrt(max(rad * rad - dd, 0.0));',
+    '      float join = smoothstep(0.0, rad * 0.18, -sDist);',
+    '      cap = -smin(-cap, -max(lh, 0.0) * r * join, r * 0.14);',
     '    }',
     // material rides on the skin: tile read by the inverse-rotated sphere normal
     '    vec3 nrm = normalize(vec3(q, sqrt(max(1.0 - min(dot(q, q), 0.999), 0.001))));',
