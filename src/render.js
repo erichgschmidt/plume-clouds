@@ -227,6 +227,10 @@
     // rim hides the rim's vertical crease (adding the cap ON the parent carried that crease through as
     // a faint perfect circle). Only a short rounding at the cap's edge (a long ramp read as a disc).
     '      float lh = cen.z + sqrt(max(rad * rad - dd, 0.0));',
+    // outside the parent's rim the cap has nothing behind it: its height curves down to zero at its
+    // own edge (a hemisphere) instead of ending in an equator-high cliff with a flat top (the "thumb")
+    '      float lhOut = sqrt(max(pr * pr - dd, 0.0));',
+    '      lh = mix(lh, lhOut, smoothstep(core - 0.15, core + 0.05, rho));',
     '      float join = smoothstep(0.0, rad * 0.18, -sDist);',
     '      cap = -smin(-cap, -max(lh, 0.0) * r * join, r * 0.14);',
     '    }',
@@ -234,7 +238,7 @@
     '    vec3 nrm = normalize(vec3(q, sqrt(max(1.0 - min(dot(q, q), 0.999), 0.001))));',
     '    vec2 tile = materialTile(rotAxis(nrm, axis, -angle), b.w);',
     '    float caps = 1.0 - (1.0 - tile.x) * (1.0 - tile.y * 0.55);',
-    '    float envel = 1.0 - smoothstep(0.65, 1.15, rho);',
+    '    float envel = 1.0 - smoothstep(0.65, 0.95, rho);',   // relief stays on the parent: beyond its rim the sphere normal is flat and the tile smears
     // the skin flattens toward the crown: a smooth top, a bumpy rim
     '    cap = mix(cap, coreH + (cap - coreH) * 0.55, smoothstep(0.0, 0.16, core - rho));',
     '    cap += (caps - 0.55) * r * 0.045 * uRelief * envel;',
