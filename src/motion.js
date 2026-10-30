@@ -83,7 +83,8 @@
       link: initial ? 1 : 0,
       dwell: 0,
       dying: false,
-      spin: (rng() - 0.5) * 0.15                                  // slow azimuth drift
+      spin: (rng() - 0.5) * 0.15,                                 // slow azimuth drift
+      roll: rng() * 6.283                                         // accumulated billow roll angle (rad)
     };
     // the budget goes to the visible shell: initial parcels sit near the surface of the ring
     if (initial) p.r = Math.sqrt(Math.max(0, 1 - p.z * p.z)) * (0.55 + 0.4 * rng());
@@ -131,6 +132,9 @@
       var top = clamp((z + 0.2) / 0.8, 0, 1);
       ur += (rng() - 0.5) * P.jitter * (0.3 + top) * 0.6;
       uz += (rng() - 0.5) * P.jitter * (0.3 + top) * 0.6;
+      // the billow skin rolls as fast as the local flow carries it: fast at the crown and down the
+      // sides, nearly still where parcels sit at the base
+      p.roll += Math.sqrt(ur * ur + uz * uz) * 0.45 * dt;
       p.r = Math.max(0.02, r + ur * dt);
       p.z = z + uz * dt;
       // condensation level: the base is flat. Air arriving there spreads along it (and evaporates
@@ -157,7 +161,7 @@
     // parcel 0: hidden core on the axis (the parent every parcel rolls away from)
     B[0] = this.cx; B[1] = this.cy; B[2] = size * 0.8; B[3] = 7.7;
     A[0] = 0; A[1] = 0.5; A[2] = -1; A[3] = 1;
-    S[0] = 0; S[1] = 0; S[2] = 1; S[3] = 0;
+    S[0] = 0; S[1] = 0; S[2] = 1; S[3] = 1e-6;
     var n = 1;
     for (var i = 0; i < this.parcels.length && n < MAX; i++) {
       var p = this.parcels[i], o = n * 4;
@@ -173,7 +177,7 @@
       A[o + 3] = p.link;
       // ring-vortex vorticity is tangent to the ring: a flank puff (phi 0 / 180) spins in the screen
       // plane, top outward and down the outside; a front puff rolls toward the viewer and under
-      S[o] = -s; S[o + 1] = 0; S[o + 2] = c; S[o + 3] = 0;
+      S[o] = -s; S[o + 1] = 0; S[o + 2] = c; S[o + 3] = p.roll;   // w: roll angle (renderer scales by Roll)
       n++;
     }
     this.blobCount = n;

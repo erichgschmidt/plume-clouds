@@ -1182,6 +1182,8 @@ void main(){
       }
       // rollSync > 0: every parcel turns at that fixed multiple of the base rate (one rising column)
       var angle = time * 0.16 * p.roll * (p.rollSync > 0 ? p.rollSync : (0.85 + 0.3 * hash(seed)));
+      // a sim may integrate the roll itself (spin.w = angle in radians, e.g. from local flow speed)
+      if (spins && spins[o + 3] !== 0) angle = spins[o + 3] * p.roll;
       var c = Math.cos(angle), sn = Math.sin(angle);
       // Cap hierarchy (GHIBLI brief, C): the first nBig slots are big lobes (0.5..0.65 r on an inset
       // shell), the rest the small skin. Small caps shrink as they roll toward the world-down side
