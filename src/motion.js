@@ -41,11 +41,11 @@
 
   var PRESETS = {
     // a flat fair-weather puff: weak updraft, wide, little roil
-    humilis:   { updraft: 0.12, width: 0.26, height: 0.12, rise: 0.000,  expand: 0.0000, settle: 0.15, count: 18, size: 0.10,  jitter: 0.08, mixing: 14, pulse: 0,  base: 0.55, rollGain: 3, formTime: 60, reservoir: 0.35 },
+    humilis:   { updraft: 0.12, width: 0.26, height: 0.12, rise: 0.000,  expand: 0.0000, settle: 0.15, count: 18, size: 0.08,  jitter: 0.08, mixing: 14, pulse: 0,  base: 0.55, rollGain: 3, formTime: 60, reservoir: 0.35 },
     // a growing cumulus: strong updraft, tall ring, parcels cascade down the sides
-    congestus: { updraft: 0.18, width: 0.20, height: 0.26, rise: 0.0006, expand: 0.0003, settle: 0.10, count: 32, size: 0.085,  jitter: 0.08, mixing: 12, pulse: 10, base: 0.60, rollGain: 3, formTime: 90, reservoir: 0.35 },
+    congestus: { updraft: 0.18, width: 0.20, height: 0.26, rise: 0.0004, expand: 0.0002, settle: 0.10, count: 32, size: 0.066,  jitter: 0.08, mixing: 12, pulse: 15, base: 0.60, rollGain: 3, formTime: 90, reservoir: 0.35 },
     // a tower: narrow and tall, fast core, long cascade
-    tower:     { updraft: 0.25, width: 0.14, height: 0.36, rise: 0.0010, expand: 0.0002, settle: 0.10, count: 40, size: 0.07, jitter: 0.10, mixing: 10, pulse: 8,  base: 0.65, rollGain: 3, formTime: 120, reservoir: 0.30 }
+    tower:     { updraft: 0.25, width: 0.14, height: 0.36, rise: 0.0006, expand: 0.00015, settle: 0.10, count: 40, size: 0.056, jitter: 0.10, mixing: 10, pulse: 12, base: 0.65, rollGain: 3, formTime: 120, reservoir: 0.30 }
   };
 
   function ThermalSim(opts) {
@@ -79,16 +79,18 @@
     this.base = [];               // the basal reservoir: dense, slow, soft parcels just above the base line
     this.waiting = 0;             // retired parcels queued for re-entry
     this.cohort = null;           // parcels being released as one bubble
+    this.cohorts = [];            // live cohorts: shared noise so a turret's parcels move together
+    this.cohortSerial = 0;
     this.nextPulse = this.params.pulse > 0 ? this.params.pulse * (0.5 + 0.5 * this.rng()) : 0;
     this.surge = null;            // travelling updraft boost { zb }
     // formation: start as a small puff (a quarter of the population) and build up over formTime
     var n = Math.min(MAX - 1, Math.max(3, Math.round((this.params.count | 0) * (this.params.formTime > 0 ? 0.25 : 1))));
     for (var i = 0; i < n; i++) this.parcels.push(this._spawn(true, null));
-    var nb = Math.round((this.params.count | 0) * (this.params.reservoir || 0));
+    var nb = Math.round((this.params.count | 0) * (this.params.reservoir || 0) * 0.6);
     for (i = 0; i < nb; i++) {
       var rng = this.rng, u = (i + 0.5) / nb;
-      this.base.push({ x: (u * 2 - 1) * 0.95 + (rng() - 0.5) * 0.15, lift: 0.1 + rng() * 0.3, phi: rng() * 6.283,
-        size: 1.2 + rng() * 0.4, seed: rng() * 100, nx: gauss(rng), roll: rng() * 6.283 });
+      this.base.push({ x: (u * 2 - 1) * 0.9 + (rng() - 0.5) * 0.12, lift: 0.15 + rng() * 0.4, phi: rng() * 6.283,
+        size: 1.4 + rng() * 0.4, seed: rng() * 100, nx: gauss(rng), roll: rng() * 6.283 });
     }
     this._emit();
   };
@@ -99,12 +101,16 @@
     // a forming cloud starts as a compact puff low on the axis; a full one fills the ring's shell
     var baseZ = -(this.params.base || 0.6) * (this.height0 / (this.height || this.height0)) + (this.cy - (this.cy0 || this.cy)) / (this.height || this.height0);
     var z = initial ? (forming ? rng() * 0.7 - 0.5 : rng() * 1.35 - 0.5) : baseZ + 0.03 + rng() * 0.15;
+    var isLead = !!(cohort && cohort.lead);
+    if (cohort) cohort.lead = false;   // only the first parcel of a bubble is its head
     var p = {
       // the budget goes to the visible shell: initial parcels sit near the ring's surface
       r: initial ? Math.sqrt(Math.max(0, 1 - z * z)) * (forming ? 0.2 + 0.4 * rng() : 0.55 + 0.4 * rng()) : 0.05 + rng() * 0.12,
       z: z,
       phi: cohort ? cohort.phi + (rng() - 0.5) * 0.5 : rng() * Math.PI * 2,
-      size: (cohort ? cohort.size : 1) * (0.8 + rng() * 0.4),
+      size: (cohort ? cohort.size * (isLead ? 1.3 : 1) : 1) * (0.8 + rng() * 0.4),
+      lead: isLead,
+      cohort: cohort || null,
       seed: rng() * 100,
       link: initial ? 1 : 0,
       age: initial ? 4 + rng() * 20 : 0,
@@ -127,7 +133,7 @@
     // the form grows: the thermal rises and widens slowly (the base line stays put)
     var W = Math.min(this.width0 * 1.6, this.width0 + P.expand * this.time), H = Math.min(this.height0 * 1.8, this.height0 + P.expand * 1.4 * this.time);
     // the thermal rises off the fixed base, but stays in frame: the crown stops near the top edge
-    this.cy = Math.max(H * 1.15 + 0.08, this.cy - P.rise * dt);
+    this.cy = Math.max(H * 1.15 + 0.15 * this.aspect, this.cy - P.rise * dt);
     this.width = W; this.height = H;
     var U = P.updraft;
     var baseZ = (this.cy - this.baseY) / H;   // condensation level in the unit frame (negative: below centre)
@@ -141,7 +147,9 @@
     if (P.pulse > 0) {
       if (!this.cohort && this.time >= this.nextPulse && (this.waiting > 0 || deficit > 0)) {
         var n = Math.min(3 + Math.floor(rng() * 4), Math.max(1, this.waiting + deficit));
-        this.cohort = { n: n, phi: rng() * Math.PI * 2, size: 1.0 + 0.3 * rng(), every: 1.5 / n, clock: 0 };
+        this.cohort = { n: n, phi: rng() * Math.PI * 2, size: 1.0 + 0.3 * rng(), every: 5 / n, clock: 0,
+          id: ++this.cohortSerial, nr: gauss(rng), nz: gauss(rng), lead: true };
+        this.cohorts.push(this.cohort);
         this.surge = { zb: baseZ - 0.1 };
         this.nextPulse = this.time + P.pulse * (0.75 + 0.5 * rng()) * (0.5 + 0.5 * formed);
       }
@@ -168,6 +176,8 @@
 
     var aN = Math.exp(-dt / 2);                 // 2 s correlation time
     var bN = Math.sqrt(1 - aN * aN);
+    for (i = 0; i < this.cohorts.length; i++) { var ch = this.cohorts[i]; ch.nr = aN * ch.nr + bN * gauss(rng); ch.nz = aN * ch.nz + bN * gauss(rng); }
+    if (this.cohorts.length > 12) this.cohorts.shift();
     // the reservoir drifts slowly along the base and rolls gently with the inflow
     for (i = 0; i < this.base.length; i++) {
       var q = this.base[i];
@@ -192,7 +202,9 @@
       p.roll += 0.5 * U * r * (W / H + 4 * H / W) * drag * P.rollGain * dt;
       // correlated noise (Ornstein-Uhlenbeck): the same motion at any frame rate
       p.nr = aN * p.nr + bN * gauss(rng); p.nz = aN * p.nz + bN * gauss(rng);
-      ur += P.jitter * U * p.nr; uz += P.jitter * U * p.nz;
+      // a turret's parcels share most of their wander
+      var cnr = p.cohort ? 0.7 * p.cohort.nr + 0.3 * p.nr : p.nr, cnz = p.cohort ? 0.7 * p.cohort.nz + 0.3 * p.nz : p.nz;
+      ur += P.jitter * U * cnr; uz += P.jitter * U * cnz;
       p.r = Math.max(0.02, r + ur * dt);
       p.z = z + uz * dt;
       p.age += dt;
@@ -226,7 +238,9 @@
       var grow = 1 + 0.3 * (1 - Math.exp(-p.age / 4));
       var erode = 1 - 0.2 * (1 - p.fresh);
       // domes before texture: a crown parcel is ~1.7x a flank parcel
-      B[o + 2] = Math.min(0.4, size * p.size * grow * erode * (0.9 + 0.55 * clamp((p.z + 0.3) / 1.1, 0, 1)));
+      // domes before texture: a crown parcel is ~2.5x a flank parcel
+      var hz = clamp((p.z + 0.3) / 1.1, 0, 1);
+      B[o + 2] = Math.min(0.4, size * p.size * grow * erode * (0.7 + 1.05 * hz * hz));
       B[o + 3] = p.seed;
       A[o] = 0;                              // one branch: parcels merge into one body
       A[o + 1] = 0.5 + 0.4 * s;              // depth: front of the ring sits higher
@@ -235,7 +249,9 @@
       // ring-vortex vorticity is tangent to the ring: flank puffs spin in the screen plane, top
       // outward and down the outside; a front puff rolls toward the viewer and under
       S[o] = -s; S[o + 1] = 0; S[o + 2] = c; S[o + 3] = p.roll;
-      D[n] = p.fresh;
+      // fine relief has a 12 s half-life after condensation; only a fresh, high (lit) crown keeps it
+      var aged = 0.15 + 0.85 * Math.pow(0.5, p.age / 12);
+      D[n] = Math.max(aged, p.fresh * hz * hz) * Math.min(1, p.fresh + 0.3);
       n++;
     }
     // basal reservoir: wide, dense, soft (no small caps), pinned just above the base line
@@ -245,7 +261,7 @@
       B[o + 2] = Math.min(0.4, size * q.size); B[o + 3] = q.seed;
       A[o] = 0; A[o + 1] = 0.5 + 0.3 * Math.sin(q.phi); A[o + 2] = 0; A[o + 3] = 1;
       S[o] = 0; S[o + 1] = 0; S[o + 2] = q.x >= 0 ? 1 : -1; S[o + 3] = q.roll;
-      D[n] = 0.35;
+      D[n] = 0.12;
       n++;
     }
     this.topY = this.cy - H;

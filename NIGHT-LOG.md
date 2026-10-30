@@ -48,3 +48,19 @@ Applied (`04-review2-t33/63/123.png`):
 - bug: fresh parcels spawned below the base and died on frame one (hence the thin stalk).
 Result: continuous body from a flat base to a lit crown of domes, shaded base. First pass that
 reads as a cumulus rather than a cluster. Crown now stops 8 % under the frame edge.
+
+## 5. Codex visual review #2 (frames 04-review2-*) and the fourth pass
+
+Verdict: hierarchy still not decisive (crown only 1.6x), fine relief everywhere, sphere-contact
+seams instead of broad masses, reservoir reads as a separate granular band. Applied
+(`05-review3-*`, then `06-review3b-*` after a scale correction):
+- crown parcels 2.5x flank (quadratic in height); each bubble has a lead parcel 1.3x (turret head);
+- cohorts share 70 % of their wander (one turret moves as one); 15 s pulses, 5 s injection;
+- fine relief: 12 s half-life after condensation, kept only on fresh high crowns; reservoir 0.12;
+- lobes soften with freshness (0.55 + 0.45 f); nook AO halved (0.5 @ 1.2);
+- lighting smoothed over a wider footprint (Normal smooth radius grows quadratically);
+- reservoir: fewer, larger, heavily overlapping parcels blended up into the body;
+- bug: the turret-lead flag was cleared before it was read (no leads existed);
+- scale: parcels 0.066 (was 0.085) so the cloud stays in frame; crown 15 % below the top.
+Result at 123 s: a cumulus tower on a dense base with a dominant crown. Early frames still
+show the crown dome floating above the reservoir until the flank fills in.

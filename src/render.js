@@ -925,7 +925,7 @@ vec3 smoothPatchNormal(vec2 uv, vec3 centerN, vec4 centerField){
     vec2(1.0,0.0), vec2(0.70710678,0.70710678), vec2(0.0,1.0), vec2(-0.70710678,0.70710678),
     vec2(-1.0,0.0), vec2(-0.70710678,-0.70710678), vec2(0.0,-1.0), vec2(0.70710678,-0.70710678));
   float pixelWorld = max(uTexel.x, uTexel.y * uAspect);
-  float radius = (1.0 + 3.0 * uFlatten) * uResScale;
+  float radius = (1.0 + 11.0 * uFlatten * uFlatten) * uResScale;
   float tolerance = max(uJumpW * 0.65, pixelWorld * 0.65);
   vec3 sum = centerN * 2.0;
   for(int i = 0; i < 8; i++){
@@ -1207,7 +1207,7 @@ void main(){
             jit = hash(seed + 7.3 + j * 53.1) - 0.5;
             zz = (1 - 2 * (j + 0.5 + jit * 0.4) / nBig) * 0.85;
             az = j * 2.399963 + seed * 1.9 + jit * 1.2;
-            rad = p.lobeSize * (0.85 + 0.3 * hash(seed + 5.1 + j * 23.0)) * (0.75 + 0.25 * fresh);
+            rad = p.lobeSize * (0.85 + 0.3 * hash(seed + 5.1 + j * 23.0)) * (0.55 + 0.45 * fresh);
             growthInset = 0.35 * Math.max(rad - 0.5, 0);
           } else {
             jit = hash(seed + js * 31.7) - 0.5;
