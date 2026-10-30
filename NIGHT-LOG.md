@@ -78,3 +78,15 @@ not a shared volume. Applied (`07-pass5-*`):
 - Base shade 0.55; nook AO 0.3; softness 1.4 (2.2 over-merged the crown into a mushroom).
 Result: 93 s and 123 s read as a tall cumulus: lit crown domes over a shaded lower body on a
 flat base, no gravel. Early frames still show a seam where the crown's underside meets the body.
+
+## 7. Codex visual review #4 (frames 07-pass5-*) and the sixth pass
+
+Verdict: surface still "inflated clay nodules" (every scale gets relief and a highlight); no single
+winning turret; stem reads as a dark waist; base cut looks sliced. Applied (`08-pass6-*`):
+- relief and contrast age away (e^(-age/25)) and the lower third of the cloud is quiet (x0.35);
+- one winning turret at a time: 1.6x rise and 1.3x growth, held 20..30 s; rival summits 0.7x;
+- stem parcels wider (1.9 .. 1.6), overlapping reservoir and crown, no decorative lobes;
+- reservoir ends taper (lateral erosion); the base cut fades over a band instead of a hard line;
+- nook AO 0.15, relief 1.4.
+Result: 93 s reads as a soft lit mass over a shaded body (closest yet to the painted look);
+33 s is still crown-heavy over a small base; the bottom edge still shows some beads.

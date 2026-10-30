@@ -81,6 +81,7 @@
     this.cohort = null;           // parcels being released as one bubble
     this.cohorts = [];            // live cohorts: shared noise so a turret's parcels move together
     this.cohortSerial = 0;
+    this.leader = null; this.leaderUntil = 0;   // one winning turret at a time
     this.nextPulse = this.params.pulse > 0 ? this.params.pulse * (0.5 + 0.5 * this.rng()) : 0;
     this.surge = null;            // travelling updraft boost { zb }
     // formation: start as a small puff (a quarter of the population) and build up over formTime
@@ -90,7 +91,7 @@
     // feeding neck: a connected core from the base up into the body, so the crown never floats
     for (i = 0; i < 3; i++) {
       var rg = this.rng;
-      this.base.push({ x: (rg() - 0.5) * 0.3, lift: 0.55 + i * 0.22, phi: rg() * 6.283, size: 1.55 - i * 0.1,
+      this.base.push({ x: (rg() - 0.5) * 0.25, lift: 0.5 + i * 0.25, phi: rg() * 6.283, size: 1.9 - i * 0.15,
         seed: rg() * 100, nx: gauss(rg), roll: rg() * 6.283, neck: true });
     }
     for (i = 0; i < nb; i++) {
@@ -177,6 +178,9 @@
       if (this.waiting > 0) this.waiting--;
     }
     if (alive > want) { for (i = this.parcels.length - 1; i >= 0; i--) if (!this.parcels[i].dying) { this.parcels[i].dying = true; break; } }
+    // leadership: the newest turret head takes over when the old leader has held 20..30 s or died
+    if (this.leader && (this.time > this.leaderUntil || this.leader.dying)) this.leader = null;
+    if (!this.leader) { for (i = this.parcels.length - 1; i >= 0; i--) if (this.parcels[i].lead && !this.parcels[i].dying) { this.leader = this.parcels[i]; this.leaderUntil = this.time + 20 + 10 * rng(); break; } }
     // the surge rides up the axis with the new bubble
     if (this.surge) { this.surge.zb += 0.8 * U * dt; if (this.surge.zb > 1.3) this.surge = null; }
 
@@ -199,7 +203,8 @@
       if (s2 > 1) { var k = (Math.sqrt(s2) - 1) * 1.5 * U; ur -= k * r / Math.sqrt(s2); uz -= k * z / Math.sqrt(s2); }
       // fresh bubble: a localized boost travelling up the axis
       if (this.surge) uz += 0.35 * U * Math.exp(-rr / 0.12 - (z - this.surge.zb) * (z - this.surge.zb) / 0.08);
-      if (p.lead) uz *= 1.25;   // the turret head rises ahead of its cohort
+      // one winner per crown: the leader rises 1.6x and grows faster, rival summits slow to 0.7x
+      if (p === this.leader) uz *= 1.6; else if (p.lead) uz *= 1.15; else if (z > 0.3 && uz > 0) uz *= 0.7;
       // settle: weak drag near the base so the lowest ring lingers a little
       var low = clamp((baseZ + 0.25 - z) / 0.3, 0, 1);
       var drag = 1 - P.settle * low * low;
@@ -242,7 +247,7 @@
       B[o] = this.cx + p.r * c * W;
       B[o + 1] = this.cy - p.z * H;
       // a young parcel grows toward 1.3x its birth radius over 4 s; an old one erodes up to 20 %
-      var grow = 1 + 0.3 * (1 - Math.exp(-p.age / 4));
+      var grow = 1 + (p === this.leader ? 0.55 : 0.3) * (1 - Math.exp(-p.age / 4));
       var erode = 1 - 0.2 * (1 - p.fresh);
       // domes before texture: a crown parcel is ~1.7x a flank parcel
       // domes before texture: a crown parcel is ~2.5x a flank parcel
@@ -257,18 +262,19 @@
       // outward and down the outside; a front puff rolls toward the viewer and under
       S[o] = -s; S[o + 1] = 0; S[o + 2] = c; S[o + 3] = p.roll;
       // fine relief has a 12 s half-life after condensation; only a fresh, high (lit) crown keeps it
-      var aged = 0.15 + 0.85 * Math.pow(0.5, p.age / 12);
-      D[n] = Math.max(aged, p.fresh * hz * hz) * Math.min(1, p.fresh + 0.3);
+      var aged = 0.1 + 0.9 * Math.exp(-p.age / 25);
+      var lowQuiet = 0.35 + 0.65 * smoothstep(0.2, 0.5, hz);   // the lower third is quiet
+      D[n] = Math.max(aged, p.fresh * hz * hz) * Math.min(1, p.fresh + 0.3) * lowQuiet;
       n++;
     }
     // basal reservoir: wide, dense, soft (no small caps), pinned just above the base line
     for (i = 0; i < this.base.length && n < MAX; i++) {
       var q = this.base[i]; o = n * 4;
       B[o] = this.cx + q.x * W; B[o + 1] = this.baseY - q.lift * H;
-      B[o + 2] = Math.min(0.4, size * q.size); B[o + 3] = q.seed;
+      B[o + 2] = Math.min(0.4, size * q.size * (1 - 0.35 * q.x * q.x)); B[o + 3] = q.seed;
       A[o] = 0; A[o + 1] = 0.5 + 0.3 * Math.sin(q.phi); A[o + 2] = 0; A[o + 3] = 1;
       S[o] = 0; S[o + 1] = 0; S[o + 2] = q.x >= 0 ? 1 : -1; S[o + 3] = q.roll;
-      D[n] = q.neck ? 0.25 : 0.05;
+      D[n] = 0.05;
       n++;
     }
     this.topY = this.cy - H;

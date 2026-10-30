@@ -754,7 +754,7 @@ void main(){
   float height = max(0.0, top + T2 * log(max(1e-20, den)));
   float mask = 1.0 - unc;
   // condensation level: the cloud ends on one flat line, over a few texels
-  mask *= 1.0 - smoothstep(uBaseY, uBaseY + 0.012, p.y);
+  mask *= 1.0 - smoothstep(uBaseY - 0.012, uBaseY + 0.012, p.y);
   float contact = smoothstep(0.9, 2.2, ovl) * 0.35;
   float hN = clamp(height / uHeightUnit, 0.0, 1.0);
   // Coverage-premultiplied normals keep empty sky out of normal mip levels.
