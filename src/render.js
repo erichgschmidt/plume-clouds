@@ -401,6 +401,7 @@ uniform float uCellScale;
 uniform float uCellFlow;
 uniform float uFieldStep;
 uniform float uErosionFlow;   // slow clock on the erosion noise: fringes dissolve instead of staying fixed per seed
+uniform float uCapWarp;       // 0: caps and relief sit in the unwarped parcel frame (round domes); 1: they follow the primary carve (smeared)
 uniform float uBaseFlatten;   // 0..1: on the world-down half the primary warp may only deflate (no retained lobe stands out of the underside)
 uniform float uBaseY;         // condensation level (world y, top-down): nothing is visible below it (1e9: none)
 uniform highp sampler2D uCaps;   // per frame, CPU: columns 0..19 = cap (cen.xyz, rad after ownership; 0 = none), column 20 = (axis.x, axis.y, angle, axis.z), column 21 = (freshness, 0, 0, 0)
@@ -600,8 +601,8 @@ vec3 deformNormal(vec3 n, float localHeight, vec2 q, vec2 scaleGradient){
 
 void main(){
   vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);
-  float bH[NB]; float bW[NB]; float bC[NB]; vec3 bN[NB];
-  for(int j = 0; j < NB; j++){ bH[j] = 0.0; bW[j] = 0.0; bC[j] = 0.0; bN[j] = vec3(0.0); }
+  float bH[NB]; float bW[NB]; float bC[NB]; vec3 bN[NB]; float bS[NB];
+  for(int j = 0; j < NB; j++){ bH[j] = 0.0; bW[j] = 0.0; bC[j] = 0.0; bN[j] = vec3(0.0); bS[j] = 0.0; }
   // Relief is carried in visible parcel normals; no global max-detail slope.
   float T = max(0.002, uReference * 0.08 * uSoftness);
   float floorH = uReference * 1.5;
@@ -621,6 +622,7 @@ void main(){
     float r = b.z * inflation;
     vec2 q = (p - b.xy) / r; float rho = length(q);
     if(rho > primarySupport) continue;
+    vec2 qw = q;   // unwarped parcel frame
     int pi = ax.z < 0.0 ? -1 : int(ax.z + 0.5);
     vec4 parcelCap = texelFetch(uCaps, ivec2(20, i), 0);
     float parcelFresh = texelFetch(uCaps, ivec2(21, i), 0).x;
@@ -636,6 +638,11 @@ void main(){
     q /= parcelScale;
     rho = length(q);
     if(rho > PRIMARY_MATERIAL_SUPPORT) continue;
+    // caps and fine relief are round in the unwarped frame; the carve shapes the body only
+    vec2 qc = mix(qw, q, uCapWarp);
+    // stacked shade: every sub-volume darkens from its own top to its own bottom (y is down)
+    float gP = smoothstep(-0.6, 0.9, qc.y);
+    float gC = gP;
     float pixelStretch = (1.0 + length(q) * length(scaleGradient)) / parcelScale;
     float core = 0.93;
     vec3 erosion = erosionThickness(q, r, axis, angle, b.w, erosionDepth, erosionMinScale);
@@ -660,7 +667,7 @@ void main(){
       float attachment = smoothstep(0.0, 0.045, shellRadius + rad - core);
       float silhouetteJoin = max(1e-7, r * 0.045 * attachment);
       float heightJoin = max(1e-7, r * 0.02 * attachment);
-      vec2 dq = q - cen.xy; float dd = dot(dq, dq);
+      vec2 dq = qc - cen.xy; float dd = dot(dq, dq);
       vec3 cut = carvedRadius(dq, rad, r, axis, angle, b.w + float(j) * 19.31, pixelStretch);
       // The SAME erosion scalar shortens core and cap radii; subtract its
       // derivative too, so height, silhouette and patch normals stay together.
@@ -682,6 +689,7 @@ void main(){
       float wN = clamp(0.5 + 0.5 * (rawH - visibleH) / heightJoin, 0.0, 1.0) * inside;
       vec3 patchN = normalize(vec3(dq.x - cutR * cut.y, -dq.y + cutR * cut.z, surfaceZ) + vec3(0.0, 0.0, 1e-8));
       nP = normalize(mix(nP, patchN, wN));
+      gC = mix(gC, smoothstep(-0.5, 0.9, dq.y / max(pr, 1e-4)), wN);
       if(inside > 0.5) visibleH = -smin(-visibleH, -rawH, heightJoin);
       cap = -smin(-cap, -max(lh, 0.0) * r * join, heightJoin);
     }
@@ -698,15 +706,15 @@ void main(){
     // The radius in H=r*.14*Relief*f cancels against dq/dp in the slope.
     if(uRelief > 0.00001){
       float eps = clamp(0.5 * uFieldStep * pixelStretch / r, 0.002, 0.02);
-      if(rho < 0.95 + eps){
-        float relief = reliefShape(q, axis, angle, b.w);
+      if(length(qc) < 0.95 + eps){
+        float relief = reliefShape(qc, axis, angle, b.w);
         float k = 0.14 * uRelief * mix(0.05, 1.0, parcelFresh);
         cap += relief * r * k;
         visibleH += relief * r * k;
         vec2 gx = vec2(eps, 0.0), gy = vec2(0.0, eps);
         vec2 gradRelief = vec2(
-          reliefShape(q + gx, axis, angle, b.w) - reliefShape(q - gx, axis, angle, b.w),
-          reliefShape(q + gy, axis, angle, b.w) - reliefShape(q - gy, axis, angle, b.w)) * (k / (2.0 * eps));
+          reliefShape(qc + gx, axis, angle, b.w) - reliefShape(qc - gx, axis, angle, b.w),
+          reliefShape(qc + gy, axis, angle, b.w) - reliefShape(qc - gy, axis, angle, b.w)) * (k / (2.0 * eps));
         nP = displaceNormal(nP, gradRelief);
       }
     }
@@ -739,6 +747,7 @@ void main(){
       float wE = cov * exp((h - nextTop) / T);
       bW[bi] = bW[bi] * previousWeight + wE;
       bN[bi] = bN[bi] * previousWeight + wE * nP;
+      bS[bi] = bS[bi] * previousWeight + wE * (0.55 * gP + 0.45 * gC);
       bH[bi] = nextTop;
     }
     bC[bi] = 1.0 - (1.0 - bC[bi]) * (1.0 - cov);
@@ -750,17 +759,18 @@ void main(){
     top = max(top, bH[j]);
   }
   float T2 = max(0.002, uReference * 0.09 * uSoftness * uBlend);
-  float den = 0.0; float unc = 1.0; float ovl = 0.0; vec3 nSum = vec3(0.0);
+  float den = 0.0; float unc = 1.0; float ovl = 0.0; vec3 nSum = vec3(0.0); float sSum = 0.0;
   for(int j = 0; j < NB; j++){
     float c = bC[j]; float e = c * exp(clamp((bH[j] - top) / T2, -25.0, 0.0)); den += e;
-    if(bW[j] > 1e-20) nSum += e * normalize(bN[j] / bW[j] + vec3(0.0, 0.0, 1e-6));
+    if(bW[j] > 1e-20){ nSum += e * normalize(bN[j] / bW[j] + vec3(0.0, 0.0, 1e-6)); sSum += e * bS[j] / bW[j]; }
     unc *= 1.0 - c; ovl += c;
   }
   float height = max(0.0, top + T2 * log(max(1e-20, den)));
   float mask = 1.0 - unc;
   // condensation level: the cloud ends on one flat line, over a few texels
   mask *= 1.0 - smoothstep(uBaseY - 0.012, uBaseY + 0.012, p.y);
-  float contact = smoothstep(0.9, 2.2, ovl) * 0.35;
+  // the field's alpha carries the stacked shade (the old contact term was never read)
+  float contact = (den > 1e-20 ? sSum / den : 0.0) * mask;
   float hN = clamp(height / uHeightUnit, 0.0, 1.0);
   // Coverage-premultiplied normals keep empty sky out of normal mip levels.
   fragNormal = vec4((normalize(nSum + vec3(0.0, 0.0, 1e-6)) * 0.5 + 0.5) * mask, mask);
@@ -884,6 +894,7 @@ uniform float uFlatten;
 uniform float uInk;
 uniform sampler2D uNormal;
 uniform float uPatchN;
+uniform float uStack;         // stacked shade: each sub-volume darkens toward its own bottom (field alpha)
 uniform float uShadowDetail;  // detail kept where the macro form faces away from the sun (1: all, 0: none)
 uniform float uFormAO;        // large-scale occlusion strength: a texel far below its blurred neighbourhood is under the mass
 uniform float uFormLod;       // mip level of that neighbourhood read
@@ -988,6 +999,7 @@ void main(){
   float lambert = dot(n, uLight);
   // one dominant shadow shape: ambient falls from the crown to the base (optical depth stands in)
   float bandShade = uBand.z * smoothstep(mix(uBand.x, uBand.y, 0.3), uBand.y, (1.0 - vUv.y) * uAspect);
+  float stackShade = uStack * f.a;
   float bounce = max(0.0, dot(n, normalize(vec3(-uLight.x, -uLight.y, 0.25))));
   float occ = 0.0; vec2 dir = normalize(uLight.xy + vec2(1e-5, 0.0));
   float h0 = f.r * uHeightUnit;
@@ -1017,8 +1029,8 @@ void main(){
   }
   vec3 cloud;
   if(uToon > 0.5){
-    float direct = pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - uShadow * occ) * (1.0 - 0.7 * bandShade);
-    float ambient = (0.35 + uFill * bounce) * (1.0 - bandShade);
+    float direct = pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - uShadow * occ) * (1.0 - 0.7 * bandShade) * (1.0 - 0.5 * stackShade);
+    float ambient = (0.35 + uFill * bounce) * (1.0 - bandShade) * (1.0 - 0.8 * stackShade);
     ambient -= (0.35 + uFill * bounce) * ambientOcclusion;
     vec2 ti = (uPixelated > 0.5) ? floor(vUv / t) : floor(gl_FragCoord.xy);
     if(mod(ti.x + ti.y, 2.0) > 0.5){ direct -= 0.087; ambient -= 0.087; }
@@ -1032,8 +1044,8 @@ void main(){
     float ink = max(smoothstep(uJumpW, 2.0 * uJumpW, drop), step(0.5, edge)) * uInk;
     cloud *= 1.0 - 0.55 * ink;
   } else {
-    float direct = 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - 0.7 * bandShade);
-    float ambient = (0.18 + uFill * bounce) * (1.0 - bandShade);
+    float direct = 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - 0.7 * bandShade) * (1.0 - 0.5 * stackShade);
+    float ambient = (0.18 + uFill * bounce) * (1.0 - bandShade) * (1.0 - 0.8 * stackShade);
     float light = ambient + direct * (1.0 - uShadow * occ);
     light -= ambient * ambientOcclusion;
     light += bayer((uPixelated > 0.5) ? floor(vUv / t) : gl_FragCoord.xy) * 0.012;
@@ -1090,12 +1102,12 @@ void main(){
     this._fieldProg = link(gl, VS, FIELD_FS);
     this._fieldU = uniforms(gl, this._fieldProg, ['uBlobs', 'uAux', 'uCount', 'uTile', 'uAspect', 'uTime', 'uBillow', 'uRoll',
       'uErosion', 'uRelief', 'uReliefCenter', 'uReference', 'uSoftness', 'uBlend', 'uHeightUnit', 'uPacked', 'uDepth',
-      'uVoronoi', 'uPrimaryNoise', 'uErosionNoise', 'uPrimaryScale', 'uPrimaryInvertNoise', 'uInflation', 'uEmbed', 'uCarve', 'uInvertNoise', 'uPrimaryCarve', 'uCellScale', 'uCellFlow', 'uFieldStep', 'uCaps', 'uErosionFlow', 'uBaseY', 'uBaseFlatten']);
+      'uVoronoi', 'uPrimaryNoise', 'uErosionNoise', 'uPrimaryScale', 'uPrimaryInvertNoise', 'uInflation', 'uEmbed', 'uCarve', 'uInvertNoise', 'uPrimaryCarve', 'uCellScale', 'uCellFlow', 'uFieldStep', 'uCaps', 'uErosionFlow', 'uBaseY', 'uBaseFlatten', 'uCapWarp']);
     this._aoProg = link(gl, VS, AO_FS);
     this._aoU = uniforms(gl, this._aoProg, ['uField', 'uNormal', 'uTexel', 'uAspect', 'uHeightUnit', 'uPacked', 'uRadius', 'uFalloff']);
     this._shadeProg = link(gl, VS, SHADE_FS);
     this._shadeU = uniforms(gl, this._shadeProg, ['uField', 'uOcclusion', 'uTexel', 'uLight', 'uAspect', 'uHeightUnit',
-      'uShadow', 'uAO', 'uResScale', 'uJumpW', 'uHighlight', 'uFill', 'uPixelated', 'uToon', 'uToneA', 'uToneB', 'uFlatten', 'uInk', 'uNormal', 'uPatchN', 'uShadowDetail', 'uFormAO', 'uFormLod', 'uFormRange', 'uBand', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
+      'uShadow', 'uAO', 'uResScale', 'uJumpW', 'uHighlight', 'uFill', 'uPixelated', 'uToon', 'uToneA', 'uToneB', 'uFlatten', 'uInk', 'uNormal', 'uPatchN', 'uShadowDetail', 'uStack', 'uFormAO', 'uFormLod', 'uFormRange', 'uBand', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
 
     // billow tile (static asset; baked once)
     this._tile = gl.createTexture();
@@ -1464,6 +1476,7 @@ void main(){
     gl.uniform1f(fu.uErosionFlow, Math.max(0, Math.min(0.2, num(look.erosionFlow, 0))));
     gl.uniform1f(fu.uBaseY, (sim && typeof sim.baseY === 'number') ? sim.baseY : 1e9);
     gl.uniform1f(fu.uBaseFlatten, Math.max(0, Math.min(1, num(look.baseFlatten, 0))));
+    gl.uniform1f(fu.uCapWarp, Math.max(0, Math.min(1, num(look.capWarp, 1))));
     var spins = (sim && sim.spin && sim.spin.length >= MAX_BLOBS * 4) ? sim.spin : null;
     var details = (sim && sim.detail && sim.detail.length >= MAX_BLOBS) ? sim.detail : null;
     this._capTable(blobs, aux, spins, details, count, time, { billow: billow, erosion: erosion, inflation: 1 + inflation, embed: embed, roll: num(look.roll, 0.6), rollSync: num(look.rollSync, 0), capLife: Math.max(0, num(look.capLife, 1)),
@@ -1551,6 +1564,7 @@ void main(){
     gl.uniform1f(su.uShadow, shadow);
     gl.uniform1f(su.uAO, aoIntensity);
     gl.uniform1f(su.uShadowDetail, Math.max(0, Math.min(1, num(look.shadowDetail, 1))));
+    gl.uniform1f(su.uStack, Math.max(0, Math.min(1, num(look.stackShade, 0))));
     var formRadius = Math.max(0.5, Math.min(6, num(look.formRadius, 2.5))) * maxR;   // world units
     gl.uniform1f(su.uFormAO, Math.max(0, Math.min(2, num(look.formAO, 0))));
     gl.uniform1f(su.uFormLod, Math.max(0, Math.log2(formRadius * this.stats.fieldW)));

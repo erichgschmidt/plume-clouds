@@ -54,6 +54,21 @@ form persists. At zero roll the skin still breathes (one life per ~60 s). `Cap l
 cycle rate (0 freezes the skin). On the world-down half the primary carve may only deflate the
 parcel (`uBaseFlatten`), so no retained lobe stands out of the underside (the udder / bead).
 
+### Round caps (`Cap warp`)
+
+The primary carve warps the parcel's material frame to break the silhouette; evaluated in that
+frame, caps and relief were smeared along the warp (the elongated billows). Caps and relief now
+sit in the unwarped frame (`Cap warp` 0, the default), so they are round domes with real depth
+while the carve still shapes the body. 1 restores the old behaviour.
+
+### Stacked shade (`Stack shade`)
+
+The base band generalised to every scale: each parcel darkens from its own top to its own
+bottom, and each cap on it does the same (field alpha, accumulated with the same soft-max
+weights as the normals). Direct light loses up to 50 %, ambient up to 80 %, scaled by the slider
+(0.4 default). Together with the base band this gives gradients of stacking in the sub-volumes
+rather than one shadow at the bottom.
+
 ### The dark base and the sun
 
 The base band (`Base shade`) is optical depth: light entering at the crown is scattered out
