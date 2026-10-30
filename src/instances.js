@@ -20,7 +20,7 @@
     flatten: .3, ink: .5, sky: false, pixelated: true, toon: false, patchN: true, carveEnabled: true,
     noiseType: 'Voronoi', invertNoise: true, ao: 0.65, aoRadius: 0.8, aoFalloff: 1.5,
     primaryNoiseType: 'Voronoi', primaryInvertNoise: true, primaryScale: 1.8, inflation: 0.1, embed: 0.12,
-    primaryCarve: 1.2, carve: 0.25, cellScale: 1.2, cellFlow: 0.65 };
+    primaryCarve: 1.2, carve: 0.25, cellScale: 1.2, cellFlow: 0.5, erosionFlow: 0.01 };
 
   var VS = [
     '#version 300 es',
@@ -191,7 +191,9 @@ void main(){
       size: num(opts.size, 0.6),
       depth: Math.max(0, num(opts.depth, 0)),
       drift: opts.drift || [0, 0],
-      speed: num(opts.speed, 1),
+      speed: num(opts.speed, 0.7),
+      sway: opts.sway || null,   // { amp, rate, phase }: bounded horizontal lean (crown ahead of base in shear)
+      swayX: 0,
       // far clouds animate slowly on screen: refresh their sprite every n-th frame
       refreshEvery: Math.max(1, num(opts.refreshEvery, 1) | 0),
       _stale: true
@@ -210,6 +212,7 @@ void main(){
     opts = opts || {};
     var rows = opts.rows || [4, 3, 2, 1], size = num(opts.size, 0.3), depth = num(opts.depth, 0);
     var baseTint = num(opts.baseTint, 0.45);   // the bottom row sits in the stack's own shadow
+    var shear = num(opts.shear, 0.06);          // crown lean amplitude (fraction of size), 2-minute sway
     var x0 = num(opts.x, 0.5), y0 = num(opts.y, 0.6), seed = num(opts.seed, 1) | 0;
     var rngState = (seed * 2654435761) >>> 0;
     function rng() { rngState = (rngState + 0x6D2B79F5) >>> 0; var t = rngState; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }
@@ -222,13 +225,18 @@ void main(){
       var step = rowSize * 0.36, left = x0 - step * (count - 1) / 2;
       var rowT = rows.length > 1 ? row / (rows.length - 1) : 1;
       for (var k = 0; k < count; k++) {
+        var puffSize = rowSize * (0.75 + 0.4 * rng());
+        // one rising column: every puff turns at the same rate and phase; smaller puffs a little faster
+        var look = { rollSync: 1.0 * Math.pow(size / puffSize, 0.3) };
+        if (opts.look) for (var lk in opts.look) look[lk] = opts.look[lk];
         var inst = this.add({
           seed: seed + 101 * n, preset: 'single',
           x: left + step * k + (rng() - 0.5) * rowSize * 0.12,
           y: y0 - row * size * 0.26 + (rng() - 0.5) * rowSize * 0.10,
-          size: rowSize * (0.75 + 0.4 * rng()),
+          size: puffSize,
           depth: depth + row * 0.05 + rng() * 0.02,        // higher rows sit behind the lower ones
-          drift: opts.drift, speed: opts.speed, look: opts.look,
+          drift: opts.drift, speed: opts.speed, look: look,
+          sway: { amp: shear * size * rowT, rate: 0.05, phase: seed * 0.37 },
           settings: settings, prewarm: opts.prewarm, refreshEvery: opts.refreshEvery,
           shift: [0, -0.11]   // the single preset's lobe sits at v = 0.6: centre it so no edge clips
         });
@@ -254,6 +262,7 @@ void main(){
       inst.sim.step(dt * inst.speed);
       inst.time = inst.sim.time;
       inst.x += inst.drift[0] * dt; inst.y += inst.drift[1] * dt;
+      if (inst.sway) inst.swayX = inst.sway.amp * Math.sin(inst.time * inst.sway.rate + inst.sway.phase);
       inst._stale = true;
     }
   };
@@ -292,7 +301,7 @@ void main(){
       inst = order[i];
       var s = 1 / (1 + inst.depth * this.parallax);
       var w = inst.size * s, h = w * (H / W) * (cw / ch);
-      var cx = 0.5 + (inst.x - camera.x) * s, cy = 0.5 + (inst.y - camera.y) * s;
+      var cx = 0.5 + (inst.x + inst.swayX - camera.x) * s, cy = 0.5 + (inst.y - camera.y) * s;
       this._rects[i * 4] = cx - w / 2; this._rects[i * 4 + 1] = cy - h / 2; this._rects[i * 4 + 2] = w; this._rects[i * 4 + 3] = h;
       this._infos[i * 4] = inst.layer; this._infos[i * 4 + 1] = inst.depth;
       this._infos[i * 4 + 2] = Math.min(0.9, this.haze * inst.depth); this._infos[i * 4 + 3] = cy;

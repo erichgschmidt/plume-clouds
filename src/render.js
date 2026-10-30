@@ -400,6 +400,7 @@ uniform float uPrimaryCarve;
 uniform float uCellScale;
 uniform float uCellFlow;
 uniform float uFieldStep;
+uniform float uErosionFlow;   // slow clock on the erosion noise: fringes dissolve instead of staying fixed per seed
 uniform highp sampler2D uCaps;   // per frame, CPU: columns 0..19 = cap (cen.xyz, rad after ownership; 0 = none), column 20 = (axis.x, axis.y, angle, 0)
 uniform float uAspect;
 uniform float uTime;
@@ -558,7 +559,7 @@ vec3 erosionThickness(vec2 q, float r, vec3 axis, float angle, float seed,
   if(maximumDepth <= 0.0) return vec3(0.0);
   const float frequency = 2.2;
   vec3 offset = vec3(hash(seed + 163.7), hash(seed + 271.3), hash(seed + 419.1)) * 4.0;
-  vec3 material = rotAxis(vec3(q, 0.0), axis, -angle) * frequency + offset;
+  vec3 material = rotAxis(vec3(q, 0.0), axis, -angle) * frequency + offset + vec3(0.0, 0.0, uTime * uErosionFlow);
   // Fixed per-parcel LOD keeps the noise scalar and its gradient coherent.
   float footprint = 16.0 * frequency * uFieldStep * 1.5 / max(r * primaryMinScale, 1e-5);
   float lod = clamp(log2(max(1.0, footprint)), 0.0, 5.0);
@@ -1064,7 +1065,7 @@ void main(){
     this._fieldProg = link(gl, VS, FIELD_FS);
     this._fieldU = uniforms(gl, this._fieldProg, ['uBlobs', 'uAux', 'uCount', 'uTile', 'uAspect', 'uTime', 'uBillow', 'uRoll',
       'uErosion', 'uRelief', 'uReliefCenter', 'uReference', 'uSoftness', 'uBlend', 'uHeightUnit', 'uPacked', 'uDepth',
-      'uVoronoi', 'uPrimaryNoise', 'uErosionNoise', 'uPrimaryScale', 'uPrimaryInvertNoise', 'uInflation', 'uEmbed', 'uCarve', 'uInvertNoise', 'uPrimaryCarve', 'uCellScale', 'uCellFlow', 'uFieldStep', 'uCaps']);
+      'uVoronoi', 'uPrimaryNoise', 'uErosionNoise', 'uPrimaryScale', 'uPrimaryInvertNoise', 'uInflation', 'uEmbed', 'uCarve', 'uInvertNoise', 'uPrimaryCarve', 'uCellScale', 'uCellFlow', 'uFieldStep', 'uCaps', 'uErosionFlow']);
     this._aoProg = link(gl, VS, AO_FS);
     this._aoU = uniforms(gl, this._aoProg, ['uField', 'uNormal', 'uTexel', 'uAspect', 'uHeightUnit', 'uPacked', 'uRadius', 'uFalloff']);
     this._shadeProg = link(gl, VS, SHADE_FS);
@@ -1160,7 +1161,8 @@ void main(){
       }
       var gLen = Math.sqrt(gx * gx + gy * gy); gx /= gLen; gy /= gLen;
       var axX = gy, axY = -gx;   // axis = (growth.y, -growth.x, 0)
-      var angle = time * 0.16 * p.roll * (0.85 + 0.3 * hash(seed));
+      // rollSync > 0: every parcel turns at that fixed multiple of the base rate (one rising column)
+      var angle = time * 0.16 * p.roll * (p.rollSync > 0 ? p.rollSync : (0.85 + 0.3 * hash(seed)));
       var c = Math.cos(angle), sn = Math.sin(angle);
       var skinN = Math.max(4, Math.min(20, Math.floor((8 + hash(seed + 91.7) * 13) * skinScale)));
       for (j = 0; j < 20; j++) {
@@ -1383,7 +1385,8 @@ void main(){
     gl.uniform1f(fu.uCellScale, Math.max(0.6, Math.min(6, num(look.cellScale, 1.2))));
     gl.uniform1f(fu.uCellFlow, Math.max(0, Math.min(3, num(look.cellFlow, 0.65))));
     gl.uniform1f(fu.uFieldStep, 1 / this.stats.fieldW);
-    this._capTable(blobs, aux, count, time, { billow: billow, erosion: erosion, inflation: 1 + inflation, embed: embed, roll: num(look.roll, 0.6) });
+    gl.uniform1f(fu.uErosionFlow, Math.max(0, Math.min(0.2, num(look.erosionFlow, 0))));
+    this._capTable(blobs, aux, count, time, { billow: billow, erosion: erosion, inflation: 1 + inflation, embed: embed, roll: num(look.roll, 0.6), rollSync: num(look.rollSync, 0) });
     gl.uniform1i(fu.uCaps, 8);
     gl.uniform4fv(fu.uBlobs, blobs, 0, MAX_BLOBS * 4);
     gl.uniform4fv(fu.uAux, aux, 0, MAX_BLOBS * 4);
