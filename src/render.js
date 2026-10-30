@@ -400,6 +400,7 @@ uniform float uPrimaryCarve;
 uniform float uCellScale;
 uniform float uCellFlow;
 uniform float uFieldStep;
+uniform highp sampler2D uCaps;   // per frame, CPU: columns 0..19 = cap (cen.xyz, rad after ownership; 0 = none), column 20 = (axis.x, axis.y, angle, 0)
 uniform float uAspect;
 uniform float uTime;
 uniform float uBillow;
@@ -604,13 +605,10 @@ void main(){
   vec3 primaryParams = primaryWarpParameters(uPrimaryCarve, uPrimaryScale);
   float primarySupport = primaryWorldSupport(primaryParams);
   float inflation = 1.0 + uInflation;
-  float billowAmount = clamp(uBillow, 0.0, 10.0);
   float erosionDepth = (0.35 / 3.0) * clamp(uErosion, 0.0, 3.0);
   // A uniform center inset keeps every cap center inside even the most-eroded
   // core. Its position does not vary per pixel, so no extra center Jacobian is
   // needed in the cap normal. Erosion zero is exactly the original construction.
-  float erosionShellScale = 1.0 - erosionDepth / 0.93;
-  float ownershipCoreSq = erosionDepth > 0.0 ? pow(0.93 - erosionDepth * 0.825, 2.0) : 0.8649;
   float erosionMinScale = primaryMinimumScale(primaryParams);
   for(int i = 0; i < 64; i++){
     if(i >= uCount) break;
@@ -621,10 +619,9 @@ void main(){
     vec2 q = (p - b.xy) / r; float rho = length(q);
     if(rho > primarySupport) continue;
     int pi = ax.z < 0.0 ? -1 : int(ax.z + 0.5);
-    vec2 growth = vec2(0.16, -1.0);
-    if(pi >= 0 && pi < uCount && pi != i){ vec2 dl = b.xy - uBlobs[pi].xy; if(dot(dl, dl) > 1e-8) growth = dl; }
-    growth = normalize(growth); vec3 axis = vec3(growth.y, -growth.x, 0.0);
-    float angle = uTime * 0.16 * uRoll * (0.85 + 0.3 * hash(b.w));
+    vec4 parcelCap = texelFetch(uCaps, ivec2(20, i), 0);
+    vec3 axis = vec3(parcelCap.xy, 0.0);
+    float angle = parcelCap.z;
     vec3 primary = primaryWarp(q, r, axis, angle, b.w, primaryParams);
     float parcelScale = primary.x;
     vec2 scaleGradient = primary.yz;
@@ -643,46 +640,13 @@ void main(){
                                 -q.y - coreRadius * erosion.z,
                                 sqrt(max(coreRadius * coreRadius - dot(q, q), 0.0))) + vec3(0.0, 0.0, 1e-8));
     vec3 nP = coreN;
-    int skinN = int(clamp(floor((8.0 + hash(b.w + 91.7) * 13.0) * (0.5 + 0.25 * clamp(uBillow, 0.0, 4.0))), 4.0, 20.0));
     for(int j = 0; j < 20; j++){
-      if(j >= skinN) break;
-      float jit = hash(b.w + float(j) * 31.7) - 0.5;
-      float zz = 1.0 - 2.0 * (float(j) + 0.5 + jit * 0.55) / float(skinN);
-      float az = float(j) * 2.399963 + b.w * 2.7 + jit * 0.8;
-      float sr = sqrt(max(1.0 - zz * zz, 0.0));
-      float radiusSeed = mix(0.28, 0.46, hash(b.w + float(j) * 17.0)) * 0.84;
-      float radiusAtTwo = min(0.5, radiusSeed * sqrt(2.0));
-      float rad;
-      if(billowAmount <= 2.0){
-        // Exact legacy geometry over the original useful radius range.
-        rad = min(0.5, radiusSeed * sqrt(billowAmount));
-      } else {
-        // Continues growing through 10, without an invisible upper-end plateau.
-        // Maximum radius at 10 is 0.8951436, still smaller than the 0.93 core.
-        float growth = sqrt((0.5 * billowAmount) / (1.0 + 0.07 * (billowAmount - 2.0)));
-        rad = radiusAtTwo * growth;
-      }
-      float growthInset = 0.35 * max(rad - radiusAtTwo, 0.0);
-      float shellRadius = max(0.0, 0.78 - growthInset) * (1.0 - clamp(uEmbed, 0.0, 1.0)) * erosionShellScale;
-      vec3 cen = rotAxis(vec3(sr * cos(az), sr * sin(az), zz), axis, angle) * shellRadius;
-
-      // A wholly contained sphere has no contribution to a sphere union. Test this
-      // before ownership to skip its neighbor work and prevent smoothing ghosts.
-      if(rad <= 1e-4 || shellRadius + rad <= core) continue;
-      // Ownership is a cap-level decision in the common rest geometry.
-      // Never feed the current pixel's deformation into this test: that cuts crescents.
-      vec2 pc = b.xy + cen.xy * r;
-      float selfH = sqrt(max(ownershipCoreSq - dot(cen.xy, cen.xy), 0.0)) * r; float otherH = 0.0;
-      for(int i2 = 0; i2 < 64; i2++){
-        if(i2 >= uCount) break;
-        if(i2 == i) continue;
-        vec4 b2 = uBlobs[i2]; if(b2.z <= 1e-4 || uAux[i2].w <= 1e-6 || int(uAux[i2].x + 0.5) != bi) continue;
-        float otherRadius = b2.z * inflation;
-        vec2 q2 = (pc - b2.xy) / otherRadius; float d2 = dot(q2, q2);
-        if(d2 < ownershipCoreSq) otherH = max(otherH, sqrt(ownershipCoreSq - d2) * otherRadius);
-      }
-      rad *= smoothstep(-0.15 * r, 0.05 * r, selfH - otherH);
-      if(rad <= 1e-4 || shellRadius + rad <= core) continue;
+      // cap table (CPU, once per frame): centre on the rotated shell and radius after ownership
+      vec4 cp = texelFetch(uCaps, ivec2(j, i), 0);
+      float rad = cp.w;
+      if(rad <= 1e-4) continue;
+      vec3 cen = cp.xyz;
+      float shellRadius = length(cen);
       // Let the existing narrow smoothing vanish as a cap becomes contained.
       // Full burial then leaves no residual soft-union bump or sudden ghost.
       float attachment = smoothstep(0.0, 0.045, shellRadius + rad - core);
@@ -1100,7 +1064,7 @@ void main(){
     this._fieldProg = link(gl, VS, FIELD_FS);
     this._fieldU = uniforms(gl, this._fieldProg, ['uBlobs', 'uAux', 'uCount', 'uTile', 'uAspect', 'uTime', 'uBillow', 'uRoll',
       'uErosion', 'uRelief', 'uReliefCenter', 'uReference', 'uSoftness', 'uBlend', 'uHeightUnit', 'uPacked', 'uDepth',
-      'uVoronoi', 'uPrimaryNoise', 'uErosionNoise', 'uPrimaryScale', 'uPrimaryInvertNoise', 'uInflation', 'uEmbed', 'uCarve', 'uInvertNoise', 'uPrimaryCarve', 'uCellScale', 'uCellFlow', 'uFieldStep']);
+      'uVoronoi', 'uPrimaryNoise', 'uErosionNoise', 'uPrimaryScale', 'uPrimaryInvertNoise', 'uInflation', 'uEmbed', 'uCarve', 'uInvertNoise', 'uPrimaryCarve', 'uCellScale', 'uCellFlow', 'uFieldStep', 'uCaps']);
     this._aoProg = link(gl, VS, AO_FS);
     this._aoU = uniforms(gl, this._aoProg, ['uField', 'uNormal', 'uTexel', 'uAspect', 'uHeightUnit', 'uPacked', 'uRadius', 'uFalloff']);
     this._shadeProg = link(gl, VS, SHADE_FS);
@@ -1141,6 +1105,16 @@ void main(){
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.generateMipmap(gl.TEXTURE_3D);
 
+    // cap table: 21 x MAX_BLOBS RGBA32F, rewritten every frame (see _capTable)
+    this._capTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this._capTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, CAP_COLS, MAX_BLOBS, 0, gl.RGBA, gl.FLOAT, null);
+    this._capData = new Float32Array(CAP_COLS * MAX_BLOBS * 4);
+
     this._vao = gl.createVertexArray();
     this._tex = null;
     this._ntex = null;
@@ -1153,6 +1127,87 @@ void main(){
   }
 
   CloudRenderer.MAX_BLOBS = MAX_BLOBS;
+
+  var CAP_COLS = 21;   // 20 caps + one column of per-parcel data (axis, roll angle)
+  function hash(x) { var v = Math.sin(x * 12.9898) * 43758.5453; return v - Math.floor(v); }
+  function smoothstep(e0, e1, x) { var t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); }
+
+  /**
+   * The rigid skin of caps, once per frame instead of once per cap per texel: each parcel's
+   * roll axis and angle, and per cap its centre on the rotated shell plus its radius after
+   * ownership (shrunk away where a same-branch neighbour is higher at the cap's centre).
+   * Same construction the shader had; only the evaluation site moved.
+   */
+  CloudRenderer.prototype._capTable = function (blobs, aux, count, time, p) {
+    var T = this._capData, core = 0.93, i, j, i2;
+    var billow = p.billow;
+    var growthAtBillow = billow > 2 ? Math.sqrt((0.5 * billow) / (1 + 0.07 * (billow - 2))) : 0;
+    var sqrtBillow = Math.sqrt(billow);
+    var erosionDepth = (0.35 / 3) * p.erosion;
+    var erosionShellScale = 1 - erosionDepth / core;
+    var ownershipCoreSq = erosionDepth > 0 ? Math.pow(core - erosionDepth * 0.825, 2) : 0.8649;
+    var skinScale = 0.5 + 0.25 * Math.min(4, billow), embedScale = 1 - p.embed;
+    for (i = 0; i < count; i++) {
+      var o = i * 4, bx = blobs[o], by = blobs[o + 1], bz = blobs[o + 2], seed = blobs[o + 3];
+      var row = i * CAP_COLS * 4;
+      if (bz <= 1e-4 || aux[o + 3] <= 1e-6) { for (j = 0; j < CAP_COLS * 4; j++) T[row + j] = 0; continue; }
+      var r = bz * p.inflation, bi = Math.round(aux[o]);
+      // growth direction from the parent parcel (a lone lobe grows up; world y is top-down)
+      var pi = aux[o + 2] < 0 ? -1 : Math.round(aux[o + 2]), gx = 0.16, gy = -1;
+      if (pi >= 0 && pi < count && pi !== i) {
+        var dlx = bx - blobs[pi * 4], dly = by - blobs[pi * 4 + 1];
+        if (dlx * dlx + dly * dly > 1e-8) { gx = dlx; gy = dly; }
+      }
+      var gLen = Math.sqrt(gx * gx + gy * gy); gx /= gLen; gy /= gLen;
+      var axX = gy, axY = -gx;   // axis = (growth.y, -growth.x, 0)
+      var angle = time * 0.16 * p.roll * (0.85 + 0.3 * hash(seed));
+      var c = Math.cos(angle), sn = Math.sin(angle);
+      var skinN = Math.max(4, Math.min(20, Math.floor((8 + hash(seed + 91.7) * 13) * skinScale)));
+      for (j = 0; j < 20; j++) {
+        var cj = row + j * 4, rad = 0, cx = 0, cy = 0, cz = 0;
+        if (j < skinN) {
+          var jit = hash(seed + j * 31.7) - 0.5;
+          var zz = 1 - 2 * (j + 0.5 + jit * 0.55) / skinN;
+          var az = j * 2.399963 + seed * 2.7 + jit * 0.8;
+          var sr = Math.sqrt(Math.max(1 - zz * zz, 0));
+          var radiusSeed = (0.28 + (0.46 - 0.28) * hash(seed + j * 17)) * 0.84;
+          var radiusAtTwo = Math.min(0.5, radiusSeed * Math.SQRT2);
+          rad = billow <= 2 ? Math.min(0.5, radiusSeed * sqrtBillow) : radiusAtTwo * growthAtBillow;
+          var growthInset = 0.35 * Math.max(rad - radiusAtTwo, 0);
+          var shellRadius = Math.max(0, 0.78 - growthInset) * embedScale * erosionShellScale;
+          // rotAxis(v, axis, angle) * shellRadius with the axis in the screen plane (z = 0)
+          var vx = sr * Math.cos(az), vy = sr * Math.sin(az), vz = zz;
+          var d = axX * vx + axY * vy;
+          cx = (vx * c + (axY * vz) * sn + axX * d * (1 - c)) * shellRadius;
+          cy = (vy * c + (-axX * vz) * sn + axY * d * (1 - c)) * shellRadius;
+          cz = (vz * c + (axX * vy - axY * vx) * sn) * shellRadius;
+          if (rad <= 1e-4 || shellRadius + rad <= core) rad = 0;
+          else {
+            // a billow lives on ONE sphere of its branch
+            var pcx = bx + cx * r, pcy = by + cy * r;
+            var selfH = Math.sqrt(Math.max(ownershipCoreSq - (cx * cx + cy * cy), 0)) * r, otherH = 0;
+            for (i2 = 0; i2 < count; i2++) {
+              if (i2 === i) continue;
+              var o2 = i2 * 4;
+              if (blobs[o2 + 2] <= 1e-4 || aux[o2 + 3] <= 1e-6 || Math.round(aux[o2]) !== bi) continue;
+              var r2 = blobs[o2 + 2] * p.inflation, qx = (pcx - blobs[o2]) / r2, qy = (pcy - blobs[o2 + 1]) / r2;
+              var d2 = qx * qx + qy * qy;
+              if (d2 < ownershipCoreSq) otherH = Math.max(otherH, Math.sqrt(ownershipCoreSq - d2) * r2);
+            }
+            rad *= smoothstep(-0.15 * r, 0.05 * r, selfH - otherH);
+            if (rad <= 1e-4 || shellRadius + rad <= core) rad = 0;
+          }
+        }
+        T[cj] = cx; T[cj + 1] = cy; T[cj + 2] = cz; T[cj + 3] = rad;
+      }
+      var pc = row + 20 * 4;
+      T[pc] = axX; T[pc + 1] = axY; T[pc + 2] = angle; T[pc + 3] = 0;
+    }
+    var gl = this.gl;
+    gl.activeTexture(gl.TEXTURE8);
+    gl.bindTexture(gl.TEXTURE_2D, this._capTex);
+    if (count > 0) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, CAP_COLS, count, gl.RGBA, gl.FLOAT, T, 0);
+  };
 
   CloudRenderer.prototype._aspect = function () {
     var w = this.canvas.width || 1, h = this.canvas.height || 1;
@@ -1215,7 +1270,12 @@ void main(){
   /** Set the internal field texture width; height follows the canvas aspect. */
   CloudRenderer.prototype.resize = function (fieldWidth) {
     var w = Math.max(8, Math.round(fieldWidth || 320));
-    var h = Math.max(8, Math.round(w * this._aspect()));
+    this.resizeField(w, Math.max(8, Math.round(w * this._aspect())));
+  };
+
+  /** Set the internal field texture size explicitly (sprite rendering: the target decides). */
+  CloudRenderer.prototype.resizeField = function (w, h) {
+    w = Math.max(8, Math.round(w)); h = Math.max(8, Math.round(h));
     if (w === this.stats.fieldW && h === this.stats.fieldH && this._tex) return;
     var ok = this._allocField(w, h, this._floatOk);
     if (!ok && this._floatOk) {
@@ -1233,6 +1293,23 @@ void main(){
 
   /** Upload sim state, run field / optional AO / shade passes, draw to the canvas. */
   CloudRenderer.prototype.render = function (sim, look, timeSeconds) {
+    // keep the field height in step with the canvas aspect
+    var aspect = this._aspect();
+    var wantH = Math.max(8, Math.round(this.stats.fieldW * aspect));
+    if (wantH !== this.stats.fieldH) this.resize(this.stats.fieldW);
+    this._renderTo(sim, look, timeSeconds, null, this.canvas.width, this.canvas.height);
+  };
+
+  /**
+   * Render a scene into a framebuffer (a sprite): the field is sized to the target, so the
+   * shade pass is one shade per texel. Pass look.sky = false for a premultiplied RGBA sprite.
+   */
+  CloudRenderer.prototype.renderSprite = function (sim, look, timeSeconds, fbo, width, height) {
+    this.resizeField(width, height);
+    this._renderTo(sim, look, timeSeconds, fbo, width, height);
+  };
+
+  CloudRenderer.prototype._renderTo = function (sim, look, timeSeconds, targetFbo, targetW, targetH) {
     var gl = this.gl;
     var t0 = (typeof performance !== 'undefined') ? performance.now() : Date.now();
     look = look || {};
@@ -1249,10 +1326,7 @@ void main(){
     var aoRadius = Math.max(0.15, Math.min(2, num(look.aoRadius, 0.8)));
     var aoFalloff = Math.max(0.5, Math.min(4, num(look.aoFalloff, 1.5)));
 
-    // keep the field height in step with the canvas aspect
-    var aspect = this._aspect();
-    var wantH = Math.max(8, Math.round(this.stats.fieldW * aspect));
-    if (wantH !== this.stats.fieldH) this.resize(this.stats.fieldW);
+    var aspect = this.stats.fieldH / this.stats.fieldW;   // world height of the field (width = 1)
 
     var count = sim ? Math.max(0, Math.min(MAX_BLOBS, sim.blobCount | 0)) : 0;
     var blobs = (sim && sim.blobs && sim.blobs.length >= MAX_BLOBS * 4) ? sim.blobs : this._zeroBlobs;
@@ -1309,6 +1383,8 @@ void main(){
     gl.uniform1f(fu.uCellScale, Math.max(0.6, Math.min(6, num(look.cellScale, 1.2))));
     gl.uniform1f(fu.uCellFlow, Math.max(0, Math.min(3, num(look.cellFlow, 0.65))));
     gl.uniform1f(fu.uFieldStep, 1 / this.stats.fieldW);
+    this._capTable(blobs, aux, count, time, { billow: billow, erosion: erosion, inflation: 1 + inflation, embed: embed, roll: num(look.roll, 0.6) });
+    gl.uniform1i(fu.uCaps, 8);
     gl.uniform4fv(fu.uBlobs, blobs, 0, MAX_BLOBS * 4);
     gl.uniform4fv(fu.uAux, aux, 0, MAX_BLOBS * 4);
     gl.uniform1i(fu.uCount, count);
@@ -1361,8 +1437,8 @@ void main(){
     }
 
     // ---- pass 3: shade ----
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, targetFbo);
+    gl.viewport(0, 0, targetW, targetH);
     gl.useProgram(this._shadeProg);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this._tex);
@@ -1418,6 +1494,7 @@ void main(){
     if (this._tile) gl.deleteTexture(this._tile);
     if (this._vtex) gl.deleteTexture(this._vtex);
     if (this._ctex) gl.deleteTexture(this._ctex);
+    if (this._capTex) gl.deleteTexture(this._capTex);
     if (this._aotex) gl.deleteTexture(this._aotex);
     if (this._aofbo) gl.deleteFramebuffer(this._aofbo);
     if (this._fbo) gl.deleteFramebuffer(this._fbo);
