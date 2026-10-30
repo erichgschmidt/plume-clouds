@@ -41,11 +41,11 @@
 
   var PRESETS = {
     // a flat fair-weather puff: weak updraft, wide, little roil
-    humilis:   { updraft: 0.12, width: 0.26, height: 0.12, rise: 0.000,  expand: 0.0000, settle: 0.15, count: 18, size: 0.10,  jitter: 0.08, mixing: 24, pulse: 0,  base: 0.55, rollGain: 4, formTime: 60 },
+    humilis:   { updraft: 0.12, width: 0.26, height: 0.12, rise: 0.000,  expand: 0.0000, settle: 0.15, count: 18, size: 0.10,  jitter: 0.08, mixing: 14, pulse: 0,  base: 0.55, rollGain: 3, formTime: 60, reservoir: 0.35 },
     // a growing cumulus: strong updraft, tall ring, parcels cascade down the sides
-    congestus: { updraft: 0.18, width: 0.20, height: 0.26, rise: 0.0006, expand: 0.0003, settle: 0.10, count: 26, size: 0.09,  jitter: 0.08, mixing: 20, pulse: 10, base: 0.60, rollGain: 4, formTime: 90 },
+    congestus: { updraft: 0.18, width: 0.20, height: 0.26, rise: 0.0006, expand: 0.0003, settle: 0.10, count: 32, size: 0.085,  jitter: 0.08, mixing: 12, pulse: 10, base: 0.60, rollGain: 3, formTime: 90, reservoir: 0.35 },
     // a tower: narrow and tall, fast core, long cascade
-    tower:     { updraft: 0.25, width: 0.14, height: 0.36, rise: 0.0010, expand: 0.0002, settle: 0.10, count: 34, size: 0.075, jitter: 0.10, mixing: 16, pulse: 8,  base: 0.65, rollGain: 4, formTime: 120 }
+    tower:     { updraft: 0.25, width: 0.14, height: 0.36, rise: 0.0010, expand: 0.0002, settle: 0.10, count: 40, size: 0.07, jitter: 0.10, mixing: 10, pulse: 8,  base: 0.65, rollGain: 3, formTime: 120, reservoir: 0.30 }
   };
 
   function ThermalSim(opts) {
@@ -70,12 +70,13 @@
     for (var k in def) this.params[k] = def[k];
     this.preset = preset;
     this.time = 0;
-    this.cx = 0.5; this.cy = this.aspect * 0.66;   // thermal centre (world: y top-down)
+    this.cx = 0.5; this.cy = this.cy0 = this.aspect * 0.66;   // thermal centre (world: y top-down)
     this.width0 = this.params.width; this.height0 = this.params.height;
     this.width = this.width0; this.height = this.height0;
     // the condensation level is a fixed world height, not a floor that moves with the thermal
     this.baseY = this.cy + this.params.base * this.height0;
     this.parcels = [];
+    this.base = [];               // the basal reservoir: dense, slow, soft parcels just above the base line
     this.waiting = 0;             // retired parcels queued for re-entry
     this.cohort = null;           // parcels being released as one bubble
     this.nextPulse = this.params.pulse > 0 ? this.params.pulse * (0.5 + 0.5 * this.rng()) : 0;
@@ -83,6 +84,12 @@
     // formation: start as a small puff (a quarter of the population) and build up over formTime
     var n = Math.min(MAX - 1, Math.max(3, Math.round((this.params.count | 0) * (this.params.formTime > 0 ? 0.25 : 1))));
     for (var i = 0; i < n; i++) this.parcels.push(this._spawn(true, null));
+    var nb = Math.round((this.params.count | 0) * (this.params.reservoir || 0));
+    for (i = 0; i < nb; i++) {
+      var rng = this.rng, u = (i + 0.5) / nb;
+      this.base.push({ x: (u * 2 - 1) * 0.95 + (rng() - 0.5) * 0.15, lift: 0.1 + rng() * 0.3, phi: rng() * 6.283,
+        size: 1.2 + rng() * 0.4, seed: rng() * 100, nx: gauss(rng), roll: rng() * 6.283 });
+    }
     this._emit();
   };
 
@@ -90,12 +97,13 @@
     var rng = this.rng;
     var forming = this.params.formTime > 0 && this.time < 1;
     // a forming cloud starts as a compact puff low on the axis; a full one fills the ring's shell
-    var z = initial ? (forming ? rng() * 0.7 - 0.5 : rng() * 1.35 - 0.5) : -0.6 - rng() * 0.25;
+    var baseZ = -(this.params.base || 0.6) * (this.height0 / (this.height || this.height0)) + (this.cy - (this.cy0 || this.cy)) / (this.height || this.height0);
+    var z = initial ? (forming ? rng() * 0.7 - 0.5 : rng() * 1.35 - 0.5) : baseZ + 0.03 + rng() * 0.15;
     var p = {
       // the budget goes to the visible shell: initial parcels sit near the ring's surface
       r: initial ? Math.sqrt(Math.max(0, 1 - z * z)) * (forming ? 0.2 + 0.4 * rng() : 0.55 + 0.4 * rng()) : 0.05 + rng() * 0.12,
       z: z,
-      phi: cohort ? cohort.phi + (rng() - 0.5) * 0.8 : rng() * Math.PI * 2,
+      phi: cohort ? cohort.phi + (rng() - 0.5) * 0.5 : rng() * Math.PI * 2,
       size: (cohort ? cohort.size : 1) * (0.8 + rng() * 0.4),
       seed: rng() * 100,
       link: initial ? 1 : 0,
@@ -119,7 +127,7 @@
     // the form grows: the thermal rises and widens slowly (the base line stays put)
     var W = Math.min(this.width0 * 1.6, this.width0 + P.expand * this.time), H = Math.min(this.height0 * 1.8, this.height0 + P.expand * 1.4 * this.time);
     // the thermal rises off the fixed base, but stays in frame: the crown stops near the top edge
-    this.cy = Math.max(H * 1.15 + 0.03, this.cy - P.rise * dt);
+    this.cy = Math.max(H * 1.15 + 0.08, this.cy - P.rise * dt);
     this.width = W; this.height = H;
     var U = P.updraft;
     var baseZ = (this.cy - this.baseY) / H;   // condensation level in the unit frame (negative: below centre)
@@ -133,7 +141,7 @@
     if (P.pulse > 0) {
       if (!this.cohort && this.time >= this.nextPulse && (this.waiting > 0 || deficit > 0)) {
         var n = Math.min(3 + Math.floor(rng() * 4), Math.max(1, this.waiting + deficit));
-        this.cohort = { n: n, phi: rng() * Math.PI * 2, size: 0.85 + 0.3 * rng(), every: 1.5 / n, clock: 0 };
+        this.cohort = { n: n, phi: rng() * Math.PI * 2, size: 1.0 + 0.3 * rng(), every: 1.5 / n, clock: 0 };
         this.surge = { zb: baseZ - 0.1 };
         this.nextPulse = this.time + P.pulse * (0.75 + 0.5 * rng()) * (0.5 + 0.5 * formed);
       }
@@ -160,6 +168,13 @@
 
     var aN = Math.exp(-dt / 2);                 // 2 s correlation time
     var bN = Math.sqrt(1 - aN * aN);
+    // the reservoir drifts slowly along the base and rolls gently with the inflow
+    for (i = 0; i < this.base.length; i++) {
+      var q = this.base[i];
+      q.nx = aN * q.nx + bN * gauss(rng);
+      q.x += 0.02 * U * q.nx * dt - 0.004 * U * q.x * dt;
+      q.roll += 0.25 * U * P.rollGain * dt;
+    }
     for (i = 0; i < this.parcels.length; i++) {
       p = this.parcels[i];
       var r = p.r, z = p.z, rr = r * r, zz = z * z;
@@ -185,7 +200,7 @@
       p.exposure += dt * smoothstep(0.55, 0.9, p.r) * (uz < 0 ? 1 : 0.25);
       p.fresh = Math.exp(-p.exposure / P.mixing);
       // below the condensation level the parcel evaporates: fade (by burial) and recycle
-      var below = p.z < baseZ;
+      var below = p.z < baseZ && p.age > 2;
       if (!p.dying && (below || p.fresh < 0.08)) p.dying = true;
       if (p.dying) {
         p.link = Math.max(0, p.link - dt / (below ? 1.5 : 3));
@@ -210,7 +225,8 @@
       // a young parcel grows toward 1.3x its birth radius over 4 s; an old one erodes up to 20 %
       var grow = 1 + 0.3 * (1 - Math.exp(-p.age / 4));
       var erode = 1 - 0.2 * (1 - p.fresh);
-      B[o + 2] = Math.min(0.4, size * p.size * grow * erode * (0.85 + 0.25 * clamp((p.z + 1) / 2, 0, 1)));
+      // domes before texture: a crown parcel is ~1.7x a flank parcel
+      B[o + 2] = Math.min(0.4, size * p.size * grow * erode * (0.9 + 0.55 * clamp((p.z + 0.3) / 1.1, 0, 1)));
       B[o + 3] = p.seed;
       A[o] = 0;                              // one branch: parcels merge into one body
       A[o + 1] = 0.5 + 0.4 * s;              // depth: front of the ring sits higher
@@ -222,6 +238,17 @@
       D[n] = p.fresh;
       n++;
     }
+    // basal reservoir: wide, dense, soft (no small caps), pinned just above the base line
+    for (i = 0; i < this.base.length && n < MAX; i++) {
+      var q = this.base[i]; o = n * 4;
+      B[o] = this.cx + q.x * W; B[o + 1] = this.baseY - q.lift * H;
+      B[o + 2] = Math.min(0.4, size * q.size); B[o + 3] = q.seed;
+      A[o] = 0; A[o + 1] = 0.5 + 0.3 * Math.sin(q.phi); A[o + 2] = 0; A[o + 3] = 1;
+      S[o] = 0; S[o + 1] = 0; S[o + 2] = q.x >= 0 ? 1 : -1; S[o + 3] = q.roll;
+      D[n] = 0.35;
+      n++;
+    }
+    this.topY = this.cy - H;
     this.blobCount = n;
     for (var k = n * 4; k < MAX * 4; k++) { B[k] = 0; A[k] = 0; S[k] = 0; }
     for (k = n; k < MAX; k++) D[k] = 1;

@@ -882,6 +882,7 @@ uniform float uShadowDetail;  // detail kept where the macro form faces away fro
 uniform float uFormAO;        // large-scale occlusion strength: a texel far below its blurred neighbourhood is under the mass
 uniform float uFormLod;       // mip level of that neighbourhood read
 uniform float uFormRange;     // world height difference for full form occlusion
+uniform vec3 uBand;           // (top y, base y, strength): ambient grouped by height, the base sits in the mass's shadow
 vec2 suv;
 vec4 fieldAt(vec2 uv){
   vec4 t = textureLod(uField, uv, 0.0);
@@ -979,6 +980,8 @@ void main(){
     }
   }
   float lambert = dot(n, uLight);
+  // one dominant shadow shape: ambient falls from the crown to the base (optical depth stands in)
+  float bandShade = uBand.z * smoothstep(uBand.x, uBand.y, (1.0 - vUv.y) * uAspect);
   float bounce = max(0.0, dot(n, normalize(vec3(-uLight.x, -uLight.y, 0.25))));
   float occ = 0.0; vec2 dir = normalize(uLight.xy + vec2(1e-5, 0.0));
   float h0 = f.r * uHeightUnit;
@@ -1008,8 +1011,8 @@ void main(){
   }
   vec3 cloud;
   if(uToon > 0.5){
-    float direct = pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - uShadow * occ);
-    float ambient = 0.35 + uFill * bounce;
+    float direct = pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - uShadow * occ) * (1.0 - 0.7 * bandShade);
+    float ambient = (0.35 + uFill * bounce) * (1.0 - bandShade);
     ambient -= (0.35 + uFill * bounce) * ambientOcclusion;
     vec2 ti = (uPixelated > 0.5) ? floor(vUv / t) : floor(gl_FragCoord.xy);
     if(mod(ti.x + ti.y, 2.0) > 0.5){ direct -= 0.087; ambient -= 0.087; }
@@ -1023,8 +1026,8 @@ void main(){
     float ink = max(smoothstep(uJumpW, 2.0 * uJumpW, drop), step(0.5, edge)) * uInk;
     cloud *= 1.0 - 0.55 * ink;
   } else {
-    float direct = 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight));
-    float ambient = 0.18 + uFill * bounce;
+    float direct = 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - 0.7 * bandShade);
+    float ambient = (0.18 + uFill * bounce) * (1.0 - bandShade);
     float light = ambient + direct * (1.0 - uShadow * occ);
     light -= ambient * ambientOcclusion;
     light += bayer((uPixelated > 0.5) ? floor(vUv / t) : gl_FragCoord.xy) * 0.012;
@@ -1086,7 +1089,7 @@ void main(){
     this._aoU = uniforms(gl, this._aoProg, ['uField', 'uNormal', 'uTexel', 'uAspect', 'uHeightUnit', 'uPacked', 'uRadius', 'uFalloff']);
     this._shadeProg = link(gl, VS, SHADE_FS);
     this._shadeU = uniforms(gl, this._shadeProg, ['uField', 'uOcclusion', 'uTexel', 'uLight', 'uAspect', 'uHeightUnit',
-      'uShadow', 'uAO', 'uResScale', 'uJumpW', 'uHighlight', 'uFill', 'uPixelated', 'uToon', 'uToneA', 'uToneB', 'uFlatten', 'uInk', 'uNormal', 'uPatchN', 'uShadowDetail', 'uFormAO', 'uFormLod', 'uFormRange', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
+      'uShadow', 'uAO', 'uResScale', 'uJumpW', 'uHighlight', 'uFill', 'uPixelated', 'uToon', 'uToneA', 'uToneB', 'uFlatten', 'uInk', 'uNormal', 'uPatchN', 'uShadowDetail', 'uFormAO', 'uFormLod', 'uFormRange', 'uBand', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
 
     // billow tile (static asset; baked once)
     this._tile = gl.createTexture();
@@ -1526,6 +1529,8 @@ void main(){
     gl.uniform1f(su.uFormAO, Math.max(0, Math.min(2, num(look.formAO, 0))));
     gl.uniform1f(su.uFormLod, Math.max(0, Math.log2(formRadius * this.stats.fieldW)));
     gl.uniform1f(su.uFormRange, formRadius * 0.6);
+    var bandOk = sim && typeof sim.baseY === 'number' && typeof sim.topY === 'number';
+    gl.uniform3f(su.uBand, bandOk ? sim.topY : 0, bandOk ? sim.baseY : 1, bandOk ? Math.max(0, Math.min(1, num(look.baseShade, 0))) : 0);
     gl.uniform1f(su.uResScale, Math.max(1, this.stats.fieldW / 320));
     gl.uniform1f(su.uJumpW, 0.05 * maxR);
     gl.uniform1f(su.uPixelated, pixelated ? 1 : 0);
