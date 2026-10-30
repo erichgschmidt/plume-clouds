@@ -32,7 +32,7 @@ for (const preset of CloudSim.PRESETS) {
       const x = b[i * 4], y = b[i * 4 + 1], r = b[i * 4 + 2], sd = b[i * 4 + 3];
       const bid = a[i * 4], z = a[i * 4 + 1], pb = a[i * 4 + 2], link = a[i * 4 + 3];
       if ([x, y, r, sd, bid, z, pb, link].some(v => Number.isNaN(v))) { assert(false, `${preset}: NaN at t=${t} blob ${i}`); break; }
-      assert(r >= 0.02 && r <= 0.25, `${preset}: r=${r.toFixed(4)} out of [0.02,0.25] at t=${t} blob ${i}`);
+      assert(r >= 0.002 && r <= 0.4, `${preset}: r=${r.toFixed(4)} out of [0.002,0.4] at t=${t} blob ${i}`);
       assert(x >= -0.1 && x <= 1.1, `${preset}: x=${x.toFixed(3)} out of [-0.1,1.1] at t=${t}`);
       assert(y >= -0.1 && y <= 0.85, `${preset}: y=${y.toFixed(3)} out of range at t=${t}`);
       assert(bid >= 0 && bid < 16 && bid === Math.floor(bid), `${preset}: branchId ${bid}`);

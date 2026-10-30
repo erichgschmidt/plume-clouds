@@ -33,7 +33,7 @@
   var R_ROOT = 0.15, R_TIP = 0.10;         // child branch taper: a billow is nearly trunk-sized
   var TRUNK_ROOT = 0.16, TRUNK_TIP = 0.12; // trunk taper (broad, not tall)
   var MAX_L = 0.35;                        // max chain length (world units)
-  var R_OUT_MIN = 0.02;        // parcels below this are not emitted
+  var R_OUT_MIN = 0.002;        // parcels below this are not emitted
   var FADE_S = 0.5;            // parcel fade in/out at chain ends
   var BIRTH_S = 20.0;           // branch link / growth ramp: a lobe emerges slowly from inside its parent
   var PHI = 1.618;             // golden ratio: successor size 1/PHI, successor speed x PHI
@@ -128,10 +128,10 @@
     this.blobCount = 0;
     this.settings = null;
     this.stats = { buds: 0, deaths: 0 };
-    this.reseed(opts.seed !== undefined ? opts.seed : 1, opts.preset || 'plumes');
+    this.reseed(opts.seed !== undefined ? opts.seed : 1, opts.preset || 'plumes', opts.settings);
   }
 
-  CloudSim.prototype.reseed = function (seed, preset) {
+  CloudSim.prototype.reseed = function (seed, preset, settings) {
     if (seed === undefined || seed === null) seed = this.seed !== undefined ? this.seed : 1;
     if (!preset) preset = this.preset || 'plumes';
     if (!PRESETS[preset]) preset = 'plumes';
@@ -139,7 +139,7 @@
     this.seed = seed | 0;
     this.preset = preset;
     this.def = PRESETS[preset];
-    if (!this.settings || presetChanged) this.settings = copy(this.def.defaults);
+    this.settings = normalizedSettings(settings, (!this.settings || presetChanged) ? this.def.defaults : this.settings);
     this.rng = mulberry32(this.seed ^ 0x5bd1e995);
     this.noiseSeed = (this.seed * 0x9E3779B1) | 0;
     this.time = 0;
@@ -151,12 +151,51 @@
     for (var i = 0; i < MAX_BRANCHES; i++) this.slots.push(false);
     this._buildPlumes();
     this._seed();
+    this._relayout(true);
+  };
+
+  function settingNumber(v, fallback, upper) {
+    return typeof v === 'number' && isFinite(v) ? clamp(v, 0, upper) : fallback;
+  }
+  function normalizedSettings(value, fallback) {
+    value = value || {}; fallback = fallback || {};
+    var result = {}, names = ['speed', 'cohesion', 'breakup', 'buoyancy', 'turbulence', 'coverage'];
+    for (var i = 0; i < names.length; i++) {
+      var key = names[i], upper = key === 'speed' ? 6 : 1;
+      var d = typeof fallback[key] === 'number' ? fallback[key] : (key === 'speed' ? 1 : .5);
+      result[key] = settingNumber(value[key], d, upper);
+    }
+    return result;
+  }
+  function coverageScale(coverage) { return 1.75 * coverage; }
+
+  // Layout updates preserve branch identities, the random stream and animation
+  // time. Immediate previews are used while paused; playback eases the targets.
+  CloudSim.prototype._relayout = function (snap) {
+    for (var i = 0; i < this.branches.length; i++) {
+      var b = this.branches[i];
+      this._layout(b, this.settings.turbulence);
+      if (snap) for (var k = 0; k < b.parcels.length; k++) {
+        var p = b.parcels[k];
+        p.x = p.tx; p.y = p.ty; p.r = p.tr; p.snap = false;
+      }
+    }
     this._write();
+  };
+  CloudSim.prototype.applySettings = function (settings, immediate) {
+    var next = normalizedSettings(settings, this.settings || this.def.defaults);
+    var previous = this.settings, changedShape = !previous;
+    var keys = ['cohesion', 'breakup', 'buoyancy', 'turbulence', 'coverage'];
+    for (var i = 0; i < keys.length; i++) if (!previous || next[keys[i]] !== previous[keys[i]]) changedShape = true;
+    this.settings = next;
+    if (changedShape && immediate) this._relayout(true);
+    return changedShape;
   };
 
   CloudSim.prototype.resize = function (aspect) {
     if (aspect > 0) this.aspect = aspect;
     this._buildPlumes();
+    this._relayout(true);
   };
 
   CloudSim.prototype._buildPlumes = function () {
@@ -228,7 +267,8 @@
     // settle feed phases so chains are not perfectly even
     for (i = 0; i < this.branches.length; i++) {
       var b = this.branches[i];
-      for (k = 0; k < b.parcels.length; k++) b.parcels[k].u += (rng() - 0.5) * 0.06;
+      var du = 1 / Math.max(1, b.n - 1);
+      for (k = 0; k < b.parcels.length; k++) b.parcels[k].u = clamp(b.parcels[k].u + (rng() - 0.5) * 0.06, -du, 1);
     }
   };
 
@@ -275,7 +315,7 @@
 
   // --------------------------------------------------------------- Field ---
   CloudSim.prototype._psi = function (x, y) {
-    var s = this.noiseSeed, z = this.time * 0.06;
+    var s = this.noiseSeed, z = this.time * 0.18;
     return (vnoise3(x * 2.2 + 11.3, y * 2.2 + 5.1, z, s) - 0.5) * 0.65 +
            (vnoise3(x * 4.6 + 3.7, y * 4.6 + 9.2, z * 1.5, s ^ 0x1234567) - 0.5) * 0.35;
   };
@@ -289,63 +329,80 @@
   // -------------------------------------------------------------- Layout ---
   // Compute root point, polyline and parcel target positions/radii for branch b.
   CloudSim.prototype._layout = function (b, turbulence) {
-    var S = this.settings, cohesion = clamp(+S.cohesion || 0, 0, 1), coverage = clamp(+S.coverage || 0, 0, 1);
-    var rScale = (0.75 + 0.5 * coverage) * (0.75 + 0.25 * b.plume.def.tower) * (b.plume.def.rMul || 1) * (b.sizeMul || 1);
-    var spacing = 0.4 - 0.1 * cohesion;   // centre distance / (r1+r2): parcels overlap deeply into one broad mass
+    var S = this.settings, cohesion = clamp(+S.cohesion || 0, 0, 1);
+    var coverage = clamp(+S.coverage || 0, 0, 1);
+    var breakup = clamp(+S.breakup || 0, 0, 1), buoyancy = clamp(+S.buoyancy || 0, 0, 1);
+    var open = 1 - cohesion, still = !!b.plume.def.still;
+    var parcelScale = (0.75 + 0.25 * b.plume.def.tower) * (b.plume.def.rMul || 1) * (b.sizeMul || 1);
+    var rScale = coverageScale(coverage) * parcelScale;
+    // At zero coverage the invisible branch skeleton remains well-defined,
+    // so adding coverage restores the same topology rather than reseeding it.
+    var layoutScale = coverageScale(Math.max(coverage, .2)) * parcelScale;
+    var spacing = .18 + .40 * open;
     var t = this.time;
 
-    // root
     if (b.parent) { this._pointAt(b.parent, b.uAttach, _pt); b.rootX = _pt[0]; b.rootY = _pt[1]; }
     else { b.rootX = b.plume.x; b.rootY = b.plume.y; }
-    var attachR = b.parent ? b.parent.taper(b.uAttach) * rScale : 0;
-
-    // sway from curl noise at the root + slow breathing of the heading
-    this._curl(b.rootX, b.rootY, _flow);
-    var still = !!b.plume.def.still;
-    var sway = still ? 0 : (_flow[0] * 0.3 + _flow[1] * 0.2) * turbulence * 0.3;   // slow drift only: no back-and-forth
-    var heading = b.angle + sway * (b.isTrunk ? 0.5 : 1);
-    // root parcel sits half a parent radius out from the attach point: overlaps the parent by >= 50% of r
-    // while growing (or retracting) the whole chain starts deep inside the parent and extends out of it
+    var attachR = b.parent ? b.parent.taper(b.uAttach) * layoutScale : 0;
+    this._curl(b.rootX + b.seed * .017, b.rootY + b.swayPhase * .09, _flow);
+    // A bounded curl displacement moves whole neighboring billows coherently.
+    // It is independent of the surface-noise strength in the renderer.
+    var flowLength = Math.sqrt(_flow[0] * _flow[0] + _flow[1] * _flow[1]);
+    var fx = _flow[0] / (1 + flowLength), fy = _flow[1] / (1 + flowLength);
+    var turb = still ? 0 : turbulence * turbulence;
+    var sway = (fx * .9 + fy * .6) * turb * 1.4;
+    var heading = b.angle + sway * (b.isTrunk ? .4 : 1);
+    var drift = .075 * turb * (.6 + .4 * open) * (b.isTrunk ? .3 : 1);
+    b.rootX += fx * drift; b.rootY += fy * drift;
     var ge = b.grow * b.grow * (3 - 2 * b.grow);
-    if (b.parent) { b.rootX += Math.cos(heading) * attachR * (0.7 * ge - 0.3 * (1 - ge)); b.rootY += Math.sin(heading) * attachR * (0.7 * ge - 0.3 * (1 - ge)); }
 
-    // chain length from tapered radii
-    var n = b.n, L = 0, i;
-    for (i = 0; i < n - 1; i++) L += spacing * (b.taper(i / (n - 1)) + b.taper((i + 1) / (n - 1))) * rScale;
-    L = Math.min(L, b.plume.def.maxL || MAX_L, MAX_L);
-    if (b.parent) L = Math.min(L, 0.5 * attachR) * (0.15 + 0.85 * ge);   // a billow is a hump on its parent, not an arm: its parcels stack within half a parent radius
-    b.L = L;
-
-    // polyline with curvature (8 segments)
-    var SEG = 8, ds = L / SEG, x = b.rootX, y = b.rootY, th = heading;
-    var pts = b.pts; pts.length = 0;
-    pts.push(x, y);
-    for (i = 0; i < SEG; i++) {
-      // bend; turbulence adds a wandering bend along the chain
-      var s = (i + 0.5) / SEG;
-      th += (b.curl + Math.sin(t * 0.2 + b.swayPhase + s * 3) * 0.8 * turbulence) * ds;
-      // gentle upward preference for child lobes (trunks stay horizontal/diagonal)
-      if (!b.isTrunk) {
-        var up = -Math.PI / 2, dth = up - th;
-        dth = Math.atan2(Math.sin(dth), Math.cos(dth));
-        th += dth * 0.3 * ds * b.plume.def.tower;
-      }
-      x += Math.cos(th) * ds; y += Math.sin(th) * ds;
-      // soft boundary: bend the chain back inside
-      if (x < MARGIN) { x += (MARGIN - x) * 0.5; }
-      if (x > 1 - MARGIN) { x -= (x - (1 - MARGIN)) * 0.5; }
-      if (y < MARGIN) { y += (MARGIN - y) * 0.5; }
-      if (y > this.aspect - MARGIN) { y -= (y - (this.aspect - MARGIN)) * 0.5; }
-      pts.push(x, y);
+    // Cohesion now changes the attachment and reach directly. Its old spacing
+    // adjustment was almost entirely erased by the fixed child-length clamp.
+    var childReach = .15 + .875 * open;
+    if (b.parent) {
+      var arc = Math.abs(b.angle - b.angle0);
+      var phase = clamp(arc / DIE_ARC, 0, 1);
+      var peel = breakup * breakup * (.35 + .65 * Math.pow(Math.sin(Math.PI * phase), 2));
+      peel *= 1 - .75 * cohesion;
+      var rootReach = .25 + 1.125 * open + 1.5 * peel;
+      childReach *= 1 + .6 * peel;
+      // Buoyancy turns child growth upward around its anchored parent and
+      // increases its vertical reach; it does not translate the entire cloud.
+      var upDelta = Math.atan2(Math.sin(-Math.PI / 2 - heading), Math.cos(-Math.PI / 2 - heading));
+      heading += upDelta * .6 * buoyancy * buoyancy;
+      b.rootX += Math.cos(heading) * attachR * (rootReach * ge - .3 * (1 - ge));
+      b.rootY += Math.sin(heading) * attachR * (rootReach * ge - .3 * (1 - ge));
+      b.rootY -= (buoyancy - .5) * 1.4 * attachR * ge;
     }
 
-    // parcel targets
-    var g = b.grow;
+    var n = b.n, L = 0, i;
+    for (i = 0; i < n - 1; i++) L += spacing * (b.taper(i / (n - 1)) + b.taper((i + 1) / (n - 1))) * layoutScale;
+    var reachScale = .6 + open;
+    L = Math.min(L, (b.plume.def.maxL || MAX_L) * reachScale, MAX_L * reachScale);
+    if (b.parent) L = Math.min(L, childReach * attachR) * (.15 + .85 * ge);
+    b.L = L;
+
+    var SEG = 8, ds = L / SEG, x = b.rootX, y = b.rootY, th = heading;
+    var pts = b.pts; pts.length = 0; pts.push(x, y);
+    for (i = 0; i < SEG; i++) {
+      var s = (i + .5) / SEG;
+      th += (b.curl + Math.sin(t * .65 + b.swayPhase + s * 4.5) * 5.0 * turb) * ds;
+      if (!b.isTrunk) {
+        var dth = Math.atan2(Math.sin(-Math.PI / 2 - th), Math.cos(-Math.PI / 2 - th));
+        th += dth * (0.1 + 2.4 * buoyancy * buoyancy) * ds * b.plume.def.tower;
+      }
+      x += Math.cos(th) * ds;
+      y += Math.sin(th) * ds * (b.parent ? .55 + .9 * buoyancy : 1);
+      if (x < MARGIN) x += (MARGIN - x) * .5;
+      if (x > 1 - MARGIN) x -= (x - (1 - MARGIN)) * .5;
+      if (y < MARGIN) y += (MARGIN - y) * .5;
+      if (y > this.aspect - MARGIN) y -= (y - (this.aspect - MARGIN)) * .5;
+      pts.push(x, y);
+    }
     for (i = 0; i < b.parcels.length; i++) {
-      var p = b.parcels[i];
-      this._pointAt(b, p.u, _pt);
-      p.tx = clamp(_pt[0], MARGIN, 1 - MARGIN); p.ty = clamp(_pt[1], MARGIN, this.aspect - MARGIN);
-      // radius is constant: emergence is burial in the renderer (one clock: b.link), never a size ramp
+      var p = b.parcels[i]; this._pointAt(b, p.u, _pt);
+      p.tx = clamp(_pt[0], MARGIN, 1 - MARGIN);
+      p.ty = clamp(_pt[1], MARGIN, Math.max(MARGIN, this.aspect - MARGIN));
       p.tr = b.taper(p.u) * rScale * p.fade;
     }
   };
@@ -380,99 +437,73 @@
 
   // ---------------------------------------------------------------- Step ---
   CloudSim.prototype.step = function (dt) {
-    if (!(dt > 0)) return;
-    if (dt > 0.25) dt = 0.25;
-    // cover the frame's time exactly in substeps no longer than SUBSTEP: a fixed-tick
-    // accumulator alternates 0/1/2 ticks per frame at any refresh rate other than 60 Hz
-    // (a visible global stutter)
-    var n = Math.max(1, Math.ceil(dt / SUBSTEP - 1e-9)), h = dt / n;
+    if (!(dt > 0) || !isFinite(dt)) return;
+    var speed = clamp(+this.settings.speed || 0, 0, 6);
+    if (speed <= 0) return;
+    // Scale once, BEFORE subdivision, so high Speed never creates oversized
+    // integration steps. this.time is also the renderer's animation clock.
+    var scaled = Math.min(dt, .25) * speed;
+    var n = Math.max(1, Math.ceil(scaled / SUBSTEP - 1e-9)), h = scaled / n;
     for (var i = 0; i < n; i++) this._substep(h);
     this._write();
   };
 
-  CloudSim.prototype._substep = function (dt) {
-    var S = this.settings;
-    var speed = clamp(+S.speed || 0, 0, 3);
-    if (speed <= 0) return;
-    var h = dt * speed;
-    var breakup = clamp(+S.breakup || 0, 0, 1);
-    var buoyancy = clamp(+S.buoyancy || 0, 0, 1);
+  CloudSim.prototype._substep = function (h) {
+    var S = this.settings, breakup = clamp(+S.breakup || 0, 0, 1);
     var turbulence = clamp(+S.turbulence || 0, 0, 1);
-    var rng = this.rng;
-    var B = this.branches, i, k, b, p;
+    var rng = this.rng, B = this.branches, i, k, b, p;
+    var cycleRate = 4 * breakup * breakup;
+    var transitionSeconds = 2.5 + 8 * (1 - breakup);
+    var ease = 1 - Math.exp(-h / .25);
 
-    var feedRate = 0;   // feeding (parcels creeping along the chain and wrapping with a fade) popped at every wrap; off
-    var ease = 1 - Math.exp(-h / 0.35);
-
-    // order: parents before children (branches are pushed after their parents)
     for (i = 0; i < B.length; i++) {
-      b = B[i];
-      b.age += h;
-      if (!b.isTrunk) b.angle += b.spin * h * (1 - 0.5 * Math.min(1, Math.abs(b.angle - b.angle0) / DIE_ARC));   // one direction, never reverses; the outermost slow down
-      // birth / death ramps
-      if (b.dying) { b.link = Math.max(0, b.link - h / BIRTH_S); b.grow = b.link; }
-      else if (b.link < 1) { b.link = Math.min(1, b.link + h / BIRTH_S); b.grow = b.link; }
-
-      // feeding: creep along the chain, fade at the ends, re-enter at the other end
-      // Parcels travel over u in [-du, 1+du]: the extra du at the root is INSIDE the parent
-      // parcel (the chain is extrapolated backwards), so the junction never opens up; at the
-      // tip the extra du is the regrowth zone. Fade over the last 0.5 s before leaving and the
-      // first 0.5 s after re-entering; the wrap happens while invisible.
-      var du = 1 / Math.max(1, b.n - 1), fz = Math.max(1e-4, feedRate * FADE_S);
-      var lo = -du, hi = 1;   // extra slot only at the root (inside the parent); tips regrow by fading in
-      for (k = 0; k < b.parcels.length; k++) {
-        p = b.parcels[k];
-        p.u -= b.feedDir * feedRate * h;
-        if (p.u < lo) { p.u += hi - lo; p.snap = true; }
-        else if (p.u > hi) { p.u -= hi - lo; p.snap = true; }
-        var eIn = b.feedDir > 0 ? hi - p.u : p.u - lo;   // distance travelled since entering
-        var eOut = b.feedDir > 0 ? p.u - lo : hi - p.u;  // distance left before leaving
-        p.fade = clamp(Math.min(eIn, eOut) / fz, 0, 1);
-      }
-
+      b = B[i]; b.age += h;
+      if (!b.isTrunk) b.angle += b.spin * h * cycleRate * (1 - .5 * Math.min(1, Math.abs(b.angle - b.angle0) / DIE_ARC));
+      if (b.dying) { b.link = Math.max(0, b.link - h / transitionSeconds); b.grow = b.link; }
+      else if (b.link < 1) { b.link = Math.min(1, b.link + h / transitionSeconds); b.grow = b.link; }
+      // Parcel phases stay fixed. The old disabled feeder still wrapped seeded
+      // out-of-range phases once, creating an unrelated jump on the first frame.
       this._layout(b, turbulence);
       for (k = 0; k < b.parcels.length; k++) {
         p = b.parcels[k];
-        if (p.snap) { p.x = p.tx; p.y = p.ty; p.r = 0; p.snap = false; }
-        p.x += (p.tx - p.x) * ease;
-        p.y += (p.ty - p.y) * ease;
+        p.x += (p.tx - p.x) * ease; p.y += (p.ty - p.y) * ease;
         p.r += (p.tr - p.r) * ease;
       }
     }
 
-    // --- budding / dying per plume
-    // A billow rolls over the body in one direction. Once it has travelled SPAWN_ARC its successor
-    // buds BEHIND it (at the heading it started from, same attach point), and once it has travelled
-    // DIE_ARC it sinks back into the body while still moving. Processions, not random buds and deaths.
-    for (i = 0; i < this.plumes.length; i++) {
+    // Breakup controls rolling departure and coherent replacement. Zero keeps
+    // the primary population intact; it does not stop surface Roll or Flow.
+    if (breakup > 0) for (i = 0; i < this.plumes.length; i++) {
       var pl = this.plumes[i], d = pl.def, count = 0, movers = [];
+      if (d.still) continue;
       for (k = 0; k < B.length; k++) {
         b = B[k];
-        if (b.plume !== pl || b.isTrunk) continue;
-        if (!b.dying) count++;
-        if (!b.dying) movers.push(b);
+        if (b.plume !== pl || b.isTrunk || b.dying) continue;
+        count++; movers.push(b);
       }
       for (k = 0; k < movers.length; k++) {
-        b = movers[k];
-        var arc = Math.abs(b.angle - b.angle0);
-        if (!b.spawned && arc >= SPAWN_ARC) {   // a procession is not bounded by the seed count, only by the blob budget
-          b.spawned = true;
-          var s2 = (b.gen < 2) ? this._newBranch(pl, b.parent, b.n, b.angle0 + (rng() - 0.5) * 0.2, true, { uAttach: b.uAttach, hand: pl.hand, gen: b.gen + 1 }) : null;
-          if (s2) { this.stats.buds++; count++; }
+        b = movers[k]; var arc = Math.abs(b.angle - b.angle0);
+        if (!b.spawned && arc >= SPAWN_ARC) {
+          if (b.gen >= 2) b.spawned = true;
+          else if (this._freeSlot() >= 0 && this._parcelCount() + b.n + 1 <= MAX_BLOBS) {
+            var child = this._newBranch(pl, b.parent, b.n, b.angle0 + (rng() - .5) * .2, true,
+              {uAttach: b.uAttach, hand: pl.hand, gen: b.gen + 1});
+            if (child) { b.spawned = true; this.stats.buds++; count++; }
+          }
         }
-        if (arc >= DIE_ARC) { b.dying = true; this.stats.deaths++; }
+        if (arc >= DIE_ARC) { b.dying = true; this.stats.deaths++; count--; }
       }
-      // seed a procession where there is none yet (initial population / a slot that ran out)
-      if (count < d.children[0] && rng() < 0.3 * h) this._bud(pl, true);
+      var desired = Math.min(6, d.children[0] + Math.round(2 * breakup));
+      if (count < desired && this._freeSlot() >= 0 && this._parcelCount() + 4 <= MAX_BLOBS && rng() < (.4 + 1.8 * breakup * breakup) * h) this._bud(pl, true);
     }
-
-    // --- remove dead branches
-    for (i = 0; i < B.length; i++) { b = B[i]; if (b.parent && b.parent.dying && !b.dying) { b.dying = true; this.stats.deaths++; } }
+    for (i = 0; i < B.length; i++) {
+      b = B[i];
+      if (b.parent && b.parent.dying && !b.dying) { b.dying = true; this.stats.deaths++; }
+    }
     for (i = B.length - 1; i >= 0; i--) {
       b = B[i];
       if (b.dying && b.link <= 0 && b.children === 0) {
-        this.slots[b.id] = false;
-        if (b.parent) b.parent.children--;
+        this.slots[b.id] = false; if (b.parent) b.parent.children--;
         B.splice(i, 1);
       }
     }
@@ -514,7 +545,7 @@
         p = b.parcels[k];
         if (p.idx < 0) continue;
         var o = p.idx * 4;
-        Bo[o] = p.x; Bo[o + 1] = p.y; Bo[o + 2] = Math.min(p.r, 0.25); Bo[o + 3] = p.seed;
+        Bo[o] = p.x; Bo[o + 1] = p.y; Bo[o + 2] = Math.min(p.r, 0.4); Bo[o + 3] = p.seed;
         A[o] = b.id; A[o + 1] = this._zAt(b, p.u);
         A[o + 2] = (p === root) ? pb : -1;
         A[o + 3] = b.link * b.link * (3 - 2 * b.link);   // eased: a lobe starts rising slowly and settles slowly
@@ -529,7 +560,18 @@
   Object.defineProperty(CloudSim.prototype, 'refRadius', { get: function () {
     var coverage = clamp(+this.settings.coverage || 0, 0, 1), m = 0, i, d;
     for (i = 0; i < this.plumes.length; i++) { d = this.plumes[i].def; m = Math.max(m, (0.75 + 0.25 * d.tower) * (d.rMul || 1)); }
-    return TRUNK_ROOT * (0.75 + 0.5 * coverage) * (m || 1);
+    return Math.max(0.01, TRUNK_ROOT * coverageScale(coverage) * (m || 1));
+  } });
+  // Static bound for every emitted parcel, including an entering parcel
+  // at u=-1, maximum Coverage, and the lag after Coverage is reduced. It never follows live radii.
+  Object.defineProperty(CloudSim.prototype, 'maxParcelRadius', { get: function () {
+    var m = 0, i, d;
+    for (i = 0; i < this.plumes.length; i++) {
+      d = this.plumes[i].def;
+      m = Math.max(m, (0.75 + 0.25 * d.tower) * (d.rMul || 1));
+    }
+    var enteringRadius = Math.max(2 * TRUNK_ROOT - TRUNK_TIP, 2 * R_ROOT - R_TIP);
+    return Math.min(0.4, enteringRadius * 1.75 * (m || 1));
   } });
   Object.defineProperty(CloudSim.prototype, 'meanRadius', { get: function () { return this.refRadius * 0.7; } });
 
@@ -543,3 +585,4 @@
 
   window.CloudSim = CloudSim;
 })();
+

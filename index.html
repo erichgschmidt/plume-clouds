@@ -59,7 +59,7 @@
   .group > header::before { content: "\25BE"; width: 10px; color: var(--text-dim); font-size: 10px; }
   .group.collapsed > header::before { content: "\25B8"; }
   .group > header:hover { background: #3a3a3a; }
-  .group.collapsed > .body { display: none; }
+  .group.collapsed > .body, .group.collapsed > .hint { display: none; }
   .body { padding: 2px 0; }
 
   .row { min-width: 0;
@@ -67,6 +67,8 @@
     background: var(--row);
   }
   .row:nth-child(even) { background: var(--row-alt); }
+  .row.inactive > label, .row.inactive > input { opacity: 0.45; }
+  .row.inactive input { cursor: default; }
   .row > label { flex: 0 0 76px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row > .val {
     flex: 0 0 44px; height: 16px; line-height: 14px; padding: 0 3px; text-align: right;
@@ -112,12 +114,26 @@
   .stat { flex: 1 1 auto; color: var(--text-dim); font-variant-numeric: tabular-nums; text-align: right; }
   .hint { padding: 3px 6px; color: var(--text-dim); font-size: 10px; }
   #loadFile { display: none; }
+
+  #stage { touch-action: none; }
+  #paintCursor {
+    display: none; position: absolute; z-index: 1; pointer-events: none;
+    border: 1px solid rgba(255,255,255,.9); border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.6), inset 0 0 0 1px rgba(0,0,0,.25);
+    transform: translate(-50%, -50%);
+  }
+  #paintCursor.erase { border-color: #ffb0a0; }
+  #paintStatus { min-height: 24px; }
+  #paintStatus.full { color: #f4c779; }
+  .btn:disabled { opacity: .4; cursor: default; }
+  #stage.painting { cursor: none; }
 </style>
 </head>
 <body>
 <div id="app">
   <div id="stage" class="pixelated">
     <canvas id="canvas"></canvas>
+    <div id="paintCursor" aria-hidden="true"></div>
     <div id="banner"></div>
   </div>
 
@@ -129,6 +145,7 @@
           <button class="btn grow" id="btnPlay">Pause</button>
           <button class="btn grow" id="btnRestart">Restart</button>
         </div>
+        <div id="speedBody"></div>
         <div class="row"><label>FPS</label><span class="stat" id="statFps">--</span></div>
         <div class="row"><label>Blobs</label><span class="stat" id="statBlobs">--</span></div>
       </div>
@@ -146,14 +163,57 @@
       </div>
     </section>
 
+    <section class="group" data-group="canvas">
+      <header>Canvas</header>
+      <div class="body">
+        <div class="row"><label for="canvasScene">Scene</label><select id="canvasScene" aria-label="Canvas scene"><option value="simulation">Simulation</option><option value="painting">Painting</option></select></div>
+        <div class="row"><label>Tool</label><div class="seg" role="group" aria-label="Canvas tool">
+          <button class="btn on" id="toolLight" title="Aim the light (L)" aria-pressed="true">Light</button>
+          <button class="btn" id="toolPaint" title="Paint primary shapes (B)" aria-pressed="false">Paint</button>
+          <button class="btn" id="toolErase" title="Erase whole primary shapes (E)" aria-pressed="false">Erase</button>
+        </div></div>
+        <div id="paintBrushBody"></div>
+        <div class="row"><button class="btn grow" id="btnNewCanvas">New canvas</button><button class="btn grow" id="btnCaptureCanvas" title="Turn the current simulated cloud into an editable painting">Use current</button></div>
+        <div class="row"><button class="btn grow" id="btnPaintUndo" title="Undo a stroke or canvas action (Ctrl/Cmd+Z)">Undo</button><button class="btn grow" id="btnPaintRedo" title="Redo (Ctrl/Cmd+Shift+Z)">Redo</button></div>
+      </div>
+      <div class="hint" id="paintStatus" role="status" aria-live="polite"></div>
+      <div class="hint">Paint fixes primary positions; billows and noise still animate. Erase removes whole masses. Size is the brush radius as % of canvas width. B / E / L select tools; [ ] resize.</div>
+    </section>
+
     <section class="group" data-group="simulation">
       <header>Simulation</header>
       <div class="body" id="simBody"></div>
+      <div class="hint" id="simHint" aria-live="polite"></div>
+    </section>
+
+    <section class="group" data-group="turbulence">
+      <header>Shape turbulence</header>
+      <div class="body" id="motionBody"></div>
+      <div class="hint">Enabled and Flow apply to both noise layers. Inflation, Billow and Embed remain available with noise disabled.</div>
+    </section>
+
+    <section class="group" data-group="primary">
+      <header>Primary shapes</header>
+      <div class="body" id="primaryBody"></div>
+      <div class="hint">Independent noise for the large forms. Higher Scale makes finer breakup. Strength is compensated around neutral size; Inflation adds fullness to the whole parcel.</div>
+    </section>
+
+    <section class="group" data-group="secondary">
+      <header>Secondary billows</header>
+      <div class="body" id="secondaryBody"></div>
+      <div class="hint">Billow grows the puffs. Embed moves their round centers into the primary: 0 is exposed, 1 fully buried. Noise, Strength and Scale affect only these smaller forms.</div>
     </section>
 
     <section class="group" data-group="look">
       <header>Look</header>
       <div class="body" id="lookBody"></div>
+      <div class="hint">AO finds local nooks. Radius sets their scale; higher Falloff keeps the shading closer to enclosing surfaces. Intensity changes their depth.</div>
+    </section>
+
+    <section class="group" data-group="toon">
+      <header>Toon shading</header>
+      <div class="body" id="toonBody"></div>
+      <div class="hint">Tone A sets the bright cutoff. Tone B sets the shade cutoff. Ink emphasizes outlines and exposed edges.</div>
     </section>
 
     <section class="group" data-group="file">
@@ -171,8 +231,8 @@
   </div>
 </div>
 
-<script src="src/sim.js?v=47"></script>
-<script src="src/render.js?v=47"></script>
-<script src="src/app.js?v=47"></script>
+<script src="src/sim.js?v=48"></script>
+<script src="src/render.js?v=48"></script>
+<script src="src/app.js?v=48"></script>
 </body>
 </html>
