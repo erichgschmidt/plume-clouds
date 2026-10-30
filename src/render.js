@@ -621,7 +621,7 @@ void main(){
     if(rho > primarySupport) continue;
     int pi = ax.z < 0.0 ? -1 : int(ax.z + 0.5);
     vec4 parcelCap = texelFetch(uCaps, ivec2(20, i), 0);
-    vec3 axis = vec3(parcelCap.xy, 0.0);
+    vec3 axis = vec3(parcelCap.xy, parcelCap.w);
     float angle = parcelCap.z;
     vec3 primary = primaryWarp(q, r, axis, angle, b.w, primaryParams);
     float parcelScale = primary.x;
@@ -1152,7 +1152,7 @@ void main(){
    * ownership (shrunk away where a same-branch neighbour is higher at the cap's centre).
    * Same construction the shader had; only the evaluation site moved.
    */
-  CloudRenderer.prototype._capTable = function (blobs, aux, count, time, p) {
+  CloudRenderer.prototype._capTable = function (blobs, aux, spins, count, time, p) {
     var T = this._capData, core = 0.93, i, j, i2;
     var billow = p.billow;
     var growthAtBillow = billow > 2 ? Math.sqrt((0.5 * billow) / (1 + 0.07 * (billow - 2))) : 0;
@@ -1173,7 +1173,13 @@ void main(){
         if (dlx * dlx + dly * dly > 1e-8) { gx = dlx; gy = dly; }
       }
       var gLen = Math.sqrt(gx * gx + gy * gy); gx /= gLen; gy /= gLen;
-      var axX = gy, axY = -gx;   // axis = (growth.y, -growth.x, 0)
+      var axX = gy, axY = -gx, axZ = 0;   // axis = (growth.y, -growth.x, 0): in the screen plane
+      // a sim may supply the roll axis itself (e.g. the ring vortex: tangent to the ring, so a flank
+      // puff spins in the screen plane and a front puff rolls toward the viewer)
+      if (spins) {
+        var sx = spins[o], sy = spins[o + 1], sz = spins[o + 2], sl = Math.sqrt(sx * sx + sy * sy + sz * sz);
+        if (sl > 1e-6) { axX = sx / sl; axY = sy / sl; axZ = sz / sl; }
+      }
       // rollSync > 0: every parcel turns at that fixed multiple of the base rate (one rising column)
       var angle = time * 0.16 * p.roll * (p.rollSync > 0 ? p.rollSync : (0.85 + 0.3 * hash(seed)));
       var c = Math.cos(angle), sn = Math.sin(angle);
@@ -1206,10 +1212,10 @@ void main(){
           var shellRadius = Math.max(0, 0.78 - growthInset) * embedScale * erosionShellScale;
           // rotAxis(v, axis, angle) with the axis in the screen plane (z = 0): unit shell position
           var vx = sr * Math.cos(az), vy = sr * Math.sin(az), vz = zz;
-          var d = axX * vx + axY * vy;
-          var ux = vx * c + (axY * vz) * sn + axX * d * (1 - c);
-          var uy = vy * c + (-axX * vz) * sn + axY * d * (1 - c);
-          var uz = vz * c + (axX * vy - axY * vx) * sn;
+          var d = axX * vx + axY * vy + axZ * vz;
+          var ux = vx * c + (axY * vz - axZ * vy) * sn + axX * d * (1 - c);
+          var uy = vy * c + (axZ * vx - axX * vz) * sn + axY * d * (1 - c);
+          var uz = vz * c + (axX * vy - axY * vx) * sn + axZ * d * (1 - c);
           // world y is top-down: uy > 0 is the underside. Small caps live in the crown band only;
           // underside caps sink into the body (less protrusion) and shrink a little.
           if (!big) rad *= smoothstep(0.35 + 0.65 * p.detailBand, -0.25 * p.detailBand, uy);
@@ -1237,7 +1243,7 @@ void main(){
         T[cj] = cx; T[cj + 1] = cy; T[cj + 2] = cz; T[cj + 3] = rad;
       }
       var pc = row + 20 * 4;
-      T[pc] = axX; T[pc + 1] = axY; T[pc + 2] = angle; T[pc + 3] = 0;
+      T[pc] = axX; T[pc + 1] = axY; T[pc + 2] = angle; T[pc + 3] = axZ;
     }
     var gl = this.gl;
     gl.activeTexture(gl.TEXTURE8);
@@ -1421,7 +1427,8 @@ void main(){
     gl.uniform1f(fu.uCellFlow, Math.max(0, Math.min(3, num(look.cellFlow, 0.65))));
     gl.uniform1f(fu.uFieldStep, 1 / this.stats.fieldW);
     gl.uniform1f(fu.uErosionFlow, Math.max(0, Math.min(0.2, num(look.erosionFlow, 0))));
-    this._capTable(blobs, aux, count, time, { billow: billow, erosion: erosion, inflation: 1 + inflation, embed: embed, roll: num(look.roll, 0.6), rollSync: num(look.rollSync, 0),
+    var spins = (sim && sim.spin && sim.spin.length >= MAX_BLOBS * 4) ? sim.spin : null;
+    this._capTable(blobs, aux, spins, count, time, { billow: billow, erosion: erosion, inflation: 1 + inflation, embed: embed, roll: num(look.roll, 0.6), rollSync: num(look.rollSync, 0),
       lobes: lobes, lobeSize: lobeSize, detailBand: Math.max(0, Math.min(1, num(look.detailBand, 0.5))), baseFlatten: Math.max(0, Math.min(1, num(look.baseFlatten, 0.6))) });
     gl.uniform1i(fu.uCaps, 8);
     gl.uniform4fv(fu.uBlobs, blobs, 0, MAX_BLOBS * 4);

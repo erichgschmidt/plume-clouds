@@ -34,11 +34,11 @@
 
   var PRESETS = {
     // a flat fair-weather puff: weak updraft, wide, little roil
-    humilis:   { updraft: 0.30, width: 0.26, height: 0.12, rise: 0.000,  expand: 0.0000, settle: 0.6, count: 30, size: 0.055, jitter: 0.25, respawn: 14, pulse: 0, base: 0.55 },
+    humilis:   { updraft: 0.30, width: 0.26, height: 0.12, rise: 0.000,  expand: 0.0000, settle: 0.6, count: 18, size: 0.10, jitter: 0.25, respawn: 14, pulse: 0, base: 0.55 },
     // a growing cumulus: strong updraft, tall ring, parcels cascade down the sides
-    congestus: { updraft: 0.50, width: 0.20, height: 0.26, rise: 0.0015, expand: 0.0005, settle: 0.5, count: 46, size: 0.050, jitter: 0.3, respawn: 10, pulse: 12, base: 0.6 },
+    congestus: { updraft: 0.50, width: 0.20, height: 0.26, rise: 0.0015, expand: 0.0005, settle: 0.5, count: 26, size: 0.09, jitter: 0.3, respawn: 10, pulse: 12, base: 0.6 },
     // a tower: narrow and tall, fast core, long cascade
-    tower:     { updraft: 0.70, width: 0.14, height: 0.36, rise: 0.0025, expand: 0.0003, settle: 0.4, count: 56, size: 0.042, jitter: 0.35, respawn: 8, pulse: 9, base: 0.65 }
+    tower:     { updraft: 0.70, width: 0.14, height: 0.36, rise: 0.0025, expand: 0.0003, settle: 0.4, count: 34, size: 0.075, jitter: 0.35, respawn: 8, pulse: 9, base: 0.65 }
   };
 
   function ThermalSim(opts) {
@@ -46,6 +46,7 @@
     this.aspect = opts.aspect > 0 ? opts.aspect : 0.75;
     this.blobs = new Float32Array(MAX * 4);
     this.aux = new Float32Array(MAX * 4);
+    this.spin = new Float32Array(MAX * 4);   // per-parcel roll axis (x, y-down, z toward viewer)
     this.blobCount = 0;
     this.params = {};
     this.reset(opts.seed !== undefined ? opts.seed : 1, opts.preset || 'congestus');
@@ -151,11 +152,12 @@
   };
 
   ThermalSim.prototype._emit = function () {
-    var B = this.blobs, A = this.aux, P = this.params, W = this.width || this.width0, H = this.height || this.height0;
+    var B = this.blobs, A = this.aux, S = this.spin, P = this.params, W = this.width || this.width0, H = this.height || this.height0;
     var size = P.size * (1 + (W / this.width0 - 1) * 0.5);
     // parcel 0: hidden core on the axis (the parent every parcel rolls away from)
     B[0] = this.cx; B[1] = this.cy; B[2] = size * 0.8; B[3] = 7.7;
     A[0] = 0; A[1] = 0.5; A[2] = -1; A[3] = 1;
+    S[0] = 0; S[1] = 0; S[2] = 1; S[3] = 0;
     var n = 1;
     for (var i = 0; i < this.parcels.length && n < MAX; i++) {
       var p = this.parcels[i], o = n * 4;
@@ -169,10 +171,13 @@
       A[o + 1] = 0.5 + 0.5 * s * 0.8;        // depth: front of the ring sits higher
       A[o + 2] = 0;                          // parent: the core (roll axis perpendicular to outward)
       A[o + 3] = p.link;
+      // ring-vortex vorticity is tangent to the ring: a flank puff (phi 0 / 180) spins in the screen
+      // plane, top outward and down the outside; a front puff rolls toward the viewer and under
+      S[o] = -s; S[o + 1] = 0; S[o + 2] = c; S[o + 3] = 0;
       n++;
     }
     this.blobCount = n;
-    for (var k = n * 4; k < MAX * 4; k++) { B[k] = 0; A[k] = 0; }
+    for (var k = n * 4; k < MAX * 4; k++) { B[k] = 0; A[k] = 0; S[k] = 0; }
   };
 
   Object.defineProperty(ThermalSim.prototype, 'refRadius', { get: function () { return Math.max(0.01, this.params.size * 1.25); } });
