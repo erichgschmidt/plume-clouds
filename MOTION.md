@@ -4,36 +4,56 @@ The stage/instances version is parked at tag `v1-stage`. This sandbox keeps all 
 tech (CloudRenderer: cap skin, hierarchy, shadow detail, form AO) and replaces the branch-tree
 sim with a model built from the motion up, after the sketch:
 
-1. **Force pushes up.** Parcels enter on the axis near the base and rise inside the body.
+1. **Force pushes up.** Parcels enter on the axis just above the condensation level and rise
+   inside the body (burial emergence, never a pop).
 2. **The force disperses at the top.** At the crown the flow turns outward.
-3. **Roil starts at the top, slows, lands at the bottom.** Parcels cascade down the outside,
-   are held at the base (Settle), linger there (more density at the bottom than the top), and
-   are finally drawn back inside, where they fade by burial and re-enter on the axis.
+3. **Roil starts at the top, slows, lands at the bottom.** Parcels cascade down the outside;
+   on the sinking flank they mix with dry air and soften; below the condensation level they
+   evaporate and are recycled.
 
-The flow is Hill's spherical vortex in the thermal's frame (`u_z = U(1 - 2r² - z²)`,
-`u_r = U r z`): one closed circulation, up the middle, out at the top, down the outside, in at
-the bottom. Each parcel also has an azimuth around the axis, so the ring is a volume: screen x
-is `r cos φ`, and `sin φ` sets the parcel's depth (front of the ring sits higher). The whole
-thermal rises (Rise) and widens (Expand) slowly: the form grows while it churns.
+## The model (ThermalSim)
 
-Every parcel points at a hidden core parcel on the axis as its parent, so the renderer's skin
-of caps rolls outward-and-over on each parcel (the roll axis is perpendicular to the
-core-to-parcel direction), which matches the cascade.
+- **Flow**: Hill's spherical vortex in the thermal's frame (`u_z = U(1 - 2r² - z²)`,
+  `u_r = U r z`): up the middle, out at the top, down the outside, in at the bottom. Each parcel
+  has an azimuth around the axis (volume; front of the ring sits higher). The thermal rises and
+  widens slowly, bounded so the crown stays in frame.
+- **Condensation level** (`baseY`): a fixed world height. The renderer cuts the field there
+  (`uBaseY`), so the base is flat regardless of the spheres.
+- **Basal reservoir + feeding neck**: a band of large, slow, soft parcels just above the base
+  and three on the axis up into the body, so the crown never floats over a stalk.
+- **Bubbles**: with a pulse, re-entering parcels are released as a cohort (3..6 over 5 s, one
+  shared azimuth, a 1.45x lead parcel that rises 1.25x faster, 70 % shared wander) with a surge
+  travelling up the axis. Intervals are randomized (0.75..1.25 x pulse).
+- **Exposure / freshness**: sinking on the outer flank accumulates exposure; freshness decays
+  (`mixing` seconds). It reaches the renderer twice: `sim.detail` scales small caps and big
+  lobes in the cap table, and cap-table column 21 scales the relief bumps in the field pass.
+  Fine relief also has a 12 s half-life after condensation unless the parcel is a fresh high
+  crown. Below 0.08 freshness a parcel retires by burial.
+- **Size hierarchy**: a crown parcel is ~2.5x a flank parcel (quadratic in height); young
+  parcels grow in over 4 s; old ones erode up to 20 %.
+- **Roll**: each parcel's billow skin turns with half the curl of the mapped flow (x Roll gain),
+  about an axis tangent to the ring: a flank puff spins top-outward and under, a front puff
+  rolls toward the viewer. The angle is integrated in the sim and passed in `sim.spin.w`.
+- **Noise**: 2 s correlated (Ornstein-Uhlenbeck), so motion is frame-rate independent.
+- **Formation**: starts as a compact puff on the base (40 % of the population) and grows to
+  the full count over `formTime`.
 
-## Sliders
+## Sliders (Forces)
 
-Forces: Updraft, Width, Height (the ring), Rise, Expand (form growth), Settle (hold at the
-base), Parcels, Size, Jitter, Dwell (seconds at the base before a parcel is drawn back in).
-Surface and Light expose the renderer's main look controls. Presets: humilis (flat puff),
-congestus (growing cumulus), tower.
+Updraft, Width, Height (the ring), Rise, Expand, Settle, Parcels, Size, Jitter, Mixing (s),
+Bubble (s), Base level, Roll gain, Form (s), Base share. Surface and Light expose the renderer
+(including Base shade: light falls from the crown to the base, and Softness).
 
-`window.sim` and `window.look` are exposed for console experiments; `sim.parcels[i]` has
-`r, z, phi, link, dwell` in the thermal's unit frame.
+`window.sim`, `window.look`, `window.renderer` are exposed for console experiments.
+
+## Renderer additions made for this model
+
+`uBaseY` (field cut), `sim.spin` (per-parcel roll axis + angle), `sim.detail` (freshness),
+cap-table column 21 (freshness into the field pass), `uBand` (crown-to-base light falloff),
+and a wider Normal-smooth footprint. The editor and stage pass none of these and are unchanged.
 
 ## Open
 
-- Parcels in the interior (small r) are invisible but cost field-pass work; a shell-biased
-  spawn would spend the budget on the visible surface.
-- Several thermals side by side (a cloud street) and a base layer for stratocumulus.
-- Feeding the stage: a ThermalSim can replace a CloudSim in `CloudStage.add` once the model is
-  tuned, since both emit the same blobs/aux arrays.
+- Early frames: a seam where the crown's underside meets the lower body before the flank fills.
+- Several thermals side by side (a cloud street); a ThermalSim per `CloudStage` instance.
+- Interior parcels (small r) are invisible but cost field-pass work.
