@@ -41,11 +41,11 @@
 
   var PRESETS = {
     // a flat fair-weather puff: weak updraft, wide, little roil
-    humilis:   { updraft: 0.12, width: 0.26, height: 0.12, rise: 0.000,  expand: 0.0000, settle: 0.15, count: 18, size: 0.08,  jitter: 0.08, mixing: 14, pulse: 0,  base: 0.55, rollGain: 3, formTime: 60, reservoir: 0.35 },
+    humilis:   { updraft: 0.03, width: 0.26, height: 0.12, rise: 0.000,  expand: 0.0000, settle: 0.15, count: 18, size: 0.08,  jitter: 0.08, mixing: 25, pulse: 0,  base: 0.55, rollGain: 12, formTime: 60, reservoir: 0.35 },
     // a growing cumulus: strong updraft, tall ring, parcels cascade down the sides
-    congestus: { updraft: 0.18, width: 0.20, height: 0.26, rise: 0.0004, expand: 0.0002, settle: 0.10, count: 32, size: 0.066,  jitter: 0.08, mixing: 12, pulse: 15, base: 0.60, rollGain: 3, formTime: 90, reservoir: 0.35 },
+    congestus: { updraft: 0.04, width: 0.20, height: 0.26, rise: 0.0004, expand: 0.0002, settle: 0.10, count: 32, size: 0.066,  jitter: 0.08, mixing: 25, pulse: 25, base: 0.60, rollGain: 12, formTime: 90, reservoir: 0.35 },
     // a tower: narrow and tall, fast core, long cascade
-    tower:     { updraft: 0.25, width: 0.14, height: 0.36, rise: 0.0006, expand: 0.00015, settle: 0.10, count: 40, size: 0.056, jitter: 0.10, mixing: 10, pulse: 12, base: 0.65, rollGain: 3, formTime: 120, reservoir: 0.30 }
+    tower:     { updraft: 0.055, width: 0.14, height: 0.36, rise: 0.0006, expand: 0.00015, settle: 0.10, count: 40, size: 0.056, jitter: 0.10, mixing: 22, pulse: 20, base: 0.65, rollGain: 12, formTime: 120, reservoir: 0.30 }
   };
 
   function ThermalSim(opts) {

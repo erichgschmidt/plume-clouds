@@ -90,3 +90,12 @@ winning turret; stem reads as a dark waist; base cut looks sliced. Applied (`08-
 - nook AO 0.15, relief 1.4.
 Result: 93 s reads as a soft lit mass over a shaded body (closest yet to the painted look);
 33 s is still crown-heavy over a small base; the bottom edge still shows some beads.
+
+## 8. Speed (the user's main complaint) — measured, then fixed
+
+A 15 s strip of pass 6 (`09-strip-pass6-*`) showed the crown reshaping far too fast. Measured
+by parcel identity: median parcel speed 0.06 units/s (one parcel diameter per 5 s), roll
+0.58 rad/s. Clouds move slower than their billows roll, so: updraft 0.04 (was 0.18 at the
+start of the night), Roll gain 12, pulses 25 s, mixing 25 s. Now (`10-slow-*`, frames 5 s apart):
+median parcel speed 0.016 units/s, max 0.055; billow roll median 0.69 rad/s, max 1.3. The
+shapes drift slowly while the bumps turn on them, which is what the sketch asks for.
