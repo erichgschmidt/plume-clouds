@@ -38,6 +38,29 @@ sim with a model built from the motion up, after the sketch:
 - **Formation**: starts as a compact puff on the base (40 % of the population) and grows to
   the full count over `formTime`.
 
+## Single puff (`puff.html`)
+
+One parcel, large in frame, with Roll (rad/s), Axis tilt (screen-plane turn vs. rolling toward
+the viewer), Freshness, an optional neighbour, and the same Surface / Light sliders. Use it to
+judge the skin before the whole thermal.
+
+### The skin lives (cap life)
+
+A cap is no longer a fixed seat on a rigid skin that wheels round with the roll. Each cap lives
+one cycle: it is born on the upper shell, carried round by the roll at its own rate (0.7..1.3x)
+while it swells and subsides (`sin^0.6` envelope), sinks back into the body as it fades, and is
+reseeded at a new azimuth. Big lobes live ~2x longer and never drop below 45 % so the macro
+form persists. At zero roll the skin still breathes (one life per ~60 s). `Cap life` scales the
+cycle rate (0 freezes the skin). On the world-down half the primary carve may only deflate the
+parcel (`uBaseFlatten`), so no retained lobe stands out of the underside (the udder / bead).
+
+### The dark base and the sun
+
+The base band (`Base shade`) is optical depth: light entering at the crown is scattered out
+before it reaches the base, so it does not move with the sun's azimuth. It scales with sun
+elevation (x0.3 at the horizon, full above 45 deg): a low sun lights the near flank down to the
+base and thins it.
+
 ## Sliders (Forces)
 
 Updraft, Width, Height (the ring), Rise, Expand, Settle, Parcels, Size, Jitter, Mixing (s),
