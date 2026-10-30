@@ -875,6 +875,10 @@ uniform float uFlatten;
 uniform float uInk;
 uniform sampler2D uNormal;
 uniform float uPatchN;
+uniform float uShadowDetail;  // detail kept where the macro form faces away from the sun (1: all, 0: none)
+uniform float uFormAO;        // large-scale occlusion strength: a texel far below its blurred neighbourhood is under the mass
+uniform float uFormLod;       // mip level of that neighbourhood read
+uniform float uFormRange;     // world height difference for full form occlusion
 vec2 suv;
 vec4 fieldAt(vec2 uv){
   vec4 t = textureLod(uField, uv, 0.0);
@@ -935,8 +939,7 @@ vec3 smoothPatchNormal(vec2 uv, vec3 centerN, vec4 centerField){
     compatible *= smoothstep(0.0, 0.8, dot(centerN, m));
     sum += m * compatible * smoothstep(0.05, 0.95, neighbor.g);
   }
-  vec3 filtered = normalize(sum);
-  return normalize(mix(centerN, filtered, uFlatten));
+  return normalize(sum);   // the fully smoothed (macro) normal; the caller blends by uFlatten
 }
 void main(){
   vec2 t = uTexel;
@@ -954,7 +957,12 @@ void main(){
   if(uPatchN > 0.5){
     n = normalAt(suv, 0.0);
     // The saved Flatten value now drives a surface-aware normal smoother.
-    if(uFlatten > 0.001) n = smoothPatchNormal(suv, n, f);
+    // A: detail falls off in shadow. micro = the usual Normal-smooth blend; macro = fully smoothed.
+    // Where the macro form faces away from the sun the per-cap detail fades to the form itself.
+    vec3 macroN = smoothPatchNormal(suv, n, f);
+    vec3 microN = normalize(mix(n, macroN, uFlatten));
+    float keep = uShadowDetail + (1.0 - uShadowDetail) * max(0.0, dot(macroN, uLight));
+    n = normalize(mix(macroN, microN, keep));
   } else {
     // Explicit legacy comparison path.
     float dx = gradient(vec2(t.x * 2.0 * uResScale, 0.0), 0.0);
@@ -986,15 +994,20 @@ void main(){
   // Nook AO removes ambient energy before the palette/toon thresholds.
   // Its local geometry test does not depend on the sun or the Shadow control.
   float ambientOcclusion = 0.0;
+  // B: form occlusion. The blurred height around this texel stands for the mass above it.
+  if(uFormAO > 0.00001){
+    float meanH = fieldLod(suv, uFormLod).r * uHeightUnit;
+    ambientOcclusion = min(0.85, uFormAO * smoothstep(0.0, uFormRange, meanH - h0));
+  }
   if(uAO > 0.00001){
     float cavity = textureLod(uOcclusion, suv, 0.0).r;
-    ambientOcclusion = min(0.85, 1.0 - exp(-2.0 * uAO * cavity));
+    ambientOcclusion = min(0.85, ambientOcclusion + 1.0 - exp(-2.0 * uAO * cavity));
   }
   vec3 cloud;
   if(uToon > 0.5){
     float direct = pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - uShadow * occ);
     float ambient = 0.35 + uFill * bounce;
-    if(uAO > 0.00001) ambient -= (0.35 + uFill * bounce) * ambientOcclusion;
+    ambient -= (0.35 + uFill * bounce) * ambientOcclusion;
     vec2 ti = (uPixelated > 0.5) ? floor(vUv / t) : floor(gl_FragCoord.xy);
     if(mod(ti.x + ti.y, 2.0) > 0.5){ direct -= 0.087; ambient -= 0.087; }
     float tone = (direct > uToneA) ? 1.0 : (((direct + ambient) > uToneB) ? 0.4 : 0.0);
@@ -1010,7 +1023,7 @@ void main(){
     float direct = 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight));
     float ambient = 0.18 + uFill * bounce;
     float light = ambient + direct * (1.0 - uShadow * occ);
-    if(uAO > 0.00001) light -= ambient * ambientOcclusion;
+    light -= ambient * ambientOcclusion;
     light += bayer((uPixelated > 0.5) ? floor(vUv / t) : gl_FragCoord.xy) * 0.012;
     cloud = palette(light);
     cloud = mix(cloud, vec3(1.0, 0.98, 0.86), edge * max(0.0, lambert) * 0.20);
@@ -1070,7 +1083,7 @@ void main(){
     this._aoU = uniforms(gl, this._aoProg, ['uField', 'uNormal', 'uTexel', 'uAspect', 'uHeightUnit', 'uPacked', 'uRadius', 'uFalloff']);
     this._shadeProg = link(gl, VS, SHADE_FS);
     this._shadeU = uniforms(gl, this._shadeProg, ['uField', 'uOcclusion', 'uTexel', 'uLight', 'uAspect', 'uHeightUnit',
-      'uShadow', 'uAO', 'uResScale', 'uJumpW', 'uHighlight', 'uFill', 'uPixelated', 'uToon', 'uToneA', 'uToneB', 'uFlatten', 'uInk', 'uNormal', 'uPatchN', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
+      'uShadow', 'uAO', 'uResScale', 'uJumpW', 'uHighlight', 'uFill', 'uPixelated', 'uToon', 'uToneA', 'uToneB', 'uFlatten', 'uInk', 'uNormal', 'uPatchN', 'uShadowDetail', 'uFormAO', 'uFormLod', 'uFormRange', 'uBands', 'uSky', 'uPacked', 'uSkyColor', 'uDebug']);
 
     // billow tile (static asset; baked once)
     this._tile = gl.createTexture();
@@ -1469,6 +1482,11 @@ void main(){
     gl.uniform1f(su.uHeightUnit, heightUnit);
     gl.uniform1f(su.uShadow, shadow);
     gl.uniform1f(su.uAO, aoIntensity);
+    gl.uniform1f(su.uShadowDetail, Math.max(0, Math.min(1, num(look.shadowDetail, 1))));
+    var formRadius = Math.max(0.5, Math.min(6, num(look.formRadius, 2.5))) * maxR;   // world units
+    gl.uniform1f(su.uFormAO, Math.max(0, Math.min(2, num(look.formAO, 0))));
+    gl.uniform1f(su.uFormLod, Math.max(0, Math.log2(formRadius * this.stats.fieldW)));
+    gl.uniform1f(su.uFormRange, formRadius * 0.6);
     gl.uniform1f(su.uResScale, Math.max(1, this.stats.fieldW / 320));
     gl.uniform1f(su.uJumpW, 0.05 * maxR);
     gl.uniform1f(su.uPixelated, pixelated ? 1 : 0);

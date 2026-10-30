@@ -9,7 +9,7 @@
     seed: 7401,
     preset: 'confluence',
     settings: { speed: 1, cohesion: .6, breakup: .5, buoyancy: .6, turbulence: .35, coverage: .6 },
-    look: { billow: 3, softness: .79, blend: 1, erosion: .35, erosionFlow: 0, relief: 2, depth: .55, roll: .6, sun: 81, elevation: -17, shadow: .64, highlight: .68, fill: .2, bands: 5, toneA: .485, toneB: .89, flatten: .3, ink: .5, sky: true, pixelated: true, toon: false, patchN: true, carveEnabled: true, noiseType: 'Voronoi', invertNoise: true, ao: 0.65, aoRadius: 0.8, aoFalloff: 1.5, primaryNoiseType: 'Voronoi', primaryInvertNoise: true, primaryScale: 1.8, inflation: 0.1, embed: 0.12, primaryCarve: 1.2, carve: 0.25, cellScale: 1.2, cellFlow: 0.65 },
+    look: { billow: 3, softness: .79, blend: 1, erosion: .35, erosionFlow: 0, relief: 2, depth: .55, roll: .6, sun: 81, elevation: -17, shadow: .64, highlight: .68, fill: .2, bands: 5, toneA: .485, toneB: .89, flatten: .8, shadowDetail: .35, formAO: .7, formRadius: 2.5, ink: .5, sky: true, pixelated: true, toon: false, patchN: true, carveEnabled: true, noiseType: 'Voronoi', invertNoise: true, ao: 1.0, aoRadius: 1.6, aoFalloff: 1.5, primaryNoiseType: 'Voronoi', primaryInvertNoise: true, primaryScale: 1.8, inflation: 0.1, embed: 0.12, primaryCarve: 1.2, carve: 0.25, cellScale: 1.2, cellFlow: 0.65 },
     paint: {active: false, initialized: false, brushSize: 10, refRadius: .16, maxParcelRadius: .25, serial: 0, time: 0, parcels: []},
     resolution: 160
   };
@@ -76,7 +76,10 @@
     ['highlight', 'Highlight', 0, 1, 0.01],
     ['fill', 'Fill', 0, 0.5, 0.01],
     ['bands', 'Bands', 3, 5, 1],
-    ['flatten', 'Normal smooth', 0, 1, 0.01]
+    ['flatten', 'Normal smooth', 0, 1, 0.01],
+    ['shadowDetail', 'Shadow detail', 0, 1, 0.01],
+    ['formAO', 'Form AO', 0, 2, 0.01],
+    ['formRadius', 'Form radius', 0.5, 6, 0.05]
   ];
   var TOON_SPEC = [
     ['toneA', 'Tone A', 0, 1, 0.005],

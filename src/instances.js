@@ -17,8 +17,8 @@
   // the editor's default look, minus the sky (sprites are premultiplied RGBA)
   var DEFAULT_LOOK = { billow: 3, softness: .79, blend: 1, erosion: .35, relief: 2, depth: .55, roll: .6,
     sun: 81, elevation: -17, shadow: .64, highlight: .68, fill: .2, bands: 5, toneA: .485, toneB: .89,
-    flatten: .3, ink: .5, sky: false, pixelated: true, toon: false, patchN: true, carveEnabled: true,
-    noiseType: 'Voronoi', invertNoise: true, ao: 0.65, aoRadius: 0.8, aoFalloff: 1.5,
+    flatten: .8, shadowDetail: .35, formAO: .7, formRadius: 2.5, ink: .5, sky: false, pixelated: true, toon: false, patchN: true, carveEnabled: true,
+    noiseType: 'Voronoi', invertNoise: true, ao: 1.0, aoRadius: 1.6, aoFalloff: 1.5,
     primaryNoiseType: 'Voronoi', primaryInvertNoise: true, primaryScale: 1.8, inflation: 0.1, embed: 0.12,
     primaryCarve: 1.2, carve: 0.25, cellScale: 1.2, cellFlow: 0.5, erosionFlow: 0.01 };
 
@@ -211,7 +211,7 @@ void main(){
   CloudStage.prototype.addGroup = function (opts) {
     opts = opts || {};
     var rows = opts.rows || [4, 3, 2, 1], size = num(opts.size, 0.3), depth = num(opts.depth, 0);
-    var baseTint = num(opts.baseTint, 0.45);   // the bottom row sits in the stack's own shadow
+    var baseTint = num(opts.baseTint, 0.25);   // the bottom row sits in the stack's own shadow
     var shear = num(opts.shear, 0.06);          // crown lean amplitude (fraction of size), 2-minute sway
     var x0 = num(opts.x, 0.5), y0 = num(opts.y, 0.6), seed = num(opts.seed, 1) | 0;
     var rngState = (seed * 2654435761) >>> 0;
