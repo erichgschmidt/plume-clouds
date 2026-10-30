@@ -31,16 +31,16 @@
     <div class="row" style="margin-top:6px"><button class="btn" id="btnPlay">Pause</button><button class="btn" id="btnReset">Reset</button><label style="width:auto">Seed</label><input id="seed" type="number" value="1" style="width:56px"></div>
     <h3>Forces</h3>
     <div id="forces"></div>
-    <p class="hint">Updraft pushes parcels up the axis; at the top the flow disperses outward, the edges roil over and cascade down the outside. Settle holds parcels at the base. Rise and Expand grow the whole form.</p>
+    <p class="hint">Updraft pushes parcels up the axis; at the top the flow disperses outward, the edges roil over and cascade down the outside. Below the base level parcels evaporate. Mixing is how long a sinking flank parcel stays fresh. Bubble releases new parcels as cohorts with a surge up the axis.</p>
     <h3>Surface</h3>
     <div id="surface"></div>
     <h3>Light</h3>
     <div id="light"></div>
   </div>
 </div>
-<script src="src/sim.js?v=57"></script>
-<script src="src/render.js?v=57"></script>
-<script src="src/motion.js?v=57"></script>
+<script src="src/sim.js?v=61"></script>
+<script src="src/render.js?v=61"></script>
+<script src="src/motion.js?v=61"></script>
 <script>
 (function () {
   'use strict';
@@ -52,7 +52,7 @@
   renderer.resize(240);
   var sim = new ThermalSim({ seed: 1, preset: 'congestus', aspect: canvas.height / canvas.width });
 
-  var look = { billow: 3, softness: .79, blend: 1, erosion: .35, erosionFlow: .01, relief: 2, depth: .55, roll: .6, rollSync: 0,
+  var look = { billow: 3, softness: .79, blend: 1, erosion: .35, erosionFlow: .01, relief: 2, depth: .55, roll: 1, rollSync: 0,
     sun: 60, elevation: 40, shadow: .64, highlight: .68, fill: .2, bands: 5, flatten: .8, shadowDetail: .35, formAO: .7, formRadius: 2.5,
     ink: .5, sky: true, pixelated: true, toon: false, patchN: true, carveEnabled: true, noiseType: 'Voronoi', invertNoise: true,
     ao: 1.0, aoRadius: 1.6, aoFalloff: 1.5, primaryNoiseType: 'Voronoi', primaryInvertNoise: true, primaryScale: 1.8, inflation: 0.1,
@@ -61,7 +61,7 @@
   var FORCES = [
     ['updraft', 'Updraft', 0, 1.5, 0.01], ['width', 'Width', 0.05, 0.5, 0.005], ['height', 'Height', 0.05, 0.6, 0.005],
     ['rise', 'Rise', 0, 0.02, 0.0005], ['expand', 'Expand', 0, 0.01, 0.0002], ['settle', 'Settle', 0, 1, 0.01],
-    ['count', 'Parcels', 4, 63, 1], ['size', 'Size', 0.03, 0.2, 0.001], ['jitter', 'Jitter', 0, 1, 0.01], ['respawn', 'Dwell (s)', 2, 40, 0.5], ['pulse', 'Bubble (s)', 0, 40, 0.5], ['base', 'Base level', 0.2, 1, 0.01]
+    ['count', 'Parcels', 4, 63, 1], ['size', 'Size', 0.03, 0.2, 0.001], ['jitter', 'Jitter', 0, 0.5, 0.005], ['mixing', 'Mixing (s)', 1, 30, 0.5], ['pulse', 'Bubble (s)', 0, 40, 0.5], ['base', 'Base level', 0.2, 1, 0.01], ['rollGain', 'Roll gain', 0, 4, 0.05]
   ];
   var SURFACE = [['roll', 'Roll', 0, 2, 0.01], ['cellFlow', 'Flow', 0, 3, 0.01], ['billow', 'Billow', 0, 10, 0.01], ['lobes', 'Big lobes', 0, 5, 1],
     ['lobeSize', 'Lobe size', 0.3, 0.8, 0.01], ['detailBand', 'Detail band', 0, 1, 0.01], ['baseFlatten', 'Base flatten', 0, 1, 0.01], ['depth', 'Depth', 0, 2, 0.01]];
@@ -92,7 +92,7 @@
   $('btnReset').addEventListener('click', function () { sim.reset(+$('seed').value | 0, sim.preset); refresh(); });
   $('seed').addEventListener('change', function () { sim.reset(+this.value | 0, sim.preset); });
 
-  window.sim = sim; window.look = look;
+  window.sim = sim; window.look = look; window.renderer = renderer;
   var last = performance.now(), fpsT = 0, frames = 0, fps = 0;
   function loop(now) {
     var dt = Math.min(0.1, (now - last) / 1000); last = now;

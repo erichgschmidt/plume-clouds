@@ -401,6 +401,7 @@ uniform float uCellScale;
 uniform float uCellFlow;
 uniform float uFieldStep;
 uniform float uErosionFlow;   // slow clock on the erosion noise: fringes dissolve instead of staying fixed per seed
+uniform float uBaseY;         // condensation level (world y, top-down): nothing is visible below it (1e9: none)
 uniform highp sampler2D uCaps;   // per frame, CPU: columns 0..19 = cap (cen.xyz, rad after ownership; 0 = none), column 20 = (axis.x, axis.y, angle, 0)
 uniform float uAspect;
 uniform float uTime;
@@ -751,6 +752,8 @@ void main(){
   }
   float height = max(0.0, top + T2 * log(max(1e-20, den)));
   float mask = 1.0 - unc;
+  // condensation level: the cloud ends on one flat line, over a few texels
+  mask *= 1.0 - smoothstep(uBaseY, uBaseY + 0.012, p.y);
   float contact = smoothstep(0.9, 2.2, ovl) * 0.35;
   float hN = clamp(height / uHeightUnit, 0.0, 1.0);
   // Coverage-premultiplied normals keep empty sky out of normal mip levels.
@@ -1078,7 +1081,7 @@ void main(){
     this._fieldProg = link(gl, VS, FIELD_FS);
     this._fieldU = uniforms(gl, this._fieldProg, ['uBlobs', 'uAux', 'uCount', 'uTile', 'uAspect', 'uTime', 'uBillow', 'uRoll',
       'uErosion', 'uRelief', 'uReliefCenter', 'uReference', 'uSoftness', 'uBlend', 'uHeightUnit', 'uPacked', 'uDepth',
-      'uVoronoi', 'uPrimaryNoise', 'uErosionNoise', 'uPrimaryScale', 'uPrimaryInvertNoise', 'uInflation', 'uEmbed', 'uCarve', 'uInvertNoise', 'uPrimaryCarve', 'uCellScale', 'uCellFlow', 'uFieldStep', 'uCaps', 'uErosionFlow']);
+      'uVoronoi', 'uPrimaryNoise', 'uErosionNoise', 'uPrimaryScale', 'uPrimaryInvertNoise', 'uInflation', 'uEmbed', 'uCarve', 'uInvertNoise', 'uPrimaryCarve', 'uCellScale', 'uCellFlow', 'uFieldStep', 'uCaps', 'uErosionFlow', 'uBaseY']);
     this._aoProg = link(gl, VS, AO_FS);
     this._aoU = uniforms(gl, this._aoProg, ['uField', 'uNormal', 'uTexel', 'uAspect', 'uHeightUnit', 'uPacked', 'uRadius', 'uFalloff']);
     this._shadeProg = link(gl, VS, SHADE_FS);
@@ -1152,7 +1155,7 @@ void main(){
    * ownership (shrunk away where a same-branch neighbour is higher at the cap's centre).
    * Same construction the shader had; only the evaluation site moved.
    */
-  CloudRenderer.prototype._capTable = function (blobs, aux, spins, count, time, p) {
+  CloudRenderer.prototype._capTable = function (blobs, aux, spins, details, count, time, p) {
     var T = this._capData, core = 0.93, i, j, i2;
     var billow = p.billow;
     var growthAtBillow = billow > 2 ? Math.sqrt((0.5 * billow) / (1 + 0.07 * (billow - 2))) : 0;
@@ -1166,6 +1169,8 @@ void main(){
       var row = i * CAP_COLS * 4;
       if (bz <= 1e-4 || aux[o + 3] <= 1e-6) { for (j = 0; j < CAP_COLS * 4; j++) T[row + j] = 0; continue; }
       var r = bz * p.inflation, bi = Math.round(aux[o]);
+      // freshness (0..1, from the sim): an old, mixed flank loses its small caps and softens its lobes
+      var fresh = details ? Math.max(0, Math.min(1, details[i])) : 1;
       // growth direction from the parent parcel (a lone lobe grows up; world y is top-down)
       var pi = aux[o + 2] < 0 ? -1 : Math.round(aux[o + 2]), gx = 0.16, gy = -1;
       if (pi >= 0 && pi < count && pi !== i) {
@@ -1199,7 +1204,7 @@ void main(){
             jit = hash(seed + 7.3 + j * 53.1) - 0.5;
             zz = (1 - 2 * (j + 0.5 + jit * 0.4) / nBig) * 0.85;
             az = j * 2.399963 + seed * 1.9 + jit * 1.2;
-            rad = p.lobeSize * (0.85 + 0.3 * hash(seed + 5.1 + j * 23.0));
+            rad = p.lobeSize * (0.85 + 0.3 * hash(seed + 5.1 + j * 23.0)) * (0.75 + 0.25 * fresh);
             growthInset = 0.35 * Math.max(rad - 0.5, 0);
           } else {
             jit = hash(seed + js * 31.7) - 0.5;
@@ -1220,7 +1225,7 @@ void main(){
           var uz = vz * c + (axX * vy - axY * vx) * sn + axZ * d * (1 - c);
           // world y is top-down: uy > 0 is the underside. Small caps live in the crown band only;
           // underside caps sink into the body (less protrusion) and shrink a little.
-          if (!big) rad *= smoothstep(0.35 + 0.65 * p.detailBand, -0.25 * p.detailBand, uy);
+          if (!big) rad *= smoothstep(0.35 + 0.65 * p.detailBand, -0.25 * p.detailBand, uy) * fresh;
           var sink = p.baseFlatten * smoothstep(-0.1, 0.6, uy);
           rad *= 1 - 0.5 * sink;
           shellRadius *= 1 - 0.4 * sink;
@@ -1429,8 +1434,10 @@ void main(){
     gl.uniform1f(fu.uCellFlow, Math.max(0, Math.min(3, num(look.cellFlow, 0.65))));
     gl.uniform1f(fu.uFieldStep, 1 / this.stats.fieldW);
     gl.uniform1f(fu.uErosionFlow, Math.max(0, Math.min(0.2, num(look.erosionFlow, 0))));
+    gl.uniform1f(fu.uBaseY, (sim && typeof sim.baseY === 'number') ? sim.baseY : 1e9);
     var spins = (sim && sim.spin && sim.spin.length >= MAX_BLOBS * 4) ? sim.spin : null;
-    this._capTable(blobs, aux, spins, count, time, { billow: billow, erosion: erosion, inflation: 1 + inflation, embed: embed, roll: num(look.roll, 0.6), rollSync: num(look.rollSync, 0),
+    var details = (sim && sim.detail && sim.detail.length >= MAX_BLOBS) ? sim.detail : null;
+    this._capTable(blobs, aux, spins, details, count, time, { billow: billow, erosion: erosion, inflation: 1 + inflation, embed: embed, roll: num(look.roll, 0.6), rollSync: num(look.rollSync, 0),
       lobes: lobes, lobeSize: lobeSize, detailBand: Math.max(0, Math.min(1, num(look.detailBand, 0.5))), baseFlatten: Math.max(0, Math.min(1, num(look.baseFlatten, 0.6))) });
     gl.uniform1i(fu.uCaps, 8);
     gl.uniform4fv(fu.uBlobs, blobs, 0, MAX_BLOBS * 4);
