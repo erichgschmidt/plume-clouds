@@ -42,6 +42,7 @@ uniform sampler2DArray uSprites;
 uniform int uCount;
 uniform vec4 uRect[${MAXI}];     // x, y, w, h of the instance on screen (uv, y-down), far to near
 uniform vec4 uInfo[${MAXI}];     // layer, depth, haze, screen centre y
+uniform float uTint[${MAXI}];    // 0..1: darken toward the shadow tone (a puff deep in its own stack)
 uniform vec2 uShadowDir;         // screen offset toward the sun per unit of depth difference
 uniform float uShadow;           // shadow darkening strength
 uniform float uShadowSoft;       // mip level of the occluder read (penumbra)
@@ -87,7 +88,7 @@ void main(){
       vec4 rj = uRect[j];
       occ = max(occ, spriteAt(j, (suv + uShadowDir * (uShadowBase + dd) - rj.xy) / rj.zw, uShadowSoft * dd).a);
     }
-    c.rgb = mix(c.rgb, c.rgb * vec3(0.42, 0.60, 0.80), uShadow * occ);
+    c.rgb = mix(c.rgb, c.rgb * vec3(0.42, 0.60, 0.80), min(1.0, uShadow * occ + uTint[i]));
     c.rgb = mix(c.rgb, uSky * c.a, uInfo[i].z);   // haze: far clouds fade toward the sky
     col = col * (1.0 - c.a) + c.rgb;
   }
@@ -150,12 +151,13 @@ void main(){
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     this._sfbo = gl.createFramebuffer();
     this._prog = link(gl, VS, COMPOSITE_FS);
-    var names = ['uSprites', 'uCount', 'uRect', 'uInfo', 'uShadowDir', 'uShadow', 'uShadowSoft', 'uShadowBase', 'uGround', 'uGroundColor', 'uSky', 'uSpriteSize', 'uPixelSnap'];
+    var names = ['uSprites', 'uCount', 'uRect', 'uInfo', 'uShadowDir', 'uShadow', 'uShadowSoft', 'uShadowBase', 'uTint', 'uGround', 'uGroundColor', 'uSky', 'uSpriteSize', 'uPixelSnap'];
     this._u = {};
     for (var i = 0; i < names.length; i++) this._u[names[i]] = gl.getUniformLocation(this._prog, names[i]);
     this._vao = gl.createVertexArray();
     this._rects = new Float32Array(MAXI * 4);
     this._infos = new Float32Array(MAXI * 4);
+    this._tints = new Float32Array(MAXI);
   }
 
   /**
@@ -206,7 +208,8 @@ void main(){
    */
   CloudStage.prototype.addGroup = function (opts) {
     opts = opts || {};
-    var rows = opts.rows || [3, 2, 1], size = num(opts.size, 0.3), depth = num(opts.depth, 0);
+    var rows = opts.rows || [4, 3, 2, 1], size = num(opts.size, 0.3), depth = num(opts.depth, 0);
+    var baseTint = num(opts.baseTint, 0.45);   // the bottom row sits in the stack's own shadow
     var x0 = num(opts.x, 0.5), y0 = num(opts.y, 0.6), seed = num(opts.seed, 1) | 0;
     var rngState = (seed * 2654435761) >>> 0;
     function rng() { rngState = (rngState + 0x6D2B79F5) >>> 0; var t = rngState; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }
@@ -215,14 +218,15 @@ void main(){
     if (opts.settings) for (var k in opts.settings) settings[k] = opts.settings[k];
     var out = [], n = 0;
     for (var row = 0; row < rows.length; row++) {
-      var count = rows[row], rowSize = size * (1 - 0.14 * row);
-      var step = rowSize * 0.42, left = x0 - step * (count - 1) / 2;
+      var count = rows[row], rowSize = size * (1 - 0.16 * row);
+      var step = rowSize * 0.36, left = x0 - step * (count - 1) / 2;
+      var rowT = rows.length > 1 ? row / (rows.length - 1) : 1;
       for (var k = 0; k < count; k++) {
         var inst = this.add({
           seed: seed + 101 * n, preset: 'single',
           x: left + step * k + (rng() - 0.5) * rowSize * 0.12,
-          y: y0 - row * size * 0.30 + (rng() - 0.5) * rowSize * 0.08,
-          size: rowSize * (0.9 + 0.2 * rng()),
+          y: y0 - row * size * 0.26 + (rng() - 0.5) * rowSize * 0.10,
+          size: rowSize * (0.75 + 0.4 * rng()),
           depth: depth + row * 0.05 + rng() * 0.02,        // higher rows sit behind the lower ones
           drift: opts.drift, speed: opts.speed, look: opts.look,
           settings: settings, prewarm: opts.prewarm, refreshEvery: opts.refreshEvery,
@@ -230,6 +234,7 @@ void main(){
         });
         if (!inst) return out;
         inst.group = opts.name || seed;
+        inst.tint = baseTint * (1 - rowT) * (1 - rowT);
         out.push(inst); n++;
       }
     }
@@ -291,6 +296,7 @@ void main(){
       this._rects[i * 4] = cx - w / 2; this._rects[i * 4 + 1] = cy - h / 2; this._rects[i * 4 + 2] = w; this._rects[i * 4 + 3] = h;
       this._infos[i * 4] = inst.layer; this._infos[i * 4 + 1] = inst.depth;
       this._infos[i * 4 + 2] = Math.min(0.9, this.haze * inst.depth); this._infos[i * 4 + 3] = cy;
+      this._tints[i] = num(inst.tint, 0);
     }
     var az = this.sun * Math.PI / 180;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -309,6 +315,7 @@ void main(){
     gl.uniform1f(u.uShadow, this.shadow);
     gl.uniform1f(u.uShadowSoft, this.shadowSoft);
     gl.uniform1f(u.uShadowBase, this.shadowBase);
+    gl.uniform1fv(u.uTint, this._tints);
     var g = this.ground;
     gl.uniform4f(u.uGround, g ? num(g.y, 0.78) : 2, g ? num(g.shadow, 0.6) : 0, g ? num(g.squash, 3) : 1, g ? num(g.lean, 0.4) * Math.cos(az) : 0);
     var gc = (g && g.color) || [0.36, 0.52, 0.40];
