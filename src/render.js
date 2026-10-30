@@ -632,9 +632,9 @@ void main(){
     float parcelScale = primary.x;
     vec2 scaleGradient = primary.yz;
     // underside: a retained lobe may not inflate the parcel past its neutral radius (udders, beads)
-    float underW = uBaseFlatten * smoothstep(-0.1, 0.6, q.y / max(length(q), 1e-4)) * step(1.0, parcelScale);
-    parcelScale = mix(parcelScale, 1.0, underW);
-    scaleGradient *= 1.0 - underW;
+    float underW = uBaseFlatten * smoothstep(-0.1, 0.6, q.y / max(length(q), 1e-4));
+    scaleGradient *= 1.0 - underW * smoothstep(0.97, 1.03, parcelScale);
+    parcelScale = mix(parcelScale, min(parcelScale, 1.0), underW);
     q /= parcelScale;
     rho = length(q);
     if(rho > PRIMARY_MATERIAL_SUPPORT) continue;
@@ -1236,7 +1236,7 @@ void main(){
             zz = (1 - 2 * (j + 0.5 + jit * 0.4) / nBig) * 0.85;
             az = hash(cs + 2.9 + j * 17.7) * 6.2832;
             rad = p.lobeSize * (0.85 + 0.3 * hash(cs + 5.1 + j * 23.0)) * (0.55 + 0.45 * fresh) * smoothstep(0, 0.2, fresh);
-            env = 0.45 + 0.55 * Math.sqrt(Math.sin(Math.PI * ph));
+            env = Math.pow(Math.sin(Math.PI * ph), 0.45);
             growthInset = 0.35 * Math.max(rad - 0.5, 0);
           } else {
             jit = hash(cs + js * 31.7) - 0.5;

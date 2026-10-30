@@ -76,6 +76,18 @@ before it reaches the base, so it does not move with the sun's azimuth. It scale
 elevation (x0.3 at the horizon, full above 45 deg): a low sun lights the near flank down to the
 base and thins it.
 
+### Bounded growth, parallax, two fixes
+
+- The ring expands to at most 1.25x its width and 1.3x its height, parcel size no longer scales
+  with the ring, and a parcel never exceeds 3x the Size slider: the cloud reaches its adult size at
+  ~60 s and holds it (`19-motion-bounded-t150/t217.png`; the mean radius is flat from 60 s on).
+- `Parallax` (Forces): a slow sway of the eye; each parcel shifts by its depth around the ring
+  (a pure translation, so the forms keep their shape: a semi-orthographic dimensional shift).
+- Pop: a big lobe was reseeded at 45 % of its size, so it jumped to its new seat once per life.
+  Lobes now fade out and in like the small caps.
+- Hard line in the shadow: the underside carve clamp switched on with a step at neutral scale.
+  It now clamps continuously.
+
 ## Sliders (Forces)
 
 Updraft, Width, Height (the ring), Rise, Expand, Settle, Parcels, Size, Jitter, Mixing (s),

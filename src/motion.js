@@ -68,6 +68,7 @@
     this.rng = mulberry32(this.seed ^ 0x9E3779B1);
     var def = PRESETS[preset] || PRESETS.congestus;
     for (var k in def) this.params[k] = def[k];
+    this.params.parallax = 0.02;
     this.preset = preset;
     this.time = 0;
     this.cx = 0.5; this.cy = this.cy0 = this.aspect * 0.66;   // thermal centre (world: y top-down)
@@ -138,9 +139,9 @@
     var P = this.params, rng = this.rng, i, p;
     this.time += dt;
     // the form grows: the thermal rises and widens slowly (the base line stays put)
-    var W = Math.min(this.width0 * 1.6, this.width0 + P.expand * this.time), H = Math.min(this.height0 * 1.8, this.height0 + P.expand * 1.4 * this.time);
+    var W = Math.min(this.width0 * 1.25, this.width0 + P.expand * this.time), H = Math.min(this.height0 * 1.3, this.height0 + P.expand * 1.4 * this.time);
     // the thermal rises off the fixed base, but stays in frame: the crown stops near the top edge
-    this.cy = Math.max(H * 1.15 + 0.15 * this.aspect, this.cy - P.rise * dt);
+    this.cy = Math.max(H * 1.15 + 0.22 * this.aspect, this.cy - P.rise * dt);
     this.width = W; this.height = H;
     var U = P.updraft;
     var baseZ = (this.cy - this.baseY) / H;   // condensation level in the unit frame (negative: below centre)
@@ -237,7 +238,10 @@
 
   ThermalSim.prototype._emit = function () {
     var B = this.blobs, A = this.aux, S = this.spin, D = this.detail, P = this.params, W = this.width, H = this.height;
-    var size = P.size * (1 + (W / this.width0 - 1) * 0.5);
+    var size = P.size, rMax = P.size * 3;
+    // parallax: a slow sideways sway of the eye; every parcel shifts by its depth (pure translation,
+    // the forms keep their shape)
+    var swx = (P.parallax || 0) * Math.sin(this.time * 0.11), swy = (P.parallax || 0) * 0.35 * Math.sin(this.time * 0.073 + 1.0);
     B[0] = this.cx; B[1] = this.cy; B[2] = size * 0.8; B[3] = 7.7;
     A[0] = 0; A[1] = 0.5; A[2] = -1; A[3] = 1;
     S[0] = 0; S[1] = 0; S[2] = 1; S[3] = 1e-6; D[0] = 1;
@@ -245,15 +249,15 @@
     for (var i = 0; i < this.parcels.length && n < MAX; i++) {
       var p = this.parcels[i], o = n * 4;
       var c = Math.cos(p.phi), s = Math.sin(p.phi);
-      B[o] = this.cx + p.r * c * W;
-      B[o + 1] = this.cy - p.z * H;
+      B[o] = this.cx + p.r * c * W + swx * s;
+      B[o + 1] = this.cy - p.z * H + swy * s;
       // a young parcel grows toward 1.3x its birth radius over 4 s; an old one erodes up to 20 %
       var grow = 1 + (p === this.leader ? 0.55 : 0.3) * (1 - Math.exp(-p.age / 4));
       var erode = 1 - 0.2 * (1 - p.fresh);
       // domes before texture: a crown parcel is ~1.7x a flank parcel
       // domes before texture: a crown parcel is ~2.5x a flank parcel
       var hz = clamp((p.z + 0.3) / 1.1, 0, 1);
-      B[o + 2] = Math.min(0.4, size * p.size * grow * erode * (0.7 + 1.05 * hz * hz));
+      B[o + 2] = Math.min(rMax, size * p.size * grow * erode * (0.7 + 1.05 * hz * hz));
       B[o + 3] = p.seed;
       A[o] = 0;                              // one branch: parcels merge into one body
       A[o + 1] = 0.5 + 0.4 * s;              // depth: front of the ring sits higher
@@ -271,8 +275,9 @@
     // basal reservoir: wide, dense, soft (no small caps), pinned just above the base line
     for (i = 0; i < this.base.length && n < MAX; i++) {
       var q = this.base[i]; o = n * 4;
-      B[o] = this.cx + q.x * W; B[o + 1] = this.baseY - q.lift * H;
-      B[o + 2] = Math.min(0.4, size * q.size * (1 - 0.35 * q.x * q.x)); B[o + 3] = q.seed;
+      var qs = Math.sin(q.phi);
+      B[o] = this.cx + q.x * W + swx * qs; B[o + 1] = this.baseY - q.lift * H + swy * qs;
+      B[o + 2] = Math.min(rMax, size * q.size * (1 - 0.35 * q.x * q.x)); B[o + 3] = q.seed;
       A[o] = 0; A[o + 1] = 0.5 + 0.3 * Math.sin(q.phi); A[o + 2] = 0; A[o + 3] = 1;
       S[o] = 0; S[o + 1] = 0; S[o + 2] = q.x >= 0 ? 1 : -1; S[o + 3] = q.roll;
       D[n] = 0.05;
