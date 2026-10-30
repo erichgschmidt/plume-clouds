@@ -1177,25 +1177,46 @@ void main(){
       // rollSync > 0: every parcel turns at that fixed multiple of the base rate (one rising column)
       var angle = time * 0.16 * p.roll * (p.rollSync > 0 ? p.rollSync : (0.85 + 0.3 * hash(seed)));
       var c = Math.cos(angle), sn = Math.sin(angle);
-      var skinN = Math.max(4, Math.min(20, Math.floor((8 + hash(seed + 91.7) * 13) * skinScale)));
+      // Cap hierarchy (GHIBLI brief, C): the first nBig slots are big lobes (0.5..0.65 r on an inset
+      // shell), the rest the small skin. Small caps shrink as they roll toward the world-down side
+      // (detail only in the lit crown band); every cap on the underside is pushed inward (flattened).
+      var nBig = Math.min(5, Math.max(0, Math.round(p.lobes)));
+      var skinN = Math.max(4, Math.min(20 - nBig, Math.floor((8 + hash(seed + 91.7) * 13) * skinScale)));
       for (j = 0; j < 20; j++) {
         var cj = row + j * 4, rad = 0, cx = 0, cy = 0, cz = 0;
-        if (j < skinN) {
-          var jit = hash(seed + j * 31.7) - 0.5;
-          var zz = 1 - 2 * (j + 0.5 + jit * 0.55) / skinN;
-          var az = j * 2.399963 + seed * 2.7 + jit * 0.8;
+        var big = j < nBig, js = j - nBig;
+        if (big || js < skinN) {
+          var jit, zz, az, radiusSeed, radiusAtTwo, growthInset;
+          if (big) {
+            jit = hash(seed + 7.3 + j * 53.1) - 0.5;
+            zz = (1 - 2 * (j + 0.5 + jit * 0.4) / nBig) * 0.85;
+            az = j * 2.399963 + seed * 1.9 + jit * 1.2;
+            rad = p.lobeSize * (0.85 + 0.3 * hash(seed + 5.1 + j * 23.0));
+            growthInset = 0.35 * Math.max(rad - 0.5, 0);
+          } else {
+            jit = hash(seed + js * 31.7) - 0.5;
+            zz = 1 - 2 * (js + 0.5 + jit * 0.55) / skinN;
+            az = js * 2.399963 + seed * 2.7 + jit * 0.8;
+            radiusSeed = (0.28 + (0.46 - 0.28) * hash(seed + js * 17)) * 0.84;
+            radiusAtTwo = Math.min(0.5, radiusSeed * Math.SQRT2);
+            rad = billow <= 2 ? Math.min(0.5, radiusSeed * sqrtBillow) : radiusAtTwo * growthAtBillow;
+            growthInset = 0.35 * Math.max(rad - radiusAtTwo, 0);
+          }
           var sr = Math.sqrt(Math.max(1 - zz * zz, 0));
-          var radiusSeed = (0.28 + (0.46 - 0.28) * hash(seed + j * 17)) * 0.84;
-          var radiusAtTwo = Math.min(0.5, radiusSeed * Math.SQRT2);
-          rad = billow <= 2 ? Math.min(0.5, radiusSeed * sqrtBillow) : radiusAtTwo * growthAtBillow;
-          var growthInset = 0.35 * Math.max(rad - radiusAtTwo, 0);
           var shellRadius = Math.max(0, 0.78 - growthInset) * embedScale * erosionShellScale;
-          // rotAxis(v, axis, angle) * shellRadius with the axis in the screen plane (z = 0)
+          // rotAxis(v, axis, angle) with the axis in the screen plane (z = 0): unit shell position
           var vx = sr * Math.cos(az), vy = sr * Math.sin(az), vz = zz;
           var d = axX * vx + axY * vy;
-          cx = (vx * c + (axY * vz) * sn + axX * d * (1 - c)) * shellRadius;
-          cy = (vy * c + (-axX * vz) * sn + axY * d * (1 - c)) * shellRadius;
-          cz = (vz * c + (axX * vy - axY * vx) * sn) * shellRadius;
+          var ux = vx * c + (axY * vz) * sn + axX * d * (1 - c);
+          var uy = vy * c + (-axX * vz) * sn + axY * d * (1 - c);
+          var uz = vz * c + (axX * vy - axY * vx) * sn;
+          // world y is top-down: uy > 0 is the underside. Small caps live in the crown band only;
+          // underside caps sink into the body (less protrusion) and shrink a little.
+          if (!big) rad *= smoothstep(0.35 + 0.65 * p.detailBand, -0.25 * p.detailBand, uy);
+          var sink = p.baseFlatten * smoothstep(-0.1, 0.6, uy);
+          rad *= 1 - 0.5 * sink;
+          shellRadius *= 1 - 0.4 * sink;
+          cx = ux * shellRadius; cy = uy * shellRadius; cz = uz * shellRadius;
           if (rad <= 1e-4 || shellRadius + rad <= core) rad = 0;
           else {
             // a billow lives on ONE sphere of its branch
@@ -1356,7 +1377,8 @@ void main(){
     // Static control-derived height range: never follow live parcel radii.
     // Include enlarged caps, size compensation, relief, depth and both soft sums.
     var growth = billow > 2 ? Math.sqrt((billow * 0.5) / (1 + 0.07 * (billow - 2))) : 1;
-    var maxCapRadius = billow > 2 ? 0.5 * growth : Math.min(0.5, 0.46 * 0.84 * Math.sqrt(billow));
+    var lobes = Math.max(0, Math.min(5, num(look.lobes, 4))), lobeSize = Math.max(0.3, Math.min(0.8, num(look.lobeSize, 0.58)));
+    var maxCapRadius = Math.max(lobes > 0 ? lobeSize * 1.15 : 0, billow > 2 ? 0.5 * growth : Math.min(0.5, 0.46 * 0.84 * Math.sqrt(billow)));
     var maxCapReach = maxCapRadius + (0.78 - 0.35 * Math.max(0, maxCapRadius - 0.5)) * (1 - embed);
     var materialHeight = Math.max(0.93, maxCapReach) + (maxCapReach > 0.93 ? 0.02 : 0) + 0.07 * Math.max(0, relief);
     var totalPrimaryFraction = 0.6 * Math.pow(primaryStrength / 3, 0.65);
@@ -1399,7 +1421,8 @@ void main(){
     gl.uniform1f(fu.uCellFlow, Math.max(0, Math.min(3, num(look.cellFlow, 0.65))));
     gl.uniform1f(fu.uFieldStep, 1 / this.stats.fieldW);
     gl.uniform1f(fu.uErosionFlow, Math.max(0, Math.min(0.2, num(look.erosionFlow, 0))));
-    this._capTable(blobs, aux, count, time, { billow: billow, erosion: erosion, inflation: 1 + inflation, embed: embed, roll: num(look.roll, 0.6), rollSync: num(look.rollSync, 0) });
+    this._capTable(blobs, aux, count, time, { billow: billow, erosion: erosion, inflation: 1 + inflation, embed: embed, roll: num(look.roll, 0.6), rollSync: num(look.rollSync, 0),
+      lobes: lobes, lobeSize: lobeSize, detailBand: Math.max(0, Math.min(1, num(look.detailBand, 0.5))), baseFlatten: Math.max(0, Math.min(1, num(look.baseFlatten, 0.6))) });
     gl.uniform1i(fu.uCaps, 8);
     gl.uniform4fv(fu.uBlobs, blobs, 0, MAX_BLOBS * 4);
     gl.uniform4fv(fu.uAux, aux, 0, MAX_BLOBS * 4);

@@ -19,7 +19,7 @@
     sun: 81, elevation: -17, shadow: .64, highlight: .68, fill: .2, bands: 5, toneA: .485, toneB: .89,
     flatten: .8, shadowDetail: .35, formAO: .7, formRadius: 2.5, ink: .5, sky: false, pixelated: true, toon: false, patchN: true, carveEnabled: true,
     noiseType: 'Voronoi', invertNoise: true, ao: 1.0, aoRadius: 1.6, aoFalloff: 1.5,
-    primaryNoiseType: 'Voronoi', primaryInvertNoise: true, primaryScale: 1.8, inflation: 0.1, embed: 0.12,
+    primaryNoiseType: 'Voronoi', primaryInvertNoise: true, primaryScale: 1.8, inflation: 0.1, embed: 0.12, lobes: 4, lobeSize: 0.58, detailBand: 0.5, baseFlatten: 0.6,
     primaryCarve: 1.2, carve: 0.25, cellScale: 1.2, cellFlow: 0.5, erosionFlow: 0.01 };
 
   var VS = [
