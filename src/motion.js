@@ -41,11 +41,11 @@
 
   var PRESETS = {
     // a flat fair-weather puff: weak updraft, wide, little roil
-    humilis:   { updraft: 0.12, width: 0.26, height: 0.12, rise: 0.000,  expand: 0.0000, settle: 0.15, count: 18, size: 0.10,  jitter: 0.08, mixing: 24, pulse: 0,  base: 0.55, rollGain: 4 },
+    humilis:   { updraft: 0.12, width: 0.26, height: 0.12, rise: 0.000,  expand: 0.0000, settle: 0.15, count: 18, size: 0.10,  jitter: 0.08, mixing: 24, pulse: 0,  base: 0.55, rollGain: 4, formTime: 60 },
     // a growing cumulus: strong updraft, tall ring, parcels cascade down the sides
-    congestus: { updraft: 0.18, width: 0.20, height: 0.26, rise: 0.0006, expand: 0.0003, settle: 0.10, count: 26, size: 0.09,  jitter: 0.08, mixing: 20, pulse: 10, base: 0.60, rollGain: 4 },
+    congestus: { updraft: 0.18, width: 0.20, height: 0.26, rise: 0.0006, expand: 0.0003, settle: 0.10, count: 26, size: 0.09,  jitter: 0.08, mixing: 20, pulse: 10, base: 0.60, rollGain: 4, formTime: 90 },
     // a tower: narrow and tall, fast core, long cascade
-    tower:     { updraft: 0.25, width: 0.14, height: 0.36, rise: 0.0010, expand: 0.0002, settle: 0.10, count: 34, size: 0.075, jitter: 0.10, mixing: 16, pulse: 8,  base: 0.65, rollGain: 4 }
+    tower:     { updraft: 0.25, width: 0.14, height: 0.36, rise: 0.0010, expand: 0.0002, settle: 0.10, count: 34, size: 0.075, jitter: 0.10, mixing: 16, pulse: 8,  base: 0.65, rollGain: 4, formTime: 120 }
   };
 
   function ThermalSim(opts) {
@@ -80,17 +80,20 @@
     this.cohort = null;           // parcels being released as one bubble
     this.nextPulse = this.params.pulse > 0 ? this.params.pulse * (0.5 + 0.5 * this.rng()) : 0;
     this.surge = null;            // travelling updraft boost { zb }
-    var n = Math.min(MAX - 1, this.params.count | 0);
+    // formation: start as a small puff (a quarter of the population) and build up over formTime
+    var n = Math.min(MAX - 1, Math.max(3, Math.round((this.params.count | 0) * (this.params.formTime > 0 ? 0.25 : 1))));
     for (var i = 0; i < n; i++) this.parcels.push(this._spawn(true, null));
     this._emit();
   };
 
   ThermalSim.prototype._spawn = function (initial, cohort) {
     var rng = this.rng;
-    var z = initial ? (rng() * 1.35 - 0.5) : -0.6 - rng() * 0.25;
+    var forming = this.params.formTime > 0 && this.time < 1;
+    // a forming cloud starts as a compact puff low on the axis; a full one fills the ring's shell
+    var z = initial ? (forming ? rng() * 0.7 - 0.5 : rng() * 1.35 - 0.5) : -0.6 - rng() * 0.25;
     var p = {
       // the budget goes to the visible shell: initial parcels sit near the ring's surface
-      r: initial ? Math.sqrt(Math.max(0, 1 - z * z)) * (0.55 + 0.4 * rng()) : 0.05 + rng() * 0.12,
+      r: initial ? Math.sqrt(Math.max(0, 1 - z * z)) * (forming ? 0.2 + 0.4 * rng() : 0.55 + 0.4 * rng()) : 0.05 + rng() * 0.12,
       z: z,
       phi: cohort ? cohort.phi + (rng() - 0.5) * 0.8 : rng() * Math.PI * 2,
       size: (cohort ? cohort.size : 1) * (0.8 + rng() * 0.4),
@@ -122,7 +125,8 @@
     var baseZ = (this.cy - this.baseY) / H;   // condensation level in the unit frame (negative: below centre)
 
     // ---- population: cohorts (bubbles) or a steady trickle ----
-    var want = Math.min(MAX - 1, P.count | 0);
+    var formed = P.formTime > 0 ? Math.min(1, 0.25 + 0.75 * this.time / P.formTime) : 1;
+    var want = Math.min(MAX - 1, Math.round((P.count | 0) * formed));
     var alive = 0;
     for (i = 0; i < this.parcels.length; i++) if (!this.parcels[i].dying) alive++;
     var deficit = Math.max(0, want - alive);
@@ -131,7 +135,7 @@
         var n = Math.min(3 + Math.floor(rng() * 4), Math.max(1, this.waiting + deficit));
         this.cohort = { n: n, phi: rng() * Math.PI * 2, size: 0.85 + 0.3 * rng(), every: 1.5 / n, clock: 0 };
         this.surge = { zb: baseZ - 0.1 };
-        this.nextPulse = this.time + P.pulse * (0.75 + 0.5 * rng());
+        this.nextPulse = this.time + P.pulse * (0.75 + 0.5 * rng()) * (0.5 + 0.5 * formed);
       }
       if (this.cohort) {
         var c = this.cohort; c.clock += dt;
@@ -146,7 +150,7 @@
     // steady trickle: always when there is no pulse; with a pulse only to catch up when the queue
     // has grown past a third of the population (cohorts alone cannot keep up)
     if ((this.waiting > 0 || deficit > 0) && this.parcels.length < MAX - 1 &&
-        (P.pulse <= 0 || this.waiting > want * 0.34) && rng() < dt * 0.8) {
+        (P.pulse <= 0 || deficit > 0 || this.waiting > want * 0.34) && rng() < dt * 0.8) {
       this.parcels.push(this._spawn(false, null));
       if (this.waiting > 0) this.waiting--;
     }
