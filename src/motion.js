@@ -34,11 +34,11 @@
 
   var PRESETS = {
     // a flat fair-weather puff: weak updraft, wide, little roil
-    humilis:   { updraft: 0.30, width: 0.26, height: 0.12, rise: 0.000,  expand: 0.0000, settle: 0.6, count: 30, size: 0.055, jitter: 0.25, respawn: 14 },
+    humilis:   { updraft: 0.30, width: 0.26, height: 0.12, rise: 0.000,  expand: 0.0000, settle: 0.6, count: 30, size: 0.055, jitter: 0.25, respawn: 14, pulse: 0, base: 0.55 },
     // a growing cumulus: strong updraft, tall ring, parcels cascade down the sides
-    congestus: { updraft: 0.50, width: 0.20, height: 0.26, rise: 0.0015, expand: 0.0005, settle: 0.5, count: 46, size: 0.050, jitter: 0.3, respawn: 10 },
+    congestus: { updraft: 0.50, width: 0.20, height: 0.26, rise: 0.0015, expand: 0.0005, settle: 0.5, count: 46, size: 0.050, jitter: 0.3, respawn: 10, pulse: 12, base: 0.6 },
     // a tower: narrow and tall, fast core, long cascade
-    tower:     { updraft: 0.70, width: 0.14, height: 0.36, rise: 0.0025, expand: 0.0003, settle: 0.4, count: 56, size: 0.042, jitter: 0.35, respawn: 8 }
+    tower:     { updraft: 0.70, width: 0.14, height: 0.36, rise: 0.0025, expand: 0.0003, settle: 0.4, count: 56, size: 0.042, jitter: 0.35, respawn: 8, pulse: 9, base: 0.65 }
   };
 
   function ThermalSim(opts) {
@@ -64,6 +64,7 @@
     this.cx = 0.5; this.cy = this.aspect * 0.66;   // thermal centre (world: y top-down)
     this.width0 = this.params.width; this.height0 = this.params.height;
     this.parcels = [];
+    this.waiting = 0; this.nextPulse = 0;
     var n = Math.min(MAX - 1, this.params.count);
     for (var i = 0; i < n; i++) this.parcels.push(this._spawn(true));
     this._emit();
@@ -83,7 +84,8 @@
       dying: false,
       spin: (rng() - 0.5) * 0.15                                  // slow azimuth drift
     };
-    if (initial) p.r = Math.min(p.r, Math.sqrt(Math.max(0, 1 - p.z * p.z)) * 0.95);
+    // the budget goes to the visible shell: initial parcels sit near the surface of the ring
+    if (initial) p.r = Math.sqrt(Math.max(0, 1 - p.z * p.z)) * (0.55 + 0.4 * rng());
     return p;
   };
 
@@ -103,7 +105,14 @@
     var want = Math.min(MAX - 1, P.count | 0);
     var alive = 0;
     for (i = 0; i < this.parcels.length; i++) if (!this.parcels[i].dying) alive++;
-    if (alive < want && this.parcels.length < MAX - 1) this.parcels.push(this._spawn(false));
+    // bubbles: with a pulse, parcels due to re-enter are released together as one new thermal
+    var release = P.pulse <= 0;
+    if (P.pulse > 0 && this.time >= this.nextPulse) { release = true; this.nextPulse = this.time + P.pulse; }
+    if (release) {
+      // everyone who was waiting enters now, as a bubble, with a little spread in phase
+      while (this.waiting > 0 && this.parcels.length < MAX - 1) { this.parcels.push(this._spawn(false)); this.waiting--; }
+      if (alive < want && this.parcels.length < MAX - 1) this.parcels.push(this._spawn(false));
+    }
     if (alive > want) { for (i = this.parcels.length - 1; i >= 0; i--) if (!this.parcels[i].dying) { this.parcels[i].dying = true; break; } }
 
     for (i = 0; i < this.parcels.length; i++) {
@@ -114,7 +123,7 @@
       var s2 = rr + zz;
       if (s2 > 1) { var k = (Math.sqrt(s2) - 1) * 1.5 * U; ur -= k * r / Math.sqrt(s2); uz -= k * z / Math.sqrt(s2); }
       // settle: the bottom of the ring is where parcels land and linger (density at the base)
-      var low = clamp((-z - 0.45) / 0.45, 0, 1);
+      var low = clamp((-z - (P.base - 0.25)) / 0.3, 0, 1);
       var drag = 1 - P.settle * low * low;
       ur *= drag; uz *= drag;
       // jitter: slow wander, stronger near the crown where the force disperses
@@ -123,6 +132,9 @@
       uz += (rng() - 0.5) * P.jitter * (0.3 + top) * 0.6;
       p.r = Math.max(0.02, r + ur * dt);
       p.z = z + uz * dt;
+      // condensation level: the base is flat. Air arriving there spreads along it (and evaporates
+      // out of the visible cloud as it lingers, handled by dwell below)
+      if (p.z < -P.base) { p.z = -P.base; }
       p.phi += p.spin * dt;
       // parcels that linger at the base are drawn back inside: fade (burial), then re-enter
       if (low > 0.6 && p.r < 0.5) p.dwell += dt; else p.dwell = Math.max(0, p.dwell - dt * 0.5);
@@ -130,7 +142,7 @@
       if (p.dying) {
         p.link = Math.max(0, p.link - dt / 8);
         if (p.link <= 0) {
-          if (alive >= want) { this.parcels.splice(i, 1); i--; continue; }
+          if (alive >= want || !release) { this.parcels.splice(i, 1); i--; if (!release) this.waiting++; continue; }
           var q = this._spawn(false); q.phi = p.phi; this.parcels[i] = q;
         }
       } else if (p.link < 1) p.link = Math.min(1, p.link + dt / 8);
