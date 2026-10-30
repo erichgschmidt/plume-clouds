@@ -402,7 +402,7 @@ uniform float uCellFlow;
 uniform float uFieldStep;
 uniform float uErosionFlow;   // slow clock on the erosion noise: fringes dissolve instead of staying fixed per seed
 uniform float uBaseY;         // condensation level (world y, top-down): nothing is visible below it (1e9: none)
-uniform highp sampler2D uCaps;   // per frame, CPU: columns 0..19 = cap (cen.xyz, rad after ownership; 0 = none), column 20 = (axis.x, axis.y, angle, 0)
+uniform highp sampler2D uCaps;   // per frame, CPU: columns 0..19 = cap (cen.xyz, rad after ownership; 0 = none), column 20 = (axis.x, axis.y, angle, axis.z), column 21 = (freshness, 0, 0, 0)
 uniform float uAspect;
 uniform float uTime;
 uniform float uBillow;
@@ -622,6 +622,7 @@ void main(){
     if(rho > primarySupport) continue;
     int pi = ax.z < 0.0 ? -1 : int(ax.z + 0.5);
     vec4 parcelCap = texelFetch(uCaps, ivec2(20, i), 0);
+    float parcelFresh = texelFetch(uCaps, ivec2(21, i), 0).x;
     vec3 axis = vec3(parcelCap.xy, parcelCap.w);
     float angle = parcelCap.z;
     vec3 primary = primaryWarp(q, r, axis, angle, b.w, primaryParams);
@@ -694,7 +695,7 @@ void main(){
       float eps = clamp(0.5 * uFieldStep * pixelStretch / r, 0.002, 0.02);
       if(rho < 0.95 + eps){
         float relief = reliefShape(q, axis, angle, b.w);
-        float k = 0.14 * uRelief;
+        float k = 0.14 * uRelief * mix(0.2, 1.0, parcelFresh);
         cap += relief * r * k;
         visibleH += relief * r * k;
         vec2 gx = vec2(eps, 0.0), gy = vec2(0.0, eps);
@@ -1148,7 +1149,7 @@ void main(){
 
   CloudRenderer.MAX_BLOBS = MAX_BLOBS;
 
-  var CAP_COLS = 21;   // 20 caps + one column of per-parcel data (axis, roll angle)
+  var CAP_COLS = 22;   // 20 caps + per-parcel (axis.xy, angle, axis.z) + (freshness, 0, 0, 0)
   function hash(x) { var v = Math.sin(x * 12.9898) * 43758.5453; return v - Math.floor(v); }
   function smoothstep(e0, e1, x) { var t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); }
 
@@ -1207,7 +1208,7 @@ void main(){
             jit = hash(seed + 7.3 + j * 53.1) - 0.5;
             zz = (1 - 2 * (j + 0.5 + jit * 0.4) / nBig) * 0.85;
             az = j * 2.399963 + seed * 1.9 + jit * 1.2;
-            rad = p.lobeSize * (0.85 + 0.3 * hash(seed + 5.1 + j * 23.0)) * (0.55 + 0.45 * fresh);
+            rad = p.lobeSize * (0.85 + 0.3 * hash(seed + 5.1 + j * 23.0)) * (0.55 + 0.45 * fresh) * smoothstep(0, 0.2, fresh);
             growthInset = 0.35 * Math.max(rad - 0.5, 0);
           } else {
             jit = hash(seed + js * 31.7) - 0.5;
@@ -1254,6 +1255,7 @@ void main(){
       }
       var pc = row + 20 * 4;
       T[pc] = axX; T[pc + 1] = axY; T[pc + 2] = angle; T[pc + 3] = axZ;
+      T[pc + 4] = fresh; T[pc + 5] = 0; T[pc + 6] = 0; T[pc + 7] = 0;
     }
     var gl = this.gl;
     gl.activeTexture(gl.TEXTURE8);

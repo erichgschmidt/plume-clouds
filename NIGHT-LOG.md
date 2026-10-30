@@ -64,3 +64,17 @@ seams instead of broad masses, reservoir reads as a separate granular band. Appl
 - scale: parcels 0.066 (was 0.085) so the cloud stays in frame; crown 15 % below the top.
 Result at 123 s: a cumulus tower on a dense base with a dominant crown. Early frames still
 show the crown dome floating above the reservoir until the flank fills in.
+
+## 6. Codex visual review #3 (frames 06-review3b-*) and the fifth pass
+
+Verdict: crown floats over a gravel bed at 33 s; parcels still read as primitives; reservoir
+not a shared volume. Applied (`07-pass5-*`):
+- forming puff seeded on the base and up the flank (no floating dome at the start);
+- a feeding neck: three large slow parcels on the axis from the base into the body;
+- turret head 1.45x and 1.25x faster than its cohort;
+- freshness now reaches the field pass (cap table column 21): an old slab loses its relief
+  bumps and its big lobes, not only its small caps; reservoir freshness 0.05;
+- fewer, larger reservoir parcels overlapping into a slab, lifted into the crown's underside;
+- Base shade 0.55; nook AO 0.3; softness 1.4 (2.2 over-merged the crown into a mushroom).
+Result: 93 s and 123 s read as a tall cumulus: lit crown domes over a shaded lower body on a
+flat base, no gravel. Early frames still show a seam where the crown's underside meets the body.

@@ -38,9 +38,9 @@
     <div id="light"></div>
   </div>
 </div>
-<script src="src/sim.js?v=68"></script>
-<script src="src/render.js?v=68"></script>
-<script src="src/motion.js?v=68"></script>
+<script src="src/sim.js?v=72"></script>
+<script src="src/render.js?v=72"></script>
+<script src="src/motion.js?v=72"></script>
 <script>
 (function () {
   'use strict';
@@ -52,10 +52,10 @@
   renderer.resize(240);
   var sim = new ThermalSim({ seed: 1, preset: 'congestus', aspect: canvas.height / canvas.width });
 
-  var look = { billow: 2, softness: .79, blend: 1, erosion: .35, erosionFlow: .01, relief: 2, depth: .55, roll: 1, rollSync: 0,
-    sun: 60, elevation: 40, shadow: .64, highlight: .68, fill: .2, bands: 5, flatten: .75, shadowDetail: .2, formAO: 1.1, formRadius: 3, baseShade: .42,
+  var look = { billow: 2, softness: 1.4, blend: 1, erosion: .35, erosionFlow: .01, relief: 2, depth: .55, roll: 1, rollSync: 0,
+    sun: 60, elevation: 40, shadow: .64, highlight: .68, fill: .2, bands: 5, flatten: .8, shadowDetail: .15, formAO: 1.1, formRadius: 3, baseShade: .55,
     ink: .5, sky: true, pixelated: true, toon: false, patchN: true, carveEnabled: true, noiseType: 'Voronoi', invertNoise: true,
-    ao: 0.5, aoRadius: 1.2, aoFalloff: 1.5, primaryNoiseType: 'Voronoi', primaryInvertNoise: true, primaryScale: 1.8, inflation: 0.1,
+    ao: 0.3, aoRadius: 1.2, aoFalloff: 1.5, primaryNoiseType: 'Voronoi', primaryInvertNoise: true, primaryScale: 1.8, inflation: 0.1,
     embed: 0.12, lobes: 4, lobeSize: 0.62, detailBand: 0.35, baseFlatten: 0.8, primaryCarve: 1.2, carve: 0.25, cellScale: 1.2, cellFlow: 0.5 };
 
   var FORCES = [
@@ -65,7 +65,7 @@
   ];
   var SURFACE = [['roll', 'Roll', 0, 2, 0.01], ['cellFlow', 'Flow', 0, 3, 0.01], ['billow', 'Billow', 0, 10, 0.01], ['lobes', 'Big lobes', 0, 5, 1],
     ['lobeSize', 'Lobe size', 0.3, 0.8, 0.01], ['detailBand', 'Detail band', 0, 1, 0.01], ['baseFlatten', 'Base flatten', 0, 1, 0.01], ['depth', 'Depth', 0, 2, 0.01]];
-  var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['shadow', 'Shadow', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['formAO', 'Form AO', 0, 2, 0.01], ['shadowDetail', 'Shadow detail', 0, 1, 0.01], ['flatten', 'Normal smooth', 0, 1, 0.01]];
+  var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['shadow', 'Shadow', 0, 1, 0.01], ['softness', 'Softness', 0.3, 4, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['formAO', 'Form AO', 0, 2, 0.01], ['shadowDetail', 'Shadow detail', 0, 1, 0.01], ['flatten', 'Normal smooth', 0, 1, 0.01]];
   var sliders = {};
   function slider(parent, target, spec) {
     var row = document.createElement('div'); row.className = 'row';

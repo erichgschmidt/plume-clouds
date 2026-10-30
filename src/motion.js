@@ -84,13 +84,19 @@
     this.nextPulse = this.params.pulse > 0 ? this.params.pulse * (0.5 + 0.5 * this.rng()) : 0;
     this.surge = null;            // travelling updraft boost { zb }
     // formation: start as a small puff (a quarter of the population) and build up over formTime
-    var n = Math.min(MAX - 1, Math.max(3, Math.round((this.params.count | 0) * (this.params.formTime > 0 ? 0.25 : 1))));
+    var n = Math.min(MAX - 1, Math.max(3, Math.round((this.params.count | 0) * (this.params.formTime > 0 ? 0.4 : 1))));
     for (var i = 0; i < n; i++) this.parcels.push(this._spawn(true, null));
     var nb = Math.round((this.params.count | 0) * (this.params.reservoir || 0) * 0.6);
+    // feeding neck: a connected core from the base up into the body, so the crown never floats
+    for (i = 0; i < 3; i++) {
+      var rg = this.rng;
+      this.base.push({ x: (rg() - 0.5) * 0.3, lift: 0.55 + i * 0.22, phi: rg() * 6.283, size: 1.55 - i * 0.1,
+        seed: rg() * 100, nx: gauss(rg), roll: rg() * 6.283, neck: true });
+    }
     for (i = 0; i < nb; i++) {
       var rng = this.rng, u = (i + 0.5) / nb;
-      this.base.push({ x: (u * 2 - 1) * 0.9 + (rng() - 0.5) * 0.12, lift: 0.15 + rng() * 0.4, phi: rng() * 6.283,
-        size: 1.4 + rng() * 0.4, seed: rng() * 100, nx: gauss(rng), roll: rng() * 6.283 });
+      this.base.push({ x: (u * 2 - 1) * 0.9 + (rng() - 0.5) * 0.12, lift: 0.15 + rng() * 0.5, phi: rng() * 6.283,
+        size: 1.6 + rng() * 0.4, seed: rng() * 100, nx: gauss(rng), roll: rng() * 6.283 });
     }
     this._emit();
   };
@@ -100,15 +106,15 @@
     var forming = this.params.formTime > 0 && this.time < 1;
     // a forming cloud starts as a compact puff low on the axis; a full one fills the ring's shell
     var baseZ = -(this.params.base || 0.6) * (this.height0 / (this.height || this.height0)) + (this.cy - (this.cy0 || this.cy)) / (this.height || this.height0);
-    var z = initial ? (forming ? rng() * 0.7 - 0.5 : rng() * 1.35 - 0.5) : baseZ + 0.03 + rng() * 0.15;
+    var z = initial ? (forming ? rng() * 0.75 - 0.55 : rng() * 1.35 - 0.5) : baseZ + 0.03 + rng() * 0.15;
     var isLead = !!(cohort && cohort.lead);
     if (cohort) cohort.lead = false;   // only the first parcel of a bubble is its head
     var p = {
       // the budget goes to the visible shell: initial parcels sit near the ring's surface
-      r: initial ? Math.sqrt(Math.max(0, 1 - z * z)) * (forming ? 0.2 + 0.4 * rng() : 0.55 + 0.4 * rng()) : 0.05 + rng() * 0.12,
+      r: initial ? Math.sqrt(Math.max(0, 1 - z * z)) * (forming ? 0.3 + 0.6 * rng() : 0.55 + 0.4 * rng()) : 0.05 + rng() * 0.12,
       z: z,
       phi: cohort ? cohort.phi + (rng() - 0.5) * 0.5 : rng() * Math.PI * 2,
-      size: (cohort ? cohort.size * (isLead ? 1.3 : 1) : 1) * (0.8 + rng() * 0.4),
+      size: (cohort ? cohort.size * (isLead ? 1.45 : 1) : 1) * (0.8 + rng() * 0.4),
       lead: isLead,
       cohort: cohort || null,
       seed: rng() * 100,
@@ -139,7 +145,7 @@
     var baseZ = (this.cy - this.baseY) / H;   // condensation level in the unit frame (negative: below centre)
 
     // ---- population: cohorts (bubbles) or a steady trickle ----
-    var formed = P.formTime > 0 ? Math.min(1, 0.25 + 0.75 * this.time / P.formTime) : 1;
+    var formed = P.formTime > 0 ? Math.min(1, 0.4 + 0.6 * this.time / P.formTime) : 1;
     var want = Math.min(MAX - 1, Math.round((P.count | 0) * formed));
     var alive = 0;
     for (i = 0; i < this.parcels.length; i++) if (!this.parcels[i].dying) alive++;
@@ -182,7 +188,7 @@
     for (i = 0; i < this.base.length; i++) {
       var q = this.base[i];
       q.nx = aN * q.nx + bN * gauss(rng);
-      q.x += 0.02 * U * q.nx * dt - 0.004 * U * q.x * dt;
+      q.x += (q.neck ? 0.01 : 0.02) * U * q.nx * dt - 0.004 * U * q.x * dt;
       q.roll += 0.25 * U * P.rollGain * dt;
     }
     for (i = 0; i < this.parcels.length; i++) {
@@ -193,6 +199,7 @@
       if (s2 > 1) { var k = (Math.sqrt(s2) - 1) * 1.5 * U; ur -= k * r / Math.sqrt(s2); uz -= k * z / Math.sqrt(s2); }
       // fresh bubble: a localized boost travelling up the axis
       if (this.surge) uz += 0.35 * U * Math.exp(-rr / 0.12 - (z - this.surge.zb) * (z - this.surge.zb) / 0.08);
+      if (p.lead) uz *= 1.25;   // the turret head rises ahead of its cohort
       // settle: weak drag near the base so the lowest ring lingers a little
       var low = clamp((baseZ + 0.25 - z) / 0.3, 0, 1);
       var drag = 1 - P.settle * low * low;
@@ -261,7 +268,7 @@
       B[o + 2] = Math.min(0.4, size * q.size); B[o + 3] = q.seed;
       A[o] = 0; A[o + 1] = 0.5 + 0.3 * Math.sin(q.phi); A[o + 2] = 0; A[o + 3] = 1;
       S[o] = 0; S[o + 1] = 0; S[o + 2] = q.x >= 0 ? 1 : -1; S[o + 3] = q.roll;
-      D[n] = 0.12;
+      D[n] = q.neck ? 0.25 : 0.05;
       n++;
     }
     this.topY = this.cy - H;
