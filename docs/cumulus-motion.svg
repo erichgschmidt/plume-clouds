@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title desc">
+  <title id="title">How a cumulus cloud gets its shape</title>
+  <desc id="desc">Four illustrated panels follow a rolling thermal through condensation, successive cloud turrets, and a painted simplification. Orange arrows indicate circulation; cream clouds have blue-grey shadows.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#ce6847" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <marker id="lightArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#b58d42" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <style>
+      text { font-family: 'Segoe UI', Arial, sans-serif; fill: #374750; }
+      .heading { font-size: 21px; font-weight: 650; }
+      .label { font-size: 16px; }
+      .small { font-size: 14px; }
+      .note { font-size: 17px; }
+      .outline { stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .motion { fill: none; stroke: #ce6847; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .leader { fill: none; stroke: #657c89; stroke-width: 1.4; stroke-linecap: round; }
+      .cloud { fill: #fffbee; stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <rect width="1400" height="900" fill="#f6f3ea"/>
+  <text x="40" y="58" font-size="34" font-weight="650">How a cumulus cloud gets its shape</text>
+  <text x="42" y="88" font-size="17" fill="#657c89">Rising air rolls. Moisture makes the upper part visible. Each new pulse builds another dome.</text>
+  <g fill="#dcecf1" stroke="#bdced2" stroke-width="1.5">
+    <rect x="30" y="120" width="325" height="735" rx="18"/>
+    <rect x="368" y="120" width="325" height="735" rx="18"/>
+    <rect x="706" y="120" width="325" height="735" rx="18"/>
+    <rect x="1044" y="120" width="326" height="735" rx="18"/>
+  </g>
+  <!-- 1: A vertical section through the thermal's toroidal circulation. -->
+  <g>
+    <circle cx="60" cy="154" r="15" fill="#fffbee"/><text x="60" y="160" text-anchor="middle" font-size="17" font-weight="700">1</text>
+    <text x="84" y="161" class="heading">Thermal rises</text>
+    <text x="50" y="197" class="small">A rolling bubble of buoyant warm air</text>
+    <path d="M85 467 C58 408 81 305 144 282 C198 259 271 292 295 346 C321 409 288 491 233 516 C177 541 113 519 85 467Z" fill="#f6dbbc" fill-opacity=".48" stroke="#c4a589" stroke-width="1.8" stroke-dasharray="7 7"/>
+    <path d="M190 486 C186 446 191 392 190 321" class="motion"/>
+    <path d="M180 319 C150 289 115 311 101 342" class="motion"/>
+    <path d="M202 319 C238 289 273 315 280 346" class="motion"/>
+    <path d="M96 359 C80 402 91 450 119 472" class="motion"/>
+    <path d="M285 362 C300 407 285 453 260 475" class="motion"/>
+    <path d="M128 485 C151 503 170 489 174 465" class="motion"/>
+    <path d="M251 486 C229 502 210 489 208 465" class="motion"/>
+    <text x="190" y="249" text-anchor="middle" class="label">spreads at the crown</text>
+    <path d="M190 258 L190 281" class="leader"/>
+    <path d="M51 584 Q118 579 187 584 T334 583 L334 619 L51 619Z" fill="#c9c7a8"/>
+    <path d="M51 584 Q118 579 187 584 T334 583" fill="none" stroke="#959b81" stroke-width="2"/>
+    <path d="M153 568 Q144 549 159 534 M190 568 L190 538 M225 568 Q235 549 221 534" class="motion"/>
+    <text x="190" y="609" text-anchor="middle" class="small">sun-warmed ground</text>
+    <text x="52" y="670" class="note"><tspan x="52">force pushes up;</tspan><tspan x="52" dy="27">disperses at the crown;</tspan><tspan x="52" dy="27">edges roil over and</tspan><tspan x="52" dy="27">cascade down</tspan></text>
+    <text x="52" y="818" class="small" fill="#657c89">Ring vortex, shown in cross-section</text>
+  </g>
+  <!-- 2: Condensate is visible only above the lifting condensation level. -->
+  <g>
+    <circle cx="398" cy="154" r="15" fill="#fffbee"/><text x="398" y="160" text-anchor="middle" font-size="17" font-weight="700">2</text>
+    <text x="422" y="161" class="heading">Condensation level</text>
+    <text x="388" y="197" class="small">The visible cloud begins at one height</text>
+    <path d="M414 454 C398 429 403 395 425 383 C414 352 440 329 465 334 C460 305 482 287 506 296 C522 267 560 278 569 306 C600 292 626 318 620 345 C652 347 665 378 648 401 C668 416 662 441 648 454Z" class="cloud"/>
+    <path d="M414 421 Q437 443 465 422 Q491 449 521 426 Q552 449 584 425 Q615 442 652 415 Q665 438 648 454 L414 454Z" fill="#9bafbe"/>
+    <path d="M414 454 L648 454" stroke="#748c99" stroke-width="2"/>
+    <path d="M392 461 L674 461" fill="none" stroke="#657c89" stroke-width="1.7" stroke-dasharray="8 6"/>
+    <path d="M529 499 L529 332 M518 330 C482 306 452 338 449 362 M543 330 C575 310 612 343 615 371 M444 389 Q431 434 451 476 M619 397 Q634 440 611 479" class="motion"/>
+    <path d="M456 496 Q478 527 505 502 M606 499 Q582 528 555 503" class="motion" opacity=".5" stroke-dasharray="4 6"/>
+    <text x="531" y="552" text-anchor="middle" class="label">condensation level</text>
+    <text x="531" y="575" text-anchor="middle" class="label">(flat cloud base)</text>
+    <path d="M638 536 L668 510 L668 465" class="leader"/>
+    <text x="531" y="612" text-anchor="middle" class="small">Below: invisible air keeps circulating</text>
+    <text x="390" y="670" class="note"><tspan x="390">air that rolls down past</tspan><tspan x="390" dy="27">the base evaporates, so</tspan><tspan x="390" dy="27">the underside is flat and</tspan><tspan x="390" dy="27">denser just above it</tspan></text>
+    <text x="390" y="818" class="small">White lobes = condensed droplets</text>
+  </g>
+  <!-- 3: Fresh crown, older ragged flanks, and rolls at multiple scales. -->
+  <g>
+    <circle cx="736" cy="154" r="15" fill="#fffbee"/><text x="736" y="160" text-anchor="middle" font-size="17" font-weight="700">3</text>
+    <text x="760" y="161" class="heading">Succession of bubbles</text>
+    <text x="726" y="197" class="small">Fresh turrets rise through older ones</text>
+    <path d="M745 550 L738 533 L749 520 L737 505 L749 493 L741 476 L758 472 L752 453 L769 447 L761 434 L778 424 L774 407 L791 409 L793 391 Q817 380 838 397 Q865 361 894 391 Q916 365 942 388 L956 399 L951 413 L969 416 L966 433 L983 440 L976 456 L993 464 L987 480 L1001 491 L991 506 L1004 521 L990 550Z" fill="#f5f4ea" stroke="#97abb6" stroke-width="3" stroke-linejoin="round" opacity=".8"/>
+    <path d="M764 500 Q745 461 781 445 Q773 412 807 408 Q826 377 852 402 Q883 382 901 413 Q934 402 946 434 Q981 439 973 474 Q1002 510 979 550 L762 550Z" fill="#fdf9ed"/>
+    <path d="M755 500 Q780 515 802 491 Q836 520 866 492 Q902 519 926 491 Q956 517 986 494 L990 550 L745 550Z" fill="#a5b6c3"/>
+    <path d="M816 434 C800 419 804 398 818 391 C802 378 809 355 824 352 C816 334 828 316 843 318 C839 302 850 290 863 294 C868 276 890 280 897 296 C915 288 930 303 925 318 C944 321 947 339 938 351 C957 360 953 382 941 389 C956 407 943 428 930 434 Q875 452 816 434Z" class="cloud"/>
+    <path d="M815 405 Q838 421 857 406 Q873 426 893 409 Q914 423 945 404 Q945 425 930 434 Q872 453 816 434Z" fill="#b6c5cd"/>
+    <path d="M845 379 Q840 344 867 337 M889 337 Q918 339 918 369 M787 478 Q771 451 798 439 M927 467 Q950 452 963 478 M867 491 Q870 460 895 458" class="motion"/>
+    <text x="870" y="243" text-anchor="middle" class="label" font-weight="650">new bubble, crisp</text>
+    <path d="M875 251 L879 276" class="leader"/>
+    <text x="865" y="605" text-anchor="middle" class="label"><tspan x="865">older, mixing with dry air,</tspan><tspan x="865" dy="23">soft</tspan></text>
+    <path d="M777 584 L752 565 L750 536 M958 585 L988 566 L992 538" class="leader"/>
+    <text x="728" y="690" class="note"><tspan x="728">Each pulse adds a dome.</tspan><tspan x="728" dy="27">The youngest crown is crisp;</tspan><tspan x="728" dy="27">older edges fray as they mix.</tspan></text>
+    <text x="728" y="818" class="small">Small rolls repeat across the turrets</text>
+  </g>
+  <!-- 4: A deliberately simplified painted silhouette, with lit rim detail. -->
+  <g>
+    <circle cx="1074" cy="154" r="15" fill="#fffbee"/><text x="1074" y="160" text-anchor="middle" font-size="17" font-weight="700">4</text>
+    <text x="1098" y="155" class="heading">Painted (Ghibli)</text>
+    <text x="1098" y="181" class="heading">simplification</text>
+    <g stroke="#b58d42" stroke-width="2" stroke-linecap="round">
+      <circle cx="1092" cy="240" r="17" fill="#f7dda0"/>
+      <path d="M1092 213 V207 M1092 267 V273 M1065 240 H1059 M1119 240 H1125 M1073 221 L1068 216 M1111 221 L1116 216 M1073 259 L1068 264 M1111 259 L1116 264"/>
+      <path d="M1116 265 L1150 310" fill="none" marker-end="url(#lightArrow)"/>
+    </g>
+    <text x="1128" y="239" class="small">sunlight</text>
+    <text x="1227" y="284" text-anchor="middle" class="label"><tspan x="1227">detail only on</tspan><tspan x="1227" dy="22">lit crown</tspan></text>
+    <path d="M1220 314 L1207 339" class="leader"/>
+    <path d="M1078 543 C1060 520 1067 489 1086 478 C1073 455 1086 434 1106 433 C1103 413 1118 399 1134 402 C1132 381 1148 369 1165 376 C1162 357 1176 343 1190 347 C1195 330 1214 330 1223 344 C1241 337 1254 353 1250 367 C1278 374 1282 400 1277 419 C1308 418 1328 442 1322 469 C1347 488 1349 518 1332 543Z" fill="#fff9e7" stroke="#7b94a2" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M1077 488 C1098 505 1128 494 1144 474 C1161 457 1161 428 1159 411 C1184 433 1218 429 1236 405 C1245 391 1247 377 1245 365 C1271 376 1284 401 1277 419 C1308 418 1328 442 1322 469 C1347 488 1349 518 1332 543 L1078 543 C1064 525 1066 504 1077 488Z" fill="#a4b7c6"/>
+    <path d="M1073 514 Q1110 533 1144 514 Q1187 537 1230 516 Q1284 538 1340 513 Q1342 532 1332 543 L1078 543Z" fill="#7e98ac"/>
+    <path d="M1078 543 Q1203 546 1332 543" fill="none" stroke="#637f94" stroke-width="3" stroke-linecap="round"/>
+    <path d="M1110 432 Q1121 416 1137 422 M1138 402 Q1150 386 1165 395 M1169 376 Q1180 361 1193 370 M1192 350 Q1202 343 1211 353" fill="none" stroke="#e1cfaa" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="1071" y="349" class="label"><tspan x="1071">big domes</tspan><tspan x="1071" dy="22">stacked</tspan></text>
+    <path d="M1101 378 L1108 397" class="leader"/>
+    <text x="1205" y="589" text-anchor="middle" class="label">flat dark base</text>
+    <path d="M1205 567 L1205 548" class="leader"/>
+    <text x="1205" y="635" text-anchor="middle" class="label">smooth shadow side</text>
+    <path d="M1310 621 L1349 590 L1349 525 L1314 502" class="leader"/>
+    <text x="1066" y="690" class="note"><tspan x="1066">Keep the large forms clear.</tspan><tspan x="1066" dy="27">Group the shadows; reserve</tspan><tspan x="1066" dy="27">small scallops for the light.</tspan></text>
+    <text x="1066" y="818" class="small">A painting study of the same structure</text>
+  </g>
+  <path d="M42 878 L66 878" class="motion"/><text x="77" y="883" font-size="13">air motion</text>
+  <text x="1367" y="883" text-anchor="end" font-size="13" fill="#657c89">Schematic cross-sections • cloud edges evolve continuously</text>
+</svg>
