@@ -35,3 +35,16 @@ seconds (`02-form-t3/33/63/124.png`): small puff → lit crown over a flat base 
 - Whether the billow roll is visibly "top away from the force, curling back under" at the crown.
 - Whether the crown surge on each bubble reads as a fresh turret.
 - Base darkness: the renderer's form AO carries it; may want more.
+
+## 4. Codex visual review #1 (frames 02-form-*) and the third pass
+
+Verdict on the formation frames: "a knotted solid growing into a mushroom": no basal mass, one
+bump scale everywhere, lighting describing balls not a volume, base as bright as the crown.
+Applied (`04-review2-t33/63/123.png`):
+- basal reservoir (Base share 0.35): a dense band of large slow soft parcels just above the base;
+- crown parcels 1.6x the flank; Billow 2; detail band 0.35; base flatten 0.8;
+- Base shade 0.4: ambient and direct fall from crown to base (`uBand`); form AO 1.1 @ 3;
+- tighter cohorts; mixing 10..14 s so flanks soften within a pulse;
+- bug: fresh parcels spawned below the base and died on frame one (hence the thin stalk).
+Result: continuous body from a flat base to a lit crown of domes, shaded base. First pass that
+reads as a cumulus rather than a cluster. Crown now stops 8 % under the frame edge.
