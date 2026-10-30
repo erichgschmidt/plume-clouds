@@ -401,6 +401,7 @@ uniform float uCellScale;
 uniform float uCellFlow;
 uniform float uFieldStep;
 uniform float uErosionFlow;   // slow clock on the erosion noise: fringes dissolve instead of staying fixed per seed
+uniform float uBaseFlatten;   // 0..1: on the world-down half the primary warp may only deflate (no retained lobe stands out of the underside)
 uniform float uBaseY;         // condensation level (world y, top-down): nothing is visible below it (1e9: none)
 uniform highp sampler2D uCaps;   // per frame, CPU: columns 0..19 = cap (cen.xyz, rad after ownership; 0 = none), column 20 = (axis.x, axis.y, angle, axis.z), column 21 = (freshness, 0, 0, 0)
 uniform float uAspect;
@@ -628,6 +629,10 @@ void main(){
     vec3 primary = primaryWarp(q, r, axis, angle, b.w, primaryParams);
     float parcelScale = primary.x;
     vec2 scaleGradient = primary.yz;
+    // underside: a retained lobe may not inflate the parcel past its neutral radius (udders, beads)
+    float underW = uBaseFlatten * smoothstep(-0.1, 0.6, q.y / max(length(q), 1e-4)) * step(1.0, parcelScale);
+    parcelScale = mix(parcelScale, 1.0, underW);
+    scaleGradient *= 1.0 - underW;
     q /= parcelScale;
     rho = length(q);
     if(rho > PRIMARY_MATERIAL_SUPPORT) continue;
@@ -1085,7 +1090,7 @@ void main(){
     this._fieldProg = link(gl, VS, FIELD_FS);
     this._fieldU = uniforms(gl, this._fieldProg, ['uBlobs', 'uAux', 'uCount', 'uTile', 'uAspect', 'uTime', 'uBillow', 'uRoll',
       'uErosion', 'uRelief', 'uReliefCenter', 'uReference', 'uSoftness', 'uBlend', 'uHeightUnit', 'uPacked', 'uDepth',
-      'uVoronoi', 'uPrimaryNoise', 'uErosionNoise', 'uPrimaryScale', 'uPrimaryInvertNoise', 'uInflation', 'uEmbed', 'uCarve', 'uInvertNoise', 'uPrimaryCarve', 'uCellScale', 'uCellFlow', 'uFieldStep', 'uCaps', 'uErosionFlow', 'uBaseY']);
+      'uVoronoi', 'uPrimaryNoise', 'uErosionNoise', 'uPrimaryScale', 'uPrimaryInvertNoise', 'uInflation', 'uEmbed', 'uCarve', 'uInvertNoise', 'uPrimaryCarve', 'uCellScale', 'uCellFlow', 'uFieldStep', 'uCaps', 'uErosionFlow', 'uBaseY', 'uBaseFlatten']);
     this._aoProg = link(gl, VS, AO_FS);
     this._aoU = uniforms(gl, this._aoProg, ['uField', 'uNormal', 'uTexel', 'uAspect', 'uHeightUnit', 'uPacked', 'uRadius', 'uFalloff']);
     this._shadeProg = link(gl, VS, SHADE_FS);
@@ -1193,7 +1198,6 @@ void main(){
       var angle = time * 0.16 * p.roll * (p.rollSync > 0 ? p.rollSync : (0.85 + 0.3 * hash(seed)));
       // a sim may integrate the roll itself (spin.w = angle in radians, e.g. from local flow speed)
       if (spins && spins[o + 3] !== 0) angle = spins[o + 3] * p.roll;
-      var c = Math.cos(angle), sn = Math.sin(angle);
       // Cap hierarchy (GHIBLI brief, C): the first nBig slots are big lobes (0.5..0.65 r on an inset
       // shell), the rest the small skin. Small caps shrink as they roll toward the world-down side
       // (detail only in the lit crown band); every cap on the underside is pushed inward (flattened).
@@ -1203,30 +1207,49 @@ void main(){
         var cj = row + j * 4, rad = 0, cx = 0, cy = 0, cz = 0;
         var big = j < nBig, js = j - nBig;
         if (big || js < skinN) {
-          var jit, zz, az, radiusSeed, radiusAtTwo, growthInset;
+          var jit, zz, az, radiusSeed, radiusAtTwo, growthInset, rate, cycleLen, env;
+          // A cap is not a fixed seat on a rigid skin: it lives one cycle of roll. It is born on the
+          // shell, carried round by the roll (at its own rate) while it swells and subsides, then
+          // reseeded at a new azimuth. Small caps are born on the upper shell and roll over and down;
+          // big lobes live longer and never fully vanish, so the macro form persists while the skin lives.
+          // At zero roll the skin still breathes slowly (one life per ~60 s).
+          var jl = big ? j : js;
+          rate = big ? 0.92 + 0.16 * hash(seed + 3.7 + jl * 41.3) : 0.7 + 0.6 * hash(seed + 4.7 + jl * 41.3);
+          cycleLen = big ? 2.4 + 1.2 * hash(seed + 11.3 + jl * 29.7) : 1.2 + 1.0 * hash(seed + 12.3 + jl * 29.7);
+          var sraw = (angle * rate + time * 0.05) * p.capLife + hash(seed + 5.5 + jl * 7.1) * cycleLen;
+          var cyc = Math.floor(sraw / cycleLen), ph = sraw / cycleLen - cyc;
+          var cs = seed + cyc * 101.3;   // reseeded every life
           if (big) {
-            jit = hash(seed + 7.3 + j * 53.1) - 0.5;
+            jit = hash(cs + 7.3 + j * 53.1) - 0.5;
             zz = (1 - 2 * (j + 0.5 + jit * 0.4) / nBig) * 0.85;
-            az = j * 2.399963 + seed * 1.9 + jit * 1.2;
-            rad = p.lobeSize * (0.85 + 0.3 * hash(seed + 5.1 + j * 23.0)) * (0.55 + 0.45 * fresh) * smoothstep(0, 0.2, fresh);
+            az = hash(cs + 2.9 + j * 17.7) * 6.2832;
+            rad = p.lobeSize * (0.85 + 0.3 * hash(cs + 5.1 + j * 23.0)) * (0.55 + 0.45 * fresh) * smoothstep(0, 0.2, fresh);
+            env = 0.45 + 0.55 * Math.sqrt(Math.sin(Math.PI * ph));
             growthInset = 0.35 * Math.max(rad - 0.5, 0);
           } else {
-            jit = hash(seed + js * 31.7) - 0.5;
+            jit = hash(cs + js * 31.7) - 0.5;
             zz = 1 - 2 * (js + 0.5 + jit * 0.55) / skinN;
-            az = js * 2.399963 + seed * 2.7 + jit * 0.8;
-            radiusSeed = (0.28 + (0.46 - 0.28) * hash(seed + js * 17)) * 0.84;
+            az = hash(cs + 1.3 + js * 13.9) * 6.2832;
+            radiusSeed = (0.28 + (0.46 - 0.28) * hash(cs + js * 17)) * 0.84;
             radiusAtTwo = Math.min(0.5, radiusSeed * Math.SQRT2);
             rad = billow <= 2 ? Math.min(0.5, radiusSeed * sqrtBillow) : radiusAtTwo * growthAtBillow;
+            env = Math.pow(Math.sin(Math.PI * ph), 0.6);
             growthInset = 0.35 * Math.max(rad - radiusAtTwo, 0);
           }
           var sr = Math.sqrt(Math.max(1 - zz * zz, 0));
           var shellRadius = Math.max(0, 0.78 - growthInset) * embedScale * erosionShellScale;
-          // rotAxis(v, axis, angle) with the axis in the screen plane (z = 0): unit shell position
+          // birth position on the unit shell; small caps are born on the upper half (world y down)
           var vx = sr * Math.cos(az), vy = sr * Math.sin(az), vz = zz;
+          if (vy > (big ? 0.35 : 0.0)) { vx = -vx; vy = -vy; }
+          // carried round by the roll since birth: rotate by the roll travelled this life
+          var ca = ph * cycleLen, c = Math.cos(ca), sn = Math.sin(ca);
           var d = axX * vx + axY * vy + axZ * vz;
           var ux = vx * c + (axY * vz - axZ * vy) * sn + axX * d * (1 - c);
           var uy = vy * c + (axZ * vx - axX * vz) * sn + axY * d * (1 - c);
           var uz = vz * c + (axX * vy - axY * vx) * sn + axZ * d * (1 - c);
+          rad *= env;
+          // a cap emerges out of the body and sinks back as it fades (no beads left standing on the shell)
+          shellRadius *= 0.7 + 0.3 * env;
           // world y is top-down: uy > 0 is the underside. Small caps live in the crown band only;
           // underside caps sink into the body (less protrusion) and shrink a little.
           if (!big) rad *= smoothstep(0.35 + 0.65 * p.detailBand, -0.25 * p.detailBand, uy) * fresh;
@@ -1440,9 +1463,10 @@ void main(){
     gl.uniform1f(fu.uFieldStep, 1 / this.stats.fieldW);
     gl.uniform1f(fu.uErosionFlow, Math.max(0, Math.min(0.2, num(look.erosionFlow, 0))));
     gl.uniform1f(fu.uBaseY, (sim && typeof sim.baseY === 'number') ? sim.baseY : 1e9);
+    gl.uniform1f(fu.uBaseFlatten, Math.max(0, Math.min(1, num(look.baseFlatten, 0))));
     var spins = (sim && sim.spin && sim.spin.length >= MAX_BLOBS * 4) ? sim.spin : null;
     var details = (sim && sim.detail && sim.detail.length >= MAX_BLOBS) ? sim.detail : null;
-    this._capTable(blobs, aux, spins, details, count, time, { billow: billow, erosion: erosion, inflation: 1 + inflation, embed: embed, roll: num(look.roll, 0.6), rollSync: num(look.rollSync, 0),
+    this._capTable(blobs, aux, spins, details, count, time, { billow: billow, erosion: erosion, inflation: 1 + inflation, embed: embed, roll: num(look.roll, 0.6), rollSync: num(look.rollSync, 0), capLife: Math.max(0, num(look.capLife, 1)),
       lobes: lobes, lobeSize: lobeSize, detailBand: Math.max(0, Math.min(1, num(look.detailBand, 0.5))), baseFlatten: Math.max(0, Math.min(1, num(look.baseFlatten, 0.6))) });
     gl.uniform1i(fu.uCaps, 8);
     gl.uniform4fv(fu.uBlobs, blobs, 0, MAX_BLOBS * 4);
@@ -1532,7 +1556,10 @@ void main(){
     gl.uniform1f(su.uFormLod, Math.max(0, Math.log2(formRadius * this.stats.fieldW)));
     gl.uniform1f(su.uFormRange, formRadius * 0.6);
     var bandOk = sim && typeof sim.baseY === 'number' && typeof sim.topY === 'number';
-    gl.uniform3f(su.uBand, bandOk ? sim.topY : 0, bandOk ? sim.baseY : 1, bandOk ? Math.max(0, Math.min(1, num(look.baseShade, 0))) : 0);
+    // the base shadow is optical depth (light entering at the crown is scattered out before the base), so it
+    // ignores the sun's azimuth; a low sun lights the flank down to the base and thins it
+    var bandStrength = Math.max(0, Math.min(1, num(look.baseShade, 0))) * (0.3 + 0.7 * smoothstep(-5, 45, elevation));
+    gl.uniform3f(su.uBand, bandOk ? sim.topY : 0, bandOk ? sim.baseY : 1, bandOk ? bandStrength : 0);
     gl.uniform1f(su.uResScale, Math.max(1, this.stats.fieldW / 320));
     gl.uniform1f(su.uJumpW, 0.05 * maxR);
     gl.uniform1f(su.uPixelated, pixelated ? 1 : 0);
