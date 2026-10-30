@@ -41,11 +41,29 @@ stage.update(dt);            // steps every sim and drift
 stage.draw({ x: camX, y: camY });
 ```
 
-Positions are in screen widths at depth 0; `size` is the sprite width in screen widths at depth 0.
+Positions are relative to the camera in screen widths (0, 0 is the screen centre at depth 0);
+`size` is the sprite width in screen widths at depth 0.
+
+Stage clouds keep their population: `add()` forces `breakup: 0` (no budding or dying lobes,
+which popped in and out too fast for a slow sky) and pre-warms each sim (`prewarm`, 30 s) so it
+starts fully grown. The sim's lobe birth/death ramp is now 8..32 s instead of 2.5..10.5 s.
+
+## Stacked groups
+
+`stage.addGroup({ x, y, depth, size, rows: [3, 2, 1], seed, drift })` builds one cumulus from
+rows of `single`-preset puffs, widest at the bottom, each puff its own sprite. Higher rows sit a
+little deeper, so the lower puffs overlap and shade the ones behind them (`shadowBase` gives a
+shadow offset even for tiny depth gaps). This is the reference look: stacked sub-volumes with
+separate silhouettes, not one merged blob.
+
+## Ground
+
+`ground: { y, color, shadow, squash, lean }` draws a flat band below `y` (screen uv, y-down).
+Every cloud's silhouette is dropped onto it, squashed vertically, leaning away from the sun,
+placed nearer the viewer for nearer clouds.
 
 ## Not done yet
 
 - Baked sprite loops for background clouds (zero per-frame cost).
 - Sprite reuse: several instances could share one sim/sprite with different positions.
-- Ground shadows (the ground as the last layer of the same composite).
 - Editor integration: a stage preset / export from the paint canvas.

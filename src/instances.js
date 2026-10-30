@@ -41,10 +41,13 @@ out vec4 fragColor;
 uniform sampler2DArray uSprites;
 uniform int uCount;
 uniform vec4 uRect[${MAXI}];     // x, y, w, h of the instance on screen (uv, y-down), far to near
-uniform vec4 uInfo[${MAXI}];     // layer, depth, haze, unused
+uniform vec4 uInfo[${MAXI}];     // layer, depth, haze, screen centre y
 uniform vec2 uShadowDir;         // screen offset toward the sun per unit of depth difference
 uniform float uShadow;           // shadow darkening strength
 uniform float uShadowSoft;       // mip level of the occluder read (penumbra)
+uniform float uShadowBase;       // offset applied to any nearer occluder, before the depth term
+uniform vec4 uGround;            // ground line y (uv, y-down; >= 1: none), shadow strength, squash, x lean
+uniform vec3 uGroundColor;
 uniform vec3 uSky;
 uniform vec2 uSpriteSize;
 uniform float uPixelSnap;
@@ -56,6 +59,19 @@ vec4 spriteAt(int i, vec2 uv, float lod){
 void main(){
   vec2 suv = vec2(vUv.x, 1.0 - vUv.y);
   vec3 col = uSky;
+  if(suv.y >= uGround.x){
+    // ground band: every cloud's silhouette dropped onto it (squashed, leaning away from the sun)
+    float occ = 0.0;
+    for(int i = 0; i < ${MAXI}; i++){
+      if(i >= uCount) break;
+      vec4 r = uRect[i];
+      float cy = uInfo[i].w;
+      float gc = uGround.x + (1.0 - uGround.x) * (0.85 - 0.55 * clamp(uInfo[i].y * 0.5, 0.0, 1.0));
+      vec2 at = vec2(suv.x + uGround.w * (uGround.x - cy), cy + (suv.y - gc) * uGround.z);
+      occ = max(occ, spriteAt(i, (at - r.xy) / r.zw, 1.5).a);
+    }
+    col = mix(uGroundColor, uGroundColor * vec3(0.55, 0.62, 0.78), uGround.y * occ);
+  }
   for(int i = 0; i < ${MAXI}; i++){
     if(i >= uCount) break;
     vec4 r = uRect[i];
@@ -69,7 +85,7 @@ void main(){
       float dd = uInfo[i].y - uInfo[j].y;
       if(dd <= 0.0) continue;
       vec4 rj = uRect[j];
-      occ = max(occ, spriteAt(j, (suv + uShadowDir * dd - rj.xy) / rj.zw, uShadowSoft * dd).a);
+      occ = max(occ, spriteAt(j, (suv + uShadowDir * (uShadowBase + dd) - rj.xy) / rj.zw, uShadowSoft * dd).a);
     }
     c.rgb = mix(c.rgb, c.rgb * vec3(0.42, 0.60, 0.80), uShadow * occ);
     c.rgb = mix(c.rgb, uSky * c.a, uInfo[i].z);   // haze: far clouds fade toward the sky
@@ -112,6 +128,10 @@ void main(){
     this.shadow = num(opts.shadow, 0.7);
     this.shadowSpread = num(opts.shadowSpread, 0.12);
     this.shadowSoft = num(opts.shadowSoft, 1.5);
+    this.shadowBase = num(opts.shadowBase, 0.03);
+    // ground: { y: 0.78 (screen uv, y-down), color: [r,g,b], shadow: 0.6, squash: 3, lean: 0.4 } or null
+    this.ground = opts.ground || null;
+    this.prewarm = num(opts.prewarm, 30);   // seconds each new sim is stepped so it starts fully grown
     this.haze = num(opts.haze, 0.35);
     this.sun = num(opts.sun, DEFAULT_LOOK.sun);
     this.elevation = num(opts.elevation, DEFAULT_LOOK.elevation);
@@ -130,7 +150,7 @@ void main(){
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     this._sfbo = gl.createFramebuffer();
     this._prog = link(gl, VS, COMPOSITE_FS);
-    var names = ['uSprites', 'uCount', 'uRect', 'uInfo', 'uShadowDir', 'uShadow', 'uShadowSoft', 'uSky', 'uSpriteSize', 'uPixelSnap'];
+    var names = ['uSprites', 'uCount', 'uRect', 'uInfo', 'uShadowDir', 'uShadow', 'uShadowSoft', 'uShadowBase', 'uGround', 'uGroundColor', 'uSky', 'uSpriteSize', 'uPixelSnap'];
     this._u = {};
     for (var i = 0; i < names.length; i++) this._u[names[i]] = gl.getUniformLocation(this._prog, names[i]);
     this._vao = gl.createVertexArray();
@@ -140,7 +160,7 @@ void main(){
 
   /**
    * Add a cloud. opts: seed, preset, settings (sim sliders), look (renderer sliders),
-   * x, y (world position of the sprite centre at depth 0, screen-width units), size (sprite width
+   * x, y (sprite centre relative to the camera, screen widths: 0,0 is the screen centre), size (sprite width
    * in screen widths at depth 0), depth (0 near .. 1 far), drift [dx, dy] per second, speed.
    */
   CloudStage.prototype.add = function (opts) {
@@ -153,10 +173,16 @@ void main(){
     for (var k in DEFAULT_LOOK) look[k] = DEFAULT_LOOK[k];
     if (opts.look) for (k in opts.look) look[k] = opts.look[k];
     look.sky = false;
+    // a game cloud keeps its population: no budding / dying lobes (breakup 0) unless asked for
+    var settings = { breakup: 0 };
+    if (opts.settings) for (k in opts.settings) settings[k] = opts.settings[k];
+    var sim = new window.CloudSim({ seed: num(opts.seed, layer * 977 + 1), preset: opts.preset || 'plumes',
+      aspect: this.spriteH / this.spriteW, settings: settings });
+    var warm = num(opts.prewarm, this.prewarm);
+    for (var t = 0; t < warm; t += 1 / 30) sim.step(1 / 30);
     var inst = {
       layer: layer,
-      sim: new window.CloudSim({ seed: num(opts.seed, layer * 977 + 1), preset: opts.preset || 'plumes',
-        aspect: this.spriteH / this.spriteW, settings: opts.settings }),
+      sim: sim,
       look: look,
       time: 0,
       x: num(opts.x, 0.5), y: num(opts.y, 0.4),
@@ -170,6 +196,43 @@ void main(){
     };
     this.instances.push(inst);
     return inst;
+  };
+
+  /**
+   * A stacked cloud: rows of single rolling puffs, widest at the bottom, each its own sprite so
+   * the puffs keep separate silhouettes and shade one another. opts: x, y (centre of the bottom
+   * row, relative to the camera: 0,0 is the screen centre at depth 0), depth, size (bottom puff sprite width), rows [3, 2, 1] (puffs per row, bottom first),
+   * seed, drift, speed, look, settings, prewarm. Returns the instances (bottom row first).
+   */
+  CloudStage.prototype.addGroup = function (opts) {
+    opts = opts || {};
+    var rows = opts.rows || [3, 2, 1], size = num(opts.size, 0.3), depth = num(opts.depth, 0);
+    var x0 = num(opts.x, 0.5), y0 = num(opts.y, 0.6), seed = num(opts.seed, 1) | 0;
+    var rngState = (seed * 2654435761) >>> 0;
+    function rng() { rngState = (rngState + 0x6D2B79F5) >>> 0; var t = rngState; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }
+    // a puff fills its sprite: the single preset sizes the lobe by coverage
+    var settings = { coverage: 0.95 };
+    if (opts.settings) for (var k in opts.settings) settings[k] = opts.settings[k];
+    var out = [], n = 0;
+    for (var row = 0; row < rows.length; row++) {
+      var count = rows[row], rowSize = size * (1 - 0.14 * row);
+      var step = rowSize * 0.42, left = x0 - step * (count - 1) / 2;
+      for (var k = 0; k < count; k++) {
+        var inst = this.add({
+          seed: seed + 101 * n, preset: 'single',
+          x: left + step * k + (rng() - 0.5) * rowSize * 0.12,
+          y: y0 - row * size * 0.30 + (rng() - 0.5) * rowSize * 0.08,
+          size: rowSize * (0.9 + 0.2 * rng()),
+          depth: depth + row * 0.05 + rng() * 0.02,        // higher rows sit behind the lower ones
+          drift: opts.drift, speed: opts.speed, look: opts.look,
+          settings: settings, prewarm: opts.prewarm, refreshEvery: opts.refreshEvery
+        });
+        if (!inst) return out;
+        inst.group = opts.name || seed;
+        out.push(inst); n++;
+      }
+    }
+    return out;
   };
 
   CloudStage.prototype.remove = function (inst) {
@@ -226,7 +289,7 @@ void main(){
       var cx = 0.5 + (inst.x - camera.x) * s, cy = 0.5 + (inst.y - camera.y) * s;
       this._rects[i * 4] = cx - w / 2; this._rects[i * 4 + 1] = cy - h / 2; this._rects[i * 4 + 2] = w; this._rects[i * 4 + 3] = h;
       this._infos[i * 4] = inst.layer; this._infos[i * 4 + 1] = inst.depth;
-      this._infos[i * 4 + 2] = Math.min(0.9, this.haze * inst.depth); this._infos[i * 4 + 3] = 0;
+      this._infos[i * 4 + 2] = Math.min(0.9, this.haze * inst.depth); this._infos[i * 4 + 3] = cy;
     }
     var az = this.sun * Math.PI / 180;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -244,6 +307,11 @@ void main(){
     gl.uniform2f(u.uShadowDir, Math.cos(az) * this.shadowSpread, -Math.sin(az) * this.shadowSpread);
     gl.uniform1f(u.uShadow, this.shadow);
     gl.uniform1f(u.uShadowSoft, this.shadowSoft);
+    gl.uniform1f(u.uShadowBase, this.shadowBase);
+    var g = this.ground;
+    gl.uniform4f(u.uGround, g ? num(g.y, 0.78) : 2, g ? num(g.shadow, 0.6) : 0, g ? num(g.squash, 3) : 1, g ? num(g.lean, 0.4) * Math.cos(az) : 0);
+    var gc = (g && g.color) || [0.36, 0.52, 0.40];
+    gl.uniform3f(u.uGroundColor, gc[0], gc[1], gc[2]);
     gl.uniform3f(u.uSky, this.sky[0], this.sky[1], this.sky[2]);
     gl.uniform2f(u.uSpriteSize, W, H);
     gl.uniform1f(u.uPixelSnap, this.pixelSnap ? 1 : 0);

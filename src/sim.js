@@ -453,7 +453,8 @@
     var turbulence = clamp(+S.turbulence || 0, 0, 1);
     var rng = this.rng, B = this.branches, i, k, b, p;
     var cycleRate = 4 * breakup * breakup;
-    var transitionSeconds = 2.5 + 8 * (1 - breakup);
+    // a lobe rises out of / sinks into the body over 8..32 s: clouds move slowly, a fast fade pops
+    var transitionSeconds = 8 + 24 * (1 - breakup);
     var ease = 1 - Math.exp(-h / .25);
 
     for (i = 0; i < B.length; i++) {

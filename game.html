@@ -25,38 +25,28 @@
   function fit() { canvas.width = Math.max(320, Math.floor(innerWidth / 2)); canvas.height = Math.max(200, Math.floor(innerHeight / 2)); }
   fit(); addEventListener('resize', fit);
 
-  var stage = new CloudStage(canvas, { spriteWidth: 160, spriteHeight: 112, maxInstances: 8, parallax: 0.9, shadow: 0.7, haze: 0.4 });
-  var presets = ['plumes', 'lavalamp', 'plumes', 'confluence', 'lavalamp', 'plumes'];
-  var layout = [
-    // x, y, size, depth, drift, refreshEvery
-    [0.15, 0.35, 0.95, 1.6, 0.004, 3],
-    [0.95, 0.25, 1.00, 1.4, 0.005, 3],
-    [0.55, 0.50, 0.80, 0.8, 0.009, 2],
-    [-0.20, 0.55, 0.85, 0.6, 0.011, 2],
-    [0.35, 0.80, 0.70, 0.15, 0.020, 1],
-    [1.05, 0.70, 0.75, 0.0, 0.024, 1]
-  ];
-  for (var i = 0; i < layout.length; i++) {
-    var L = layout[i];
-    stage.add({ seed: 100 + i * 37, preset: presets[i], x: L[0], y: L[1], size: L[2], depth: L[3],
-      drift: [L[4], 0], refreshEvery: L[5] });
-  }
+  // Stacked cumulus: each puff is its own rolling sprite; puffs shade one another and the ground.
+  // No budding or dying lobes (breakup 0): the clouds only drift and roll.
+  var stage = new CloudStage(canvas, {
+    spriteWidth: 128, spriteHeight: 128, maxInstances: 16,
+    parallax: 0.6, haze: 0.12, shadow: 0.75, shadowBase: 0.025, shadowSpread: 0.06,
+    ground: { y: 0.80, color: [0.33, 0.50, 0.38], shadow: 0.55, squash: 3.2, lean: 0.35 }
+  });
+  // x, y are relative to the camera: 0, 0 is the screen centre
+  stage.addGroup({ name: 'near', seed: 11, x: 0.02, y: 0.04, size: 0.34, depth: 0.0, rows: [3, 2, 1], drift: [0.006, 0] });
+  stage.addGroup({ name: 'mid',  seed: 23, x: 0.55, y: -0.05, size: 0.24, depth: 0.8, rows: [2, 1], drift: [0.004, 0] });
+  stage.addGroup({ name: 'far',  seed: 37, x: -0.60, y: -0.12, size: 0.20, depth: 1.7, rows: [3, 2, 1], drift: [0.003, 0], refreshEvery: 2 });
 
   window.stage = stage;   // for console experiments
   var camera = { x: 0, y: 0 }, last = performance.now(), fpsT = 0, frames = 0, fps = 0;
   function loop(now) {
     var dt = Math.min(0.1, (now - last) / 1000); last = now;
     stage.update(dt);
-    camera.x += 0.006 * dt;   // slow pan: parallax shows the depth layers
-    // wrap drifting clouds around the far right edge
-    for (var k = 0; k < stage.instances.length; k++) {
-      var c = stage.instances[k], s = 1 / (1 + c.depth * stage.parallax);
-      if ((c.x - camera.x) * s > 0.6 + c.size * s) c.x -= (1.2 + 2 * c.size) / s;
-    }
+    camera.x += 0.004 * dt;   // slow pan: parallax shows the depth layers
     stage.draw(camera);
     frames++; fpsT += dt;
     if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
-    hud.textContent = 'fps ' + fps + '   clouds ' + stage.instances.length + '   sprites/frame ' + stage.stats.rendered +
+    hud.textContent = 'fps ' + fps + '   puffs ' + stage.instances.length + '   sprites/frame ' + stage.stats.rendered +
       '\nsprite ' + stage.spriteW + 'x' + stage.spriteH + '   canvas ' + canvas.width + 'x' + canvas.height;
     requestAnimationFrame(loop);
   }
