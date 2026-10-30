@@ -123,6 +123,8 @@
   function CloudSim(opts) {
     opts = opts || {};
     this.aspect = opts.aspect > 0 ? opts.aspect : 0.75;
+    // optional world offset of every plume root (a sprite can centre its cloud in the frame)
+    this.shift = opts.shift || [0, 0];
     this.blobs = new Float32Array(MAX_BLOBS * 4);
     this.aux = new Float32Array(MAX_BLOBS * 4);
     this.blobCount = 0;
@@ -202,7 +204,7 @@
     var defs = this.def.plumes, out = [];
     for (var i = 0; i < defs.length; i++) {
       var d = defs[i];
-      out.push({ id: i, def: d, x: d.u, y: d.v * this.aspect, trunk: null });
+      out.push({ id: i, def: d, x: d.u + this.shift[0], y: d.v * this.aspect + this.shift[1], trunk: null });
     }
     if (this.plumes) for (i = 0; i < out.length && i < this.plumes.length; i++) out[i].trunk = this.plumes[i].trunk;
     this.plumes = out;

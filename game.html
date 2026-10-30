@@ -33,9 +33,9 @@
     ground: { y: 0.80, color: [0.33, 0.50, 0.38], shadow: 0.55, squash: 3.2, lean: 0.35 }
   });
   // x, y are relative to the camera: 0, 0 is the screen centre
-  stage.addGroup({ name: 'near', seed: 11, x: 0.02, y: 0.04, size: 0.34, depth: 0.0, rows: [3, 2, 1], drift: [0.006, 0] });
-  stage.addGroup({ name: 'mid',  seed: 23, x: 0.55, y: -0.05, size: 0.24, depth: 0.8, rows: [2, 1], drift: [0.004, 0] });
-  stage.addGroup({ name: 'far',  seed: 37, x: -0.60, y: -0.12, size: 0.20, depth: 1.7, rows: [3, 2, 1], drift: [0.003, 0], refreshEvery: 2 });
+  stage.addGroup({ name: 'near', seed: 11, x: 0.02, y: 0.04, size: 0.42, depth: 0.0, rows: [3, 2, 1], drift: [0.006, 0] });
+  stage.addGroup({ name: 'mid',  seed: 23, x: 0.58, y: -0.05, size: 0.30, depth: 0.8, rows: [2, 1], drift: [0.004, 0] });
+  stage.addGroup({ name: 'far',  seed: 37, x: -0.62, y: -0.12, size: 0.25, depth: 1.7, rows: [3, 2, 1], drift: [0.003, 0], refreshEvery: 2 });
 
   window.stage = stage;   // for console experiments
   var camera = { x: 0, y: 0 }, last = performance.now(), fpsT = 0, frames = 0, fps = 0;

@@ -177,7 +177,7 @@ void main(){
     var settings = { breakup: 0 };
     if (opts.settings) for (k in opts.settings) settings[k] = opts.settings[k];
     var sim = new window.CloudSim({ seed: num(opts.seed, layer * 977 + 1), preset: opts.preset || 'plumes',
-      aspect: this.spriteH / this.spriteW, settings: settings });
+      aspect: this.spriteH / this.spriteW, settings: settings, shift: opts.shift });
     var warm = num(opts.prewarm, this.prewarm);
     for (var t = 0; t < warm; t += 1 / 30) sim.step(1 / 30);
     var inst = {
@@ -211,7 +211,7 @@ void main(){
     var rngState = (seed * 2654435761) >>> 0;
     function rng() { rngState = (rngState + 0x6D2B79F5) >>> 0; var t = rngState; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }
     // a puff fills its sprite: the single preset sizes the lobe by coverage
-    var settings = { coverage: 0.95 };
+    var settings = { coverage: 0.85 };
     if (opts.settings) for (var k in opts.settings) settings[k] = opts.settings[k];
     var out = [], n = 0;
     for (var row = 0; row < rows.length; row++) {
@@ -225,7 +225,8 @@ void main(){
           size: rowSize * (0.9 + 0.2 * rng()),
           depth: depth + row * 0.05 + rng() * 0.02,        // higher rows sit behind the lower ones
           drift: opts.drift, speed: opts.speed, look: opts.look,
-          settings: settings, prewarm: opts.prewarm, refreshEvery: opts.refreshEvery
+          settings: settings, prewarm: opts.prewarm, refreshEvery: opts.refreshEvery,
+          shift: [0, -0.11]   // the single preset's lobe sits at v = 0.6: centre it so no edge clips
         });
         if (!inst) return out;
         inst.group = opts.name || seed;
