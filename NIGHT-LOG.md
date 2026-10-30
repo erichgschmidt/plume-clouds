@@ -99,3 +99,26 @@ by parcel identity: median parcel speed 0.06 units/s (one parcel diameter per 5 
 start of the night), Roll gain 12, pulses 25 s, mixing 25 s. Now (`10-slow-*`, frames 5 s apart):
 median parcel speed 0.016 units/s, max 0.055; billow roll median 0.69 rad/s, max 1.3. The
 shapes drift slowly while the bumps turn on them, which is what the sketch asks for.
+
+## 9. Codex review #5 (the slow frames) and the eighth pass
+
+Verdict: at 0.7 rad/s the skin turned ~200 degrees between 5 s frames (crawling relief) while
+the forms barely moved; base still a pile of stones; column with parallel sides; crevice
+shading. Applied (`11-pass8-*`):
+- Roll gain 4.5 and roll favouring the growing crown (x0.3 at the base): billow roll now
+  median 0.16 rad/s, max 0.37;
+- base narrower than the crown (reservoir span 0.72), quieter (relief x0.05 at zero freshness),
+  underside variation small, neck hidden inside the base mass;
+- the winning turret rises off-centre (cohorts spawn at r 0.15..0.35);
+- the shadow mass concentrates in the lower 70 % of the cloud (`uBand` curve), Base shade 0.6;
+- Normal smooth 0.85, Shadow detail 0.1.
+Result: forms persist across 5 s frames with billows turning on them; 123 s reads as a cumulus
+with a wider lit crown over a narrower shaded base.
+
+## Where it stands for the morning
+
+Open `dist/plume-motion.html` (or `motion.html` from the repo) and watch congestus for two
+minutes. What to judge by eye: whether the roll rate (0.16 rad/s median) is the right visible
+amount; whether the bubble surge reads as a fresh turret; the bottom edge (beads vs. a quiet
+underside). Everything above is on master; the editor (`index.html`) and the stage
+(`game.html`) are unchanged in behaviour and still run at 60 fps.

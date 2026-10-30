@@ -695,7 +695,7 @@ void main(){
       float eps = clamp(0.5 * uFieldStep * pixelStretch / r, 0.002, 0.02);
       if(rho < 0.95 + eps){
         float relief = reliefShape(q, axis, angle, b.w);
-        float k = 0.14 * uRelief * mix(0.2, 1.0, parcelFresh);
+        float k = 0.14 * uRelief * mix(0.05, 1.0, parcelFresh);
         cap += relief * r * k;
         visibleH += relief * r * k;
         vec2 gx = vec2(eps, 0.0), gy = vec2(0.0, eps);
@@ -982,7 +982,7 @@ void main(){
   }
   float lambert = dot(n, uLight);
   // one dominant shadow shape: ambient falls from the crown to the base (optical depth stands in)
-  float bandShade = uBand.z * smoothstep(uBand.x, uBand.y, (1.0 - vUv.y) * uAspect);
+  float bandShade = uBand.z * smoothstep(mix(uBand.x, uBand.y, 0.3), uBand.y, (1.0 - vUv.y) * uAspect);
   float bounce = max(0.0, dot(n, normalize(vec3(-uLight.x, -uLight.y, 0.25))));
   float occ = 0.0; vec2 dir = normalize(uLight.xy + vec2(1e-5, 0.0));
   float h0 = f.r * uHeightUnit;

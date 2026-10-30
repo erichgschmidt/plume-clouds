@@ -38,9 +38,9 @@
     <div id="light"></div>
   </div>
 </div>
-<script src="src/sim.js?v=75"></script>
-<script src="src/render.js?v=75"></script>
-<script src="src/motion.js?v=75"></script>
+<script src="src/sim.js?v=76"></script>
+<script src="src/render.js?v=76"></script>
+<script src="src/motion.js?v=76"></script>
 <script>
 (function () {
   'use strict';
@@ -53,7 +53,7 @@
   var sim = new ThermalSim({ seed: 1, preset: 'congestus', aspect: canvas.height / canvas.width });
 
   var look = { billow: 2, softness: 1.4, blend: 1, erosion: .35, erosionFlow: .01, relief: 1.4, depth: .55, roll: 1, rollSync: 0,
-    sun: 60, elevation: 40, shadow: .64, highlight: .68, fill: .2, bands: 5, flatten: .8, shadowDetail: .15, formAO: 1.1, formRadius: 3, baseShade: .55,
+    sun: 60, elevation: 40, shadow: .64, highlight: .68, fill: .2, bands: 5, flatten: .85, shadowDetail: .1, formAO: 1.1, formRadius: 3, baseShade: .6,
     ink: .5, sky: true, pixelated: true, toon: false, patchN: true, carveEnabled: true, noiseType: 'Voronoi', invertNoise: true,
     ao: 0.15, aoRadius: 1.2, aoFalloff: 1.5, primaryNoiseType: 'Voronoi', primaryInvertNoise: true, primaryScale: 1.8, inflation: 0.1,
     embed: 0.12, lobes: 4, lobeSize: 0.62, detailBand: 0.35, baseFlatten: 0.8, primaryCarve: 1.2, carve: 0.25, cellScale: 1.2, cellFlow: 0.5 };

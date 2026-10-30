@@ -41,11 +41,11 @@
 
   var PRESETS = {
     // a flat fair-weather puff: weak updraft, wide, little roil
-    humilis:   { updraft: 0.03, width: 0.26, height: 0.12, rise: 0.000,  expand: 0.0000, settle: 0.15, count: 18, size: 0.08,  jitter: 0.08, mixing: 25, pulse: 0,  base: 0.55, rollGain: 12, formTime: 60, reservoir: 0.35 },
+    humilis:   { updraft: 0.03, width: 0.26, height: 0.12, rise: 0.000,  expand: 0.0000, settle: 0.15, count: 18, size: 0.08,  jitter: 0.08, mixing: 25, pulse: 0,  base: 0.55, rollGain: 4.5, formTime: 60, reservoir: 0.35 },
     // a growing cumulus: strong updraft, tall ring, parcels cascade down the sides
-    congestus: { updraft: 0.04, width: 0.20, height: 0.26, rise: 0.0004, expand: 0.0002, settle: 0.10, count: 32, size: 0.066,  jitter: 0.08, mixing: 25, pulse: 25, base: 0.60, rollGain: 12, formTime: 90, reservoir: 0.35 },
+    congestus: { updraft: 0.04, width: 0.20, height: 0.26, rise: 0.0004, expand: 0.0002, settle: 0.10, count: 32, size: 0.066,  jitter: 0.08, mixing: 25, pulse: 25, base: 0.60, rollGain: 4.5, formTime: 90, reservoir: 0.35 },
     // a tower: narrow and tall, fast core, long cascade
-    tower:     { updraft: 0.055, width: 0.14, height: 0.36, rise: 0.0006, expand: 0.00015, settle: 0.10, count: 40, size: 0.056, jitter: 0.10, mixing: 22, pulse: 20, base: 0.65, rollGain: 12, formTime: 120, reservoir: 0.30 }
+    tower:     { updraft: 0.055, width: 0.14, height: 0.36, rise: 0.0006, expand: 0.00015, settle: 0.10, count: 40, size: 0.056, jitter: 0.10, mixing: 22, pulse: 20, base: 0.65, rollGain: 4.5, formTime: 120, reservoir: 0.30 }
   };
 
   function ThermalSim(opts) {
@@ -91,12 +91,12 @@
     // feeding neck: a connected core from the base up into the body, so the crown never floats
     for (i = 0; i < 3; i++) {
       var rg = this.rng;
-      this.base.push({ x: (rg() - 0.5) * 0.25, lift: 0.5 + i * 0.25, phi: rg() * 6.283, size: 1.9 - i * 0.15,
+      this.base.push({ x: (rg() - 0.5) * 0.25, lift: 0.35 + i * 0.22, phi: rg() * 6.283, size: 1.8 - i * 0.15,
         seed: rg() * 100, nx: gauss(rg), roll: rg() * 6.283, neck: true });
     }
     for (i = 0; i < nb; i++) {
       var rng = this.rng, u = (i + 0.5) / nb;
-      this.base.push({ x: (u * 2 - 1) * 0.9 + (rng() - 0.5) * 0.12, lift: 0.15 + rng() * 0.5, phi: rng() * 6.283,
+      this.base.push({ x: (u * 2 - 1) * 0.72 + (rng() - 0.5) * 0.1, lift: 0.12 + rng() * 0.3, phi: rng() * 6.283,
         size: 1.6 + rng() * 0.4, seed: rng() * 100, nx: gauss(rng), roll: rng() * 6.283 });
     }
     this._emit();
@@ -112,7 +112,7 @@
     if (cohort) cohort.lead = false;   // only the first parcel of a bubble is its head
     var p = {
       // the budget goes to the visible shell: initial parcels sit near the ring's surface
-      r: initial ? Math.sqrt(Math.max(0, 1 - z * z)) * (forming ? 0.3 + 0.6 * rng() : 0.55 + 0.4 * rng()) : 0.05 + rng() * 0.12,
+      r: initial ? Math.sqrt(Math.max(0, 1 - z * z)) * (forming ? 0.3 + 0.6 * rng() : 0.55 + 0.4 * rng()) : (cohort ? 0.15 + rng() * 0.2 : 0.05 + rng() * 0.12),
       z: z,
       phi: cohort ? cohort.phi + (rng() - 0.5) * 0.5 : rng() * Math.PI * 2,
       size: (cohort ? cohort.size * (isLead ? 1.45 : 1) : 1) * (0.8 + rng() * 0.4),
@@ -211,7 +211,8 @@
       ur *= drag; uz *= drag;
       // billows roll with the local vorticity (half the curl of the mapped flow), fastest at the
       // crown and down the flanks; jitter does not count
-      p.roll += 0.5 * U * r * (W / H + 4 * H / W) * drag * P.rollGain * dt;
+      var crownness = clamp((z + 0.3) / 1.1, 0, 1);
+      p.roll += 0.5 * U * r * (W / H + 4 * H / W) * drag * P.rollGain * (0.3 + 0.7 * crownness) * dt;
       // correlated noise (Ornstein-Uhlenbeck): the same motion at any frame rate
       p.nr = aN * p.nr + bN * gauss(rng); p.nz = aN * p.nz + bN * gauss(rng);
       // a turret's parcels share most of their wander
