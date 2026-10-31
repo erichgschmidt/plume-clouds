@@ -27,13 +27,13 @@
 
   // level: layer height as a fraction of the canvas height (0 top .. 1 bottom); width/thick in canvas widths
   var PRESETS = {
-    stratus:       { mode: 'sheet', count: 40, size: 0.075, width: 1.1, thick: 0.05, level: 0.62, cover: 1.6, undulate: 0.012, wave: 3.0, life: 60, breathe: 25, jitter: 0.3, drift: 0.004, wind: 0, fresh: 0.35, parallax: 0.01, sway: 57, ragged: 0.5 },
+    stratus:       { mode: 'sheet', count: 48, size: 0.08, width: 1.1, thick: 0.07, level: 0.62, cover: 1.6, undulate: 0.012, wave: 3.0, life: 60, breathe: 25, jitter: 0.3, drift: 0.004, wind: 0, fresh: 0.35, parallax: 0.01, sway: 57, ragged: 0.5 },
     altostratus:   { mode: 'sheet', count: 48, size: 0.08, width: 1.2, thick: 0.09, level: 0.45, cover: 1.8, undulate: 0.008, wave: 2.0, life: 90, breathe: 40, jitter: 0.25, drift: 0.006, wind: 0, fresh: 0.3, parallax: 0.008, sway: 57, ragged: 0.3, striate: 1.6 },
-    anvil:         { mode: 'sheet', count: 26, size: 0.07, width: 0.7, thick: 0.03, level: 0.3, cover: 1.5, undulate: 0.004, wave: 2.0, life: 80, breathe: 30, jitter: 0.2, drift: 0.01, wind: 0, fresh: 0.5, parallax: 0.015, sway: 57, ragged: 0.6, striate: 1.3, lead: 0.25 },
+    anvil:         { mode: 'sheet', count: 30, size: 0.085, width: 0.75, thick: 0.05, level: 0.3, cover: 1.5, undulate: 0.004, wave: 2.0, life: 80, breathe: 30, jitter: 0.2, drift: 0.01, wind: 0, fresh: 0.5, parallax: 0.015, sway: 57, ragged: 0.6, striate: 1.4, lead: 0.4 },
     lenticular:    { mode: 'sheet', count: 30, size: 0.06, width: 0.5, thick: 0.02, level: 0.45, cover: 1.4, undulate: 0.0, wave: 1.0, life: 40, breathe: 30, jitter: 0.1, drift: 0.02, wind: 0, fresh: 0.9, parallax: 0.01, sway: 57, ragged: 0.0, fixed: 1 },
-    stratocumulus: { mode: 'cells', count: 60, size: 0.055, width: 1.2, thick: 0.08, level: 0.6, cell: 0.11, rows: 3, gap: 0.2, streets: 0.3, jitter: 0.25, breathe: 18, life: 70, drift: 0.006, wind: 0, fresh: 0.75, parallax: 0.012, sway: 57 },
-    altocumulus:   { mode: 'cells', count: 90, size: 0.028, width: 1.2, thick: 0.1, level: 0.42, cell: 0.07, rows: 4, gap: 0.35, streets: 0.5, jitter: 0.3, breathe: 12, life: 45, drift: 0.008, wind: 0, fresh: 0.85, parallax: 0.008, sway: 57 },
-    cirrocumulus:  { mode: 'cells', count: 110, size: 0.014, width: 1.1, thick: 0.08, level: 0.25, cell: 0.04, rows: 5, gap: 0.3, streets: 0.2, jitter: 0.35, breathe: 6, life: 25, drift: 0.012, wind: 0, fresh: 0.95, parallax: 0.004, sway: 57 },
+    stratocumulus: { mode: 'cells', count: 80, size: 0.07, width: 1.25, thick: 0.13, level: 0.6, cell: 0.1, rows: 4, gap: 0.15, streets: 0.3, jitter: 0.25, breathe: 18, life: 70, drift: 0.006, wind: 0, fresh: 0.75, parallax: 0.012, sway: 57 },
+    altocumulus:   { mode: 'cells', count: 110, size: 0.032, width: 1.25, thick: 0.17, level: 0.42, cell: 0.06, rows: 5, gap: 0.25, streets: 0.4, jitter: 0.3, breathe: 12, life: 45, drift: 0.008, wind: 0, fresh: 0.85, parallax: 0.008, sway: 57 },
+    cirrocumulus:  { mode: 'cells', count: 125, size: 0.015, width: 1.15, thick: 0.11, level: 0.25, cell: 0.038, rows: 6, gap: 0.3, streets: 0.2, jitter: 0.35, breathe: 6, life: 25, drift: 0.012, wind: 0, fresh: 0.95, parallax: 0.004, sway: 57 },
     cirrus:        { mode: 'streak', count: 0, heads: 6, trail: 14, size: 0.02, width: 1.2, thick: 0.1, level: 0.25, curve: 0.9, fall: 0.16, lag: 0.22, life: 50, drift: 0.015, wind: 8, fresh: 0.9, parallax: 0.004, sway: 57, source: 'field', spread: 0, lobes: 0 },
     contrail:      { mode: 'streak', count: 0, heads: 60, trail: 1, size: 0.012, width: 1.3, thick: 0.02, level: 0.22, curve: 0.0, fall: 0.0, lag: 0.0, life: 90, drift: 0.004, wind: -6, fresh: 0.95, parallax: 0.004, sway: 57, source: 'line', plane: 0.028, spread: 2.0, lobes: 0.6, beads: 0.7 }
   };

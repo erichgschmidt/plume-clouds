@@ -29,7 +29,7 @@
     <h3>Sky</h3>
     <div class="row"><button class="btn" id="btnNew">Regenerate</button><button class="btn" id="btnPlay">Pause</button><label style="width:auto">Seed</label><input id="seed" type="number" value="1" style="width:56px"></div>
     <div id="skyp"></div>
-    <p class="hint">Every cloud is its own thermal sim drawn into one field. Depth sets its scale, parallax, drift, detail and haze; the species (cumulus, humilis, stratocumulus, tower, altocumulus, and any preset saved in the Puffs sandbox) sets its form.</p>
+    <p class="hint">Every cloud is its own sim drawn into one field. Depth sets its scale, parallax, drift, detail and haze; the cloud type (src/presets.js, plus any preset saved in the puff editor) sets its engine and form.</p>
     <h3>Style</h3>
     <div id="style"></div>
     <h3>Light</h3>
@@ -38,9 +38,11 @@
     <div id="cirrus"></div>
   </div>
 </div>
-<script src="src/sim.js?v=101"></script>
-<script src="src/puffs.js?v=101"></script>
-<script src="src/motion.js?v=101"></script>
+<script src="src/sim.js?v=105"></script>
+<script src="src/puffs.js?v=105"></script>
+<script src="src/motion.js?v=105"></script>
+<script src="src/layer.js?v=105"></script>
+<script src="src/presets.js?v=105"></script>
 <script>
 (function () {
   'use strict';
@@ -58,46 +60,55 @@
   // the sky's own parameters
   var P = { clouds: 9, drift: 0.01, parallax: 0.03, sway: 57, near: 0.6 };
 
-  // species: the form of a cloud (sim preset + overrides, layout, primitive, tree); scale is the
-  // size at the nearest depth; weight(far) says how likely it is at a given depth (0 far .. 1 near)
-  var SPECIES = {
-    cumulus:       { preset: 'congestus', shape: 'ring', prim: 'sphere', scale: 1.0, children: 4, ratio: 0.62, embed: 0.9, life: 1, weight: function (f) { return 0.4 + 0.6 * f; } },
-    humilis:       { preset: 'humilis', shape: 'ring', prim: 'sphere', scale: 0.8, children: 4, ratio: 0.6, embed: 0.85, life: 1, weight: function (f) { return 0.8; } },
-    stratocumulus: { preset: 'humilis', shape: 'flat', prim: 'disc', primAmt: 0.6, scale: 1.2, children: 3, ratio: 0.66, embed: 0.8, life: 0.6, forces: { width: 0.34, height: 0.1, count: 50 }, weight: function (f) { return 1.0 - 0.6 * f; } },
-    tower:         { preset: 'tower', shape: 'tower', prim: 'sphere', scale: 1.1, children: 4, ratio: 0.6, embed: 0.9, life: 1, weight: function (f) { return 0.2 + 0.5 * f; } },
-    altocumulus:   { preset: 'humilis', shape: 'flat', prim: 'disc', primAmt: 0.8, scale: 0.45, children: 3, ratio: 0.6, embed: 0.8, life: 0.4, forces: { width: 0.3, height: 0.08, count: 40, size: 0.05 }, weight: function (f) { return 1.2 - 1.1 * f; } }
-  };
-  // presets saved in the Puffs sandbox join the palette (their forces, layout and primitive)
+  // species: the cloud types from src/presets.js (engine, sim preset, layout, primitive, form,
+  // preferred depth range), plus any preset saved in the puff editor
+  var SPECIES = {};
+  Object.keys(CLOUD_PRESETS).forEach(function (nm) { var T = CLOUD_PRESETS[nm]; if (T.engine !== 'veil') SPECIES[nm] = T; });
   try {
     var saved = JSON.parse(localStorage.getItem('plume-puffs-looks') || '{}');
     Object.keys(saved).forEach(function (name) {
-      var L = saved[name], lk = L.look || {};
-      SPECIES[name] = { shearBias: lk.shearBias, preset: 'congestus', shape: L.shape || 'ring', prim: L.prim || 'sphere', primAmt: lk.primAmt, scale: lk.zoom || 1, children: lk.children, ratio: lk.ratio, embed: lk.embed, life: lk.life, levels: lk.levels, shear: lk.shear, wind: lk.wind, lean: lk.lean, depth: lk.depth, forces: L.forces, weight: function () { return 0.6; } };
+      var L = saved[name], base = CLOUD_PRESETS[L.type] || CLOUD_PRESETS.congestus;
+      if (base.engine === 'veil') return;
+      SPECIES[name] = { engine: L.engine || base.engine, preset: L.simPreset || base.preset, shape: L.shape || base.shape, prim: L.prim || base.prim, primAmt: (L.look || {}).primAmt,
+        forces: L.forces || {}, look: L.look || {}, extra: base.extra, depth: base.depth, scale: (L.look || {}).zoom || base.scale || 1 };
     });
   } catch (e) {}
+  var FORM_KEYS = ['children', 'ratio', 'levels', 'life', 'embed', 'depth', 'shear', 'shearBias', 'wind', 'lean'];
 
   function mulberry(seed) { var a = seed >>> 0; return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
   var clouds = [];
   function pick(rng, far) {
     var names = Object.keys(SPECIES), total = 0, w = [];
-    names.forEach(function (nm) { var v = Math.max(0, SPECIES[nm].weight(far)); w.push(v); total += v; });
+    names.forEach(function (nm) { var d = SPECIES[nm].depth || [0, 1], v = (far >= d[0] - 0.1 && far <= d[1] + 0.1) ? 1 : 0.05; w.push(v); total += v; });
     var r = rng() * total;
     for (var i = 0; i < names.length; i++) { r -= w[i]; if (r <= 0) return names[i]; }
     return names[names.length - 1];
   }
+  function makeSim(eng, preset, seed, shape) {
+    var asp = canvas.height / canvas.width;
+    return eng === 'layer' ? new LayerSim({ seed: seed, preset: preset, aspect: asp }) : new ThermalSim({ seed: seed, preset: preset, aspect: asp, shape: shape });
+  }
   function makeCloud(rng, i, n, farIn) {
     var far = farIn !== undefined ? farIn : Math.pow(rng(), 0.8);   // 0 far .. 1 near
-    var name = pick(rng, far), sp = SPECIES[name];
-    var sim = new ThermalSim({ seed: Math.floor(rng() * 1e6), preset: sp.preset, aspect: canvas.height / canvas.width, shape: sp.shape });
+    var name = pick(rng, far), sp = SPECIES[name], seed = Math.floor(rng() * 1e6);
+    var sim = makeSim(sp.engine, sp.preset, seed, sp.shape);
     if (sp.forces) for (var k in sp.forces) sim.params[k] = sp.forces[k];
     sim.params.parallax = P.parallax * (0.15 + 0.85 * far); sim.params.sway = P.sway;
     sim.reseat();
-    var zoom = sp.scale * (0.3 + 0.7 * Math.pow(far, 1.2)) * P.near;
-    var look = { children: sp.children || 4, ratio: sp.ratio || 0.62, levels: sp.levels || (far < 0.35 ? 2 : 3), life: sp.life || 1, embed: sp.embed || 0.9, depth: sp.depth || 1,
-      shear: sp.shear || 0, shearBias: sp.shearBias || 0, wind: sp.wind || 0, lean: sp.lean || 0, prim: sp.prim, primAmt: sp.primAmt === undefined ? 1 : sp.primAmt,
-      zoom: zoom, panX: -0.8 + 1.6 * ((i + rng() * 0.7) / n) + (rng() - 0.5) * 0.1, panY: (-0.22 + 0.3 * far) + (rng() - 0.5) * 0.12, far: far };
-    return { sim: sim, look: look, name: name, speed: P.drift * (0.15 + 0.85 * far) };
+    var zoom = (sp.scale || 1) * (0.3 + 0.7 * Math.pow(far, 1.2)) * P.near;
+    var look = { prim: sp.prim, primAmt: sp.primAmt === undefined ? 1 : sp.primAmt, zoom: zoom,
+      panX: -0.8 + 1.6 * ((i + rng() * 0.7) / n) + (rng() - 0.5) * 0.1, panY: (-0.22 + 0.3 * far) + (rng() - 0.5) * 0.12, far: far };
+    FORM_KEYS.forEach(function (fk) { if (sp.look && sp.look[fk] !== undefined) look[fk] = sp.look[fk]; });
+    if (look.levels === undefined) look.levels = far < 0.35 ? 2 : 3;
+    if (far < 0.35 && look.levels > 2) look.levels = 2;   // far clouds: fewer levels
+    var sims = [{ sim: sim, look: look }];
+    if (sp.extra) {
+      var ex = makeSim(sp.extra.engine, sp.extra.preset, seed + 1, 'ring');
+      ex.params.parallax = sim.params.parallax; ex.params.sway = P.sway;
+      sims.push({ sim: ex, look: Object.assign({}, look, sp.extra.look || {}), dy: sp.extra.dy || 0, atTop: true });
+    }
+    return { sims: sims, name: name, far: far, speed: P.drift * (0.15 + 0.85 * far) };
   }
   function build() {
     var rng = mulberry((+$('seed').value | 0) * 7919 + 17);
@@ -107,7 +118,7 @@
     var fars = []; for (var i = 0; i < n; i++) fars.push(Math.pow((i + 0.1 + rng() * 0.8) / n, 0.9));
     for (i = n - 1; i > 0; i--) { var j = Math.floor(rng() * (i + 1)), tmp = fars[i]; fars[i] = fars[j]; fars[j] = tmp; }
     for (i = 0; i < n; i++) clouds.push(makeCloud(rng, i, n, fars[i]));
-    clouds.sort(function (a, b) { return a.look.far - b.look.far; });
+    clouds.sort(function (a, b) { return a.far - b.far; });
     window.clouds = clouds;
   }
 
@@ -131,7 +142,7 @@
   }
   SKYP.forEach(function (s) { slider($('skyp'), function () { return P; }, s, function (k) {
     if (k === 'clouds' || k === 'near') build();
-    else clouds.forEach(function (c) { c.sim.params.parallax = P.parallax * (0.15 + 0.85 * c.look.far); c.sim.params.sway = P.sway; c.speed = P.drift * (0.15 + 0.85 * c.look.far); });
+    else clouds.forEach(function (c) { c.sims.forEach(function (e) { e.sim.params.parallax = P.parallax * (0.15 + 0.85 * c.far); e.sim.params.sway = P.sway; }); c.speed = P.drift * (0.15 + 0.85 * c.far); });
   }); });
   STYLE.forEach(function (s) { slider($('style'), function () { return sky; }, s); });
   LIGHT.forEach(function (s) { slider($('light'), function () { return sky; }, s); });
@@ -150,14 +161,20 @@
     if (playing) {
       t += dt;
       for (var i = 0; i < clouds.length; i++) {
-        var c = clouds[i];
-        c.sim.aspect = canvas.height / canvas.width;
-        c.sim.step(dt);
-        c.look.panX += c.speed * dt;
-        if (c.look.panX > 0.85) { c.look.panX = -0.85; c.sim.reset(Math.floor(Math.random() * 1e6), c.sim.preset); }
+        var c = clouds[i], main = c.sims[0];
+        for (var j = 0; j < c.sims.length; j++) {
+          var e = c.sims[j];
+          e.sim.aspect = canvas.height / canvas.width;
+          if (e.atTop) { e.sim.params.level = (main.sim.topY + e.dy) / main.sim.aspect; e.sim.params.wind = main.look.wind || 0; }
+          e.sim.step(dt);
+          e.look.panX = main.look.panX; e.look.panY = main.look.panY;
+        }
+        main.look.panX += c.speed * dt;
+        if (main.look.panX > 0.85) { main.look.panX = -0.85; c.sims.forEach(function (e) { e.sim.reset(Math.floor(Math.random() * 1e6), e.sim.preset); }); }
       }
     }
-    renderer.render(clouds, t, sky);
+    var flat = []; clouds.forEach(function (c) { c.sims.forEach(function (e) { flat.push(e); }); });
+    renderer.render(flat, t, sky);
     frames++; fpsT += dt;
     if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
     hud.textContent = 'fps ' + fps + '   clouds ' + clouds.length + '   puffs ' + renderer.count + (renderer.degrade < 1 ? '  (deepest level at ' + Math.round(renderer.degrade * 100) + '%)' : '') + '   t ' + t.toFixed(0) + 's';

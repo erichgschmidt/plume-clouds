@@ -22,7 +22,7 @@
     cumulonimbus: { label: 'Cumulonimbus', engine: 'thermal', preset: 'tower', shape: 'tower', prim: 'sphere', primAmt: 1,
       forces: { height: 0.4, count: 44, pulse: 18, formTime: 150 },
       look: { children: 4, ratio: 0.6, levels: 3, life: 1, embed: 0.9, depth: 1, lean: 0.25, wind: 0, shear: 0.6, baseShade: 0.75 },
-      extra: { engine: 'layer', preset: 'anvil', atTop: true, dy: 0.02, look: { levels: 1, prim: 'disc', primAmt: 0.9, shear: 1.2, lean: 0 } },
+      extra: { engine: 'layer', preset: 'anvil', atTop: true, dy: -0.03, look: { levels: 1, prim: 'disc', primAmt: 0.9, shear: 1.2, lean: 0 } },
       depth: [0.5, 1], scale: 1.3 },
     stratocumulus: { label: 'Stratocumulus', engine: 'layer', preset: 'stratocumulus', shape: 'ring', prim: 'disc', primAmt: 0.5,
       forces: {}, look: { children: 3, ratio: 0.6, levels: 2, life: 0.6, embed: 0.8, depth: 1, stackShade: 0.7 },
