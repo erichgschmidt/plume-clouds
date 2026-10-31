@@ -44,9 +44,9 @@
     <div id="light"></div>
   </div>
 </div>
-<script src="src/sim.js?v=99"></script>
-<script src="src/puffs.js?v=99"></script>
-<script src="src/motion.js?v=99"></script>
+<script src="src/sim.js?v=100"></script>
+<script src="src/puffs.js?v=100"></script>
+<script src="src/motion.js?v=100"></script>
 <script>
 (function () {
   'use strict';
@@ -59,8 +59,8 @@
   var sim = new ThermalSim({ seed: 1, preset: 'congestus', aspect: canvas.height / canvas.width });
 
   var look = { children: 6, ratio: 0.62, levels: 3, life: 1, embed: 0.9, softness: 1.0, depth: 1, roll: 1,
-    noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, flow: 0.04, smooth: 0.5, haze: 0.5, shear: 0, wind: 0, lean: 0, prim: 'sphere', primAmt: 1, panX: 0, panY: 0, dither: 0, anchor: 1, zoom: 1,
-    sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, baseShade: 0.5, stackShade: 0.4, pixelated: true };
+    noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, flow: 0.04, smooth: 0.5, haze: 0.5, shear: 0, shearBias: 0, wind: 0, lean: 0, prim: 'sphere', primAmt: 1, panX: 0, panY: 0, dither: 0, anchor: 1, zoom: 1,
+    sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, depthFall: 0, atmos: 0, baseShade: 0.5, stackShade: 0.4, pixelated: true };
 
   var FORCES = [
     ['updraft', 'Updraft', 0, 0.5, 0.005], ['width', 'Width', 0.05, 0.5, 0.005], ['height', 'Height', 0.05, 0.6, 0.005],
@@ -68,9 +68,9 @@
     ['count', 'Parcels', 4, 63, 1], ['size', 'Size', 0.03, 0.2, 0.001], ['jitter', 'Jitter', 0, 0.5, 0.005], ['mixing', 'Mixing (s)', 1, 30, 0.5], ['pulse', 'Bubble (s)', 0, 40, 0.5], ['base', 'Base level', 0.2, 1, 0.01], ['rollGain', 'Roll gain', 0, 24, 0.1], ['formTime', 'Form (s)', 0, 300, 5], ['reservoir', 'Base share', 0, 0.6, 0.05], ['parallax', 'Parallax', 0, 0.08, 0.002], ['sway', 'Sway (s)', 5, 120, 1]
   ];
   var SURFACE = [['children', 'Children', 0, 6, 1], ['ratio', 'Size ratio', 0.25, 0.7, 0.01], ['levels', 'Levels', 1, 3, 1], ['life', 'Life', 0, 3, 0.01], ['embed', 'Embed', 0.4, 1, 0.01], ['softness', 'Softness', 0.3, 4, 0.01], ['depth', 'Depth', 0, 2, 0.01],
-    ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['shear', 'Shear', 0, 3, 0.05], ['wind', 'Wind (deg)', -90, 90, 1], ['lean', 'Lean', -1, 1, 0.01], ['primAmt', 'Primitive amt', 0, 1, 0.01]];
+    ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['shear', 'Shear', 0, 3, 0.05], ['shearBias', 'Shear bias', -1, 1, 0.01], ['wind', 'Wind (deg)', -90, 90, 1], ['lean', 'Lean', -1, 1, 0.01], ['primAmt', 'Primitive amt', 0, 1, 0.01]];
   var VIEW = [['zoom', 'Scale', 0.5, 2.5, 0.05], ['panX', 'Pan X', -1, 1, 0.01], ['panY', 'Pan Y', -1, 1, 0.01]];
-  var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['shadow', 'Shadow', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
+  var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['shadow', 'Shadow', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['depthFall', 'Depth falloff', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
   var TIPS = {
     updraft: 'Strength of the thermal: how fast parcels rise up the axis and roll over at the top.',
     width: 'Ring width: how far the circulation spreads sideways.',
@@ -105,6 +105,8 @@
     anchor: 'How much the noise rides on each parcel (1) versus staying fixed in screen space (0).',
     smooth: 'Footprint of the normal: higher softens the shading.',
     shear: 'How far dispersing parcels stretch along the wind as they mix away.',
+    shearBias: 'Shear by depth: +1 the near face shears most, -1 the back does.',
+    depthFall: 'Recessed volumes lose shadow, noise and crispness: near billows stay sharp.',
     wind: 'Wind direction in degrees for Shear and Lean. 0 is to the right.',
     lean: 'Tilt of the whole cloud downwind with height above the base.',
     primAmt: 'Blend from a sphere (0) to the chosen primitive (1).',

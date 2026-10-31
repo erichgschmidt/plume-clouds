@@ -32,13 +32,13 @@
   var VS = '#version 300 es\nprecision highp float;\nout vec2 vUv;\nvoid main(){ vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); vUv = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }';
 
   // sphere texture rows: 0 (x, y, r, z0); 1 (stack, detail, fresh, dispersal);
-  // 2 (anchor x, anchor y, stretch, prim id + amt/2); 3 (wind x, wind y, band, depth weight)
+  // 2 (anchor x, anchor y, stretch, prim id + amt/2); 3 (wind x, wind y, band, depth weight: cloud dw + puff dw / 4 packed as floor + fract)
   var FIELD_FS = '#version 300 es\nprecision highp float; precision highp sampler2D;\n' +
   'uniform sampler2D uSph; uniform int uCount; uniform float uAspect; uniform float uT;\n' +
   'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
-  '  float m = -1e9, acc = 0.0, dSum = 0.0, sSum = 0.0, fSum = 0.0, xSum = 0.0, bSum = 0.0, wSum = 0.0; vec2 anc = vec2(0.0);   // online log-sum-exp\n' +
+  '  float m = -1e9, acc = 0.0, dSum = 0.0, sSum = 0.0, fSum = 0.0, xSum = 0.0, bSum = 0.0, wSum = 0.0, cSum = 0.0; vec2 anc = vec2(0.0);   // online log-sum-exp\n' +
   '  float sm = -1e9, sacc = 0.0;                            // silhouette (soft union of r - dist)\n' +
   '  float T = uT;\n' +
   '  for(int i = 0; i < 4096; i++){\n' +
@@ -62,8 +62,8 @@
   '    vec4 a = texelFetch(uSph, ivec2(i, 1), 0);\n' +
   '    float h = (d2 < r * r) ? s.w + sqrt(r * r - d2) : s.w - (dist - r) * 2.0;\n' +
   '    float w;\n' +
-  '    if(h > m){ float k = exp((m - h) / T); acc = acc * k + 1.0; dSum = dSum * k + a.y; sSum = sSum * k + a.x; fSum = fSum * k + a.z; xSum = xSum * k + a.w; anc = anc * k + sh.xy; bSum = bSum * k + wd.z; wSum = wSum * k + wd.w; m = h; }\n' +
-  '    else { w = exp((h - m) / T); acc += w; dSum += w * a.y; sSum += w * a.x; fSum += w * a.z; xSum += w * a.w; anc += w * sh.xy; bSum += w * wd.z; wSum += w * wd.w; }\n' +
+  '    if(h > m){ float k = exp((m - h) / T); acc = acc * k + 1.0; dSum = dSum * k + a.y; sSum = sSum * k + a.x; fSum = fSum * k + a.z; xSum = xSum * k + a.w; anc = anc * k + sh.xy; bSum = bSum * k + wd.z; wSum = wSum * k + fract(wd.w) * 4.0; cSum = cSum * k + floor(wd.w) * 0.1; m = h; }\n' +
+  '    else { w = exp((h - m) / T); acc += w; dSum += w * a.y; sSum += w * a.x; fSum += w * a.z; xSum += w * a.w; anc += w * sh.xy; bSum += w * wd.z; wSum += w * fract(wd.w) * 4.0; cSum += w * floor(wd.w) * 0.1; }\n' +
   '  }\n' +
   '  float H = (acc > 0.0) ? m + T * log(acc) : -1.0;\n' +
   '  float sil = (sacc > 0.0) ? (sm + log(sacc)) * T : -1.0;\n' +
@@ -71,7 +71,7 @@
   '  float ia = acc > 0.0 ? 1.0 / acc : 0.0;\n' +
   '  o = vec4(H, dSum * ia, sSum * ia, mask);\n' +
   '  o2 = vec4(acc > 0.0 ? fSum * ia : 1.0, xSum * ia, anc * ia);\n' +
-  '  o3 = vec4(bSum * ia, acc > 0.0 ? wSum * ia : 1.0, 0.0, 1.0);\n' +
+  '  o3 = vec4(bSum * ia, acc > 0.0 ? wSum * ia : 1.0, acc > 0.0 ? cSum * ia : 1.0, 1.0);\n' +
   '}';
 
   var SHADE_FS = '#version 300 es\nprecision highp float;\n' +
@@ -116,9 +116,9 @@
   '    float ca = cos(uCirrusAngle), sa = sin(uCirrusAngle);\n' +
   '    vec2 q = vec2(w.x * ca - w.y * sa, w.x * sa + w.y * ca) * uCirrusScale;\n' +
   '    float t = uTime * uCirrusFlow;\n' +
-  '    float n = fbm(vec2(q.x * 0.35 + t, q.y * 4.0 + t * 0.1)) * 0.5 + 0.2 * snoise(vec2(q.x * 1.2 - t * 0.7, q.y * 9.0));\n' +
-  '    float thin = smoothstep(0.55 - 0.5 * uCirrus, 0.95 - 0.3 * uCirrus, n + bayer(floor(vUv / uTexel) + 3.0) * 0.06);\n' +
-  '    col = mix(col, palette(0.72), thin * 0.85);\n' +
+  '    float n = fbm(vec2(q.x * 0.18 + t, q.y * 2.6 + t * 0.1)) * 0.5 + 0.15 * snoise(vec2(q.x * 0.7 - t * 0.7, q.y * 7.0));\n' +
+  '    float thin = smoothstep(0.55 - 0.5 * uCirrus, 1.05 - 0.3 * uCirrus, n + bayer(floor(vUv / uTexel) + 3.0) * 0.08);\n' +
+  '    col = mix(col, palette(0.72), thin * 0.7);\n' +
   '  }\n' +
   '  return col;\n' +
   '}\n' +
@@ -140,7 +140,7 @@
   '  vec2 uv = (uPixelated > 0.5) ? (floor(vUv / uTexel) + 0.5) * uTexel : vUv;\n' +
   '  vec4 f = texture(uField, uv);\n' +
   '  vec4 ax = texture(uAux, uv);\n' +
-  '  vec4 bx = texture(uAux2, uv);   // band, depth weight\n' +
+  '  vec4 bx = texture(uAux2, uv);   // band, puff depth weight, cloud depth weight\n' +
   '  float dis = uDither * ax.g;   // dispersing puffs dissolve into the pixel grid\n' +
   '  float th = dis > 0.001 ? mix(0.5, (bayer(floor(vUv / uTexel) + 7.0) + 0.5) * 0.9 + 0.05, dis) : 0.5;\n' +
   '  if(f.a < th){ fragColor = vec4(sky(uv), 1.0); return; }\n' +
@@ -168,7 +168,7 @@
   '  light = mix(light, 0.45, 0.5 * haze);\n' +
   '  light += bayer(floor(vUv / uTexel)) * 0.012;\n' +
   '  vec3 cloud = palette(light);\n' +
-  '  cloud = mix(cloud, uSkyColor, uAtmos * (1.0 - dw));   // atmospheric perspective between clouds\n' +
+  '  cloud = mix(cloud, uSkyColor, uAtmos * (1.0 - clamp(bx.b, 0.0, 1.0)));   // atmospheric perspective between clouds\n' +
   '  float edge = dis > 0.001 ? 1.0 : smoothstep(0.5, 0.5 + 0.45 * haze, f.a);   // a hazy parcel loses its hard edge\n' +
   '  fragColor = vec4(mix(sky(uv), cloud, edge), 1.0);\n' +
   '}';
@@ -234,7 +234,7 @@
     return {
       sim: sim, zoom: zoom, pivX: num(sim.cx, 0.5), pivY: baseY, panX: num(look.panX, 0), panY: num(look.panY, 0),
       ref: (sim.refRadius || 0.08) * zoom,
-      shear: Math.max(0, num(look.shear, 0)), wx: Math.cos(wa), wy: -Math.sin(wa), lean: num(look.lean, 0),
+      shear: Math.max(0, num(look.shear, 0)), shearBias: clamp(num(look.shearBias, 0), -1, 1), wx: Math.cos(wa), wy: -Math.sin(wa), lean: num(look.lean, 0),
       prim: prim, pa: clamp(num(look.primAmt, 1), 0, 1), primPacked: prim + clamp(num(look.primAmt, 1), 0, 1) * 0.5,
       children: Math.max(0, Math.round(num(look.children, 4))), ratio: clamp(num(look.ratio, 0.42), 0.1, 0.8),
       levels: clamp(Math.round(num(look.levels, 3)), 1, 3), life: Math.max(0, num(look.life, 1)), embed: clamp(num(look.embed, 0.78), 0.3, 1),
@@ -280,13 +280,17 @@
         var isBase = i >= baseStart, fresh = Dt ? clamp(Dt[i], 0, 1) : 1, mixed = isBase ? 1 : fresh;
         var z0 = ((A[o + 1] - 0.5) * 2 * F.ref - (1 - link) * r * 2.5) * F.depthScale + F.zOff;
         var dis = 1 - mixed * link;
-        var stretch = 1 + F.shear * dis;
+        // the puff's own depth weight: 1 on the near face of the cloud, 0 at the back; the cloud's
+        // depth weight scales the whole thing. Packed as floor(cloud dw * 10) + puff dw / 4.
+        var pdw = clamp(0.5 + 0.5 * (z0 - F.zOff) / (F.ref * 2), 0, 1) * F.dw;
+        var dwp = Math.round(F.dw * 10) + pdw * 0.25;
+        var stretch = 1 + F.shear * dis * (1 + F.shearBias * (2 * pdw - 1));
         var rx = F.pivX + (B[o] - F.pivX) * F.zoom, ry = F.pivY + (B[o + 1] - F.pivY) * F.zoom;
         var hgt = Math.max(0, F.pivY - ry) * F.lean; rx += F.wx * hgt + F.panX; ry += F.wy * hgt + F.panY;
         r *= F.zoom;
         var band = smoothstep(0, 0.7, 1 - (F.baseT - ry) / F.spanT);
-        if (!put(rx, ry, r, z0, 0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, F.dw)) break;
-        queue.push({ F: F, x: rx, y: ry, r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: 0, dis: dis, st: stretch, anx: rx, any: ry });
+        if (!put(rx, ry, r, z0, 0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp)) break;
+        queue.push({ F: F, x: rx, y: ry, r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: 0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp });
       }
     }
     // plan the budget: how many puffs each deeper level wants; the deepest level that does not fit
@@ -340,7 +344,8 @@
           // gradient at the birth point (uy > 0 is the parent's underside)
           var stack = q.stack * 0.6 + 0.5 * smoothstep(-0.6, 0.9, uy);
           var band2 = smoothstep(0, 0.7, 1 - (F.baseT - y) / F.spanT);
-          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, F.dw);
+          var pdw2 = clamp(0.5 + 0.5 * (z - F.zOff) / (F.ref * 2), 0, 1) * F.dw, dwp2 = Math.round(F.dw * 10) + pdw2 * 0.25;
+          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2);
           next.push({ F: F, x: x, y: y, r: cr, z: z, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any });
         }
       }
