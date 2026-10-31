@@ -57,8 +57,20 @@
     this.detail = new Float32Array(MAX);     // per-parcel freshness (small-cap scale)
     this.blobCount = 0;
     this.params = {};
+    this.shape = opts.shape || 'ring';
     this.reset(opts.seed !== undefined ? opts.seed : 1, opts.preset || 'congestus');
   }
+  // shapes: where parcels are placed at the start and where respawns enter (the flow is the same;
+  // the ring geometry sliders still bound everything). (r, z) are ring coordinates in the unit frame,
+  // phi the azimuth (x = r cos phi, depth from sin phi).
+  var SHAPES = {
+    ring: function () {},
+    flat: function (p, rng, baseZ) { p.z = baseZ + 0.12 + (p.z - baseZ) * 0.35; p.r = Math.min(1.35, p.r * 1.5 + 0.15); },
+    tower: function (p, rng, baseZ) { p.r *= 0.45; p.z = baseZ + (p.z - baseZ) * 1.3; },
+    twin: function (p, rng) { p.phi = (rng() < 0.5 ? 0 : Math.PI) + (rng() - 0.5) * 0.9; p.r = 0.55 + 0.45 * rng(); },
+    anvil: function (p, rng, baseZ) { if (p.z > 0.35) { p.r = Math.min(1.4, p.r * 1.7 + 0.2); p.z = Math.min(p.z, 0.75); } else p.r *= 0.55; }
+  };
+  ThermalSim.SHAPES = Object.keys(SHAPES);
   ThermalSim.PRESETS = Object.keys(PRESETS);
   ThermalSim.PRESET_DEFAULTS = PRESETS;
   ThermalSim.MAX_BLOBS = MAX;
@@ -125,6 +137,7 @@
       roll: rng() * 6.283,
       nr: gauss(rng), nz: gauss(rng)   // correlated noise state
     };
+    (SHAPES[this.shape] || SHAPES.ring)(p, rng, baseZ, initial);
     return p;
   };
 
@@ -137,6 +150,7 @@
     this.baseY = this.cy0 + this.params.base * this.height0;
   };
   ThermalSim.prototype.setPreset = function (preset) { this.reset(this.seed, preset); };
+  ThermalSim.prototype.setShape = function (shape) { this.shape = shape; this.reset(this.seed, this.preset); };
 
   ThermalSim.prototype.step = function (dt) {
     if (!(dt > 0) || !isFinite(dt)) return;
