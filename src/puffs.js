@@ -19,7 +19,7 @@
 (function () {
   'use strict';
   var MAX_SPH = 2048;
-  var PRIMS = ['sphere', 'disc', 'drop', 'box'];
+  var PRIMS = ['sphere', 'disc', 'drop', 'box', 'diamond'];
 
   function hash(x) { var s = Math.sin(x * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); }
   function smoothstep(a, b, x) { var t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
@@ -46,6 +46,7 @@
   '    if(uPrim == 1) d.y *= 1.0 + 1.5 * uPrimAmt;\n' +
   '    else if(uPrim == 2) d.x *= 1.0 + 2.0 * uPrimAmt * max(0.0, -d.y) / r;\n' +
   '    else if(uPrim == 3){ vec2 q = d * d; d *= mix(1.0, sqrt(sqrt(dot(q, q))) / max(length(d), 1e-6), uPrimAmt); }\n' +
+  '    else if(uPrim == 4) d *= mix(1.0, (abs(d.x) + abs(d.y)) / max(length(d), 1e-6), uPrimAmt);\n' +
   '    float d2 = dot(d, d);\n' +
   '    if(d2 > r * r * 2.25) continue;\n' +
   '    float dist = sqrt(d2);\n' +
@@ -202,7 +203,7 @@
     // moving, not as each parcel rolling
     var shear = Math.max(0, num(look.shear, 0)), wa = num(look.wind, 0) * Math.PI / 180, wx = Math.cos(wa), wy = -Math.sin(wa);
     // lean: the whole cloud tilts downwind with height above the base line (the crown furthest)
-    var lean = num(look.lean, 0);
+    var lean = num(look.lean, 0), panX = num(look.panX, 0), panY = num(look.panY, 0);
     var prim = PRIMS.indexOf(look.prim), pa = clamp(num(look.primAmt, 1), 0, 1);
     var B = sim.blobs, A = sim.aux, S = sim.spin, F = sim.detail, count = Math.min(sim.blobCount | 0, 128), baseStart = num(sim.baseStart, count);
     var children = Math.max(0, Math.round(num(look.children, 4))), ratio = clamp(num(look.ratio, 0.42), 0.1, 0.8);
@@ -238,7 +239,7 @@
       var dis = 1 - mixed * link;
       var stretch = 1 + shear * dis;
       var rx = pivX + (B[o] - pivX) * zoom, ry = pivY + (B[o + 1] - pivY) * zoom;
-      var hgt = Math.max(0, pivY - ry) * lean; rx += wx * hgt; ry += wy * hgt;
+      var hgt = Math.max(0, pivY - ry) * lean; rx += wx * hgt + panX; ry += wy * hgt + panY;
       r *= zoom;
       if (!put(rx, ry, r, z0, 0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry)) break;
       queue.push({ x: rx, y: ry, r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * num(look.roll, 1), fresh: fresh, mixed: mixed, stack: 0, dis: dis, st: stretch, anx: rx, any: ry });
@@ -272,6 +273,7 @@
           // the child sits on the (sheared) shell: its offset is stretched like the parent
           var ox = ux * shell, oy = uy * shell;
           if (prim === 1) oy /= 1 + 1.5 * pa; else if (prim === 2) ox /= 1 + 2 * pa * Math.max(0, -uy); else if (prim === 3) { var qx = ox * ox, qy = oy * oy, l4 = Math.sqrt(Math.sqrt(qx * qx + qy * qy)), ll = Math.sqrt(qx + qy) || 1e-6, kk = 1 + pa * (ll / l4 - 1); ox *= kk; oy *= kk; }
+          else if (prim === 4) { var l1 = Math.abs(ox) + Math.abs(oy) || 1e-6, l2 = Math.sqrt(ox * ox + oy * oy), kd = 1 + pa * (l2 / l1 - 1); ox *= kd; oy *= kd; }
           if (q.st !== 1) { var al2 = ox * wx + oy * wy, ac2 = ox * wy - oy * wx, sa = al2 * q.st, sc = ac2 / Math.sqrt(q.st); ox = wx * sa + wy * sc; oy = wy * sa - wx * sc; }
           var x = q.x + ox, y = q.y + oy, z = q.z + uz * shell * depthScale;
           // stacked shade: the own gradient is in the shader; the inherited part is the parent's
@@ -315,7 +317,7 @@
     gl.uniform1f(su.uShadow, clamp(num(look.shadow, 0.64), 0, 1)); gl.uniform1f(su.uHighlight, clamp(num(look.highlight, 0.68), 0, 1));
     gl.uniform1f(su.uFill, num(look.fill, 0.2)); gl.uniform1f(su.uBands, num(look.bands, 5));
     gl.uniform1f(su.uStack, clamp(num(look.stackShade, 0.4), 0, 1)); gl.uniform1f(su.uBand, clamp(num(look.baseShade, 0.5), 0, 1));
-    var bY = num(sim.baseY, asp); gl.uniform1f(su.uTopY, bY + (num(sim.topY, 0) - bY) * zoom); gl.uniform1f(su.uBaseY, bY);
+    var bY = num(sim.baseY, asp) + num(look.panY, 0); gl.uniform1f(su.uTopY, bY + (num(sim.topY, 0) - num(sim.baseY, asp)) * zoom); gl.uniform1f(su.uBaseY, bY);
     gl.uniform1f(su.uNoise, num(look.noise, 0.3)); gl.uniform1f(su.uNoiseScale, num(look.noiseScale, 1)); gl.uniform1f(su.uFlow, num(look.flow, 0.01));
     gl.uniform1f(su.uNoise2, num(look.noise2, 0)); gl.uniform1f(su.uNoise2Scale, num(look.noise2Scale, 4)); gl.uniform1f(su.uNoiseBias, clamp(num(look.noiseBias, 0), -1, 1)); gl.uniform1f(su.uHaze, clamp(num(look.haze, 0.5), 0, 1)); gl.uniform1f(su.uDither, clamp(num(look.dither, 0), 0, 1)); gl.uniform1f(su.uAnchor, clamp(num(look.anchor, 1), 0, 1));
     gl.uniform1f(su.uTime, time); gl.uniform1f(su.uSmooth, clamp(num(look.smooth, 0.5), 0, 1)); gl.uniform1f(su.uRef, ref);
