@@ -9,7 +9,7 @@
   #app { display: flex; height: 100%; }
   #stage { flex: 1; position: relative; background: #10303c; }
   canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
-  #panel { width: 260px; background: #23282c; border-left: 1px solid #000; overflow-y: auto; padding: 8px; box-sizing: border-box; }
+  #panel { user-select: none; -webkit-user-select: none; width: 260px; background: #23282c; border-left: 1px solid #000; overflow-y: auto; padding: 8px; box-sizing: border-box; }
   h3 { margin: 10px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #9fb0b8; }
   .row { display: flex; align-items: center; gap: 6px; height: 22px; }
   .row label { width: 72px; color: #b8c4ca; white-space: nowrap; overflow: hidden; }
@@ -38,17 +38,15 @@
     <div id="view"></div>
     <h3>Forces</h3>
     <div id="forces"></div>
-    <p class="hint">One primitive, recursively: each parcel grows Children puffs of Size ratio its radius, down to Levels deep; each lives one cycle (born on top, carried round by the roll, swells, subsides, reseeds). One soft union, one noise, one stacked shade.</p>
-    <p class="hint">Updraft pushes parcels up the axis; at the top the flow disperses outward, the edges roil over and cascade down the outside. Below the base level parcels evaporate. Mixing is how long a sinking flank parcel stays fresh. Bubble releases new parcels as cohorts with a surge up the axis.</p>
     <h3>Surface</h3>
     <div id="surface"></div>
     <h3>Light</h3>
     <div id="light"></div>
   </div>
 </div>
-<script src="src/sim.js?v=95"></script>
-<script src="src/puffs.js?v=95"></script>
-<script src="src/motion.js?v=95"></script>
+<script src="src/sim.js?v=97"></script>
+<script src="src/puffs.js?v=97"></script>
+<script src="src/motion.js?v=97"></script>
 <script>
 (function () {
   'use strict';
@@ -73,11 +71,61 @@
     ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['shear', 'Shear', 0, 3, 0.05], ['wind', 'Wind (deg)', -90, 90, 1], ['lean', 'Lean', -1, 1, 0.01], ['primAmt', 'Primitive amt', 0, 1, 0.01]];
   var VIEW = [['zoom', 'Scale', 0.5, 2.5, 0.05], ['panX', 'Pan X', -1, 1, 0.01], ['panY', 'Pan Y', -1, 1, 0.01]];
   var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['shadow', 'Shadow', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
+  var TIPS = {
+    updraft: 'Strength of the thermal: how fast parcels rise up the axis and roll over at the top.',
+    width: 'Ring width: how far the circulation spreads sideways.',
+    height: 'Ring height: how tall the circulation is above the base line.',
+    rise: 'Slow drift of the whole thermal upward over time (capped).',
+    expand: 'Slow widening of the ring over time (capped).',
+    settle: 'Drag near the base: higher keeps the lowest parcels lingering longer.',
+    count: 'Number of live parcels (root puffs).',
+    size: 'Base radius of a parcel; everything scales from it.',
+    jitter: 'Random wander added to each parcel\'s motion.',
+    mixing: 'Seconds a sinking flank parcel stays fresh before it mixes away and retires.',
+    pulse: 'Seconds between bubbles: cohorts of new parcels released with a surge up the axis. 0 is a steady trickle.',
+    base: 'Condensation level: the flat base line below which parcels evaporate.',
+    rollGain: 'How fast billows roll with the local vorticity.',
+    formTime: 'Seconds the cloud takes to form from a compact puff. 0 starts fully grown.',
+    reservoir: 'Share of parcels kept as a dense, soft reservoir just above the base.',
+    parallax: 'Sideways sway of the eye; every parcel shifts by its depth.',
+    sway: 'Period of the parallax sway in seconds.',
+    children: 'Puffs each parcel grows on its shell, at every level.',
+    ratio: 'Child radius as a fraction of its parent.',
+    levels: 'Depth of the recursion: 1 is bare parcels, 3 is grandchildren.',
+    life: 'Speed of the child cycle (born on top, carried round, swells, subsides, reseeds). 0 freezes it.',
+    embed: 'How far out on the parent shell a child sits: lower buries it, higher perches it.',
+    softness: 'Blend width of the soft union between puffs.',
+    depth: 'Scale of the pseudo-3D depth: how far back puffs sit behind their neighbours.',
+    noise: 'Amplitude of the main surface noise.',
+    noiseScale: 'Frequency of the main noise.',
+    noise2: 'Amplitude of the finer second noise.',
+    noise2Scale: 'Frequency of the second noise.',
+    noiseBias: 'Where noise lives: -1 only in shadow, +1 only in light.',
+    flow: 'Scroll speed of the noise over the surface.',
+    anchor: 'How much the noise rides on each parcel (1) versus staying fixed in screen space (0).',
+    smooth: 'Footprint of the normal: higher softens the shading.',
+    shear: 'How far dispersing parcels stretch along the wind as they mix away.',
+    wind: 'Wind direction in degrees for Shear and Lean. 0 is to the right.',
+    lean: 'Tilt of the whole cloud downwind with height above the base.',
+    primAmt: 'Blend from a sphere (0) to the chosen primitive (1).',
+    sun: 'Sun azimuth in degrees.',
+    elevation: 'Sun elevation in degrees; negative lights from below.',
+    shadow: 'Darkness of the shadowed side.',
+    fill: 'Bounce light from the sky side, opposite the sun.',
+    baseShade: 'Darkening from crown to base across the whole cloud.',
+    stackShade: 'Darkening each puff inherits from sitting under its parent.',
+    haze: 'Softening of old, mixed parcels: flatter shading and a fainter edge.',
+    dither: 'Dispersing puffs dissolve into the pixel grid instead of fading.',
+    bands: 'Number of colour bands in the palette.',
+    zoom: 'View scale about the base line; the sim is untouched.',
+    panX: 'View offset sideways.',
+    panY: 'View offset up and down.'
+  };
   var sliders = {};
   function slider(parent, target, spec) {
     var row = document.createElement('div'); row.className = 'row';
-    var label = document.createElement('label'); label.textContent = spec[1];
-    var range = document.createElement('input'); range.type = 'range'; range.min = spec[2]; range.max = spec[3]; range.step = spec[4];
+    var label = document.createElement('label'); label.textContent = spec[1]; label.title = TIPS[spec[0]] || '';
+    var range = document.createElement('input'); range.type = 'range'; range.min = spec[2]; range.max = spec[3]; range.step = spec[4]; range.title = label.title;
     var val = document.createElement('span'); val.className = 'val';
     row.appendChild(label); row.appendChild(range); row.appendChild(val); parent.appendChild(row);
     function show() { var v = target()[spec[0]]; range.value = v; val.textContent = spec[4] >= 1 ? String(v) : (+v).toFixed(spec[4] < 0.001 ? 4 : spec[4] < 0.01 ? 3 : 2); }
