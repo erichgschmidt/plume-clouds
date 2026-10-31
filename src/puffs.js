@@ -19,6 +19,7 @@
 (function () {
   'use strict';
   var MAX_SPH = 2048;
+  var PRIMS = ['sphere', 'disc', 'drop', 'box'];
 
   function hash(x) { var s = Math.sin(x * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); }
   function smoothstep(a, b, x) { var t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
@@ -28,7 +29,7 @@
   var VS = '#version 300 es\nprecision highp float;\nout vec2 vUv;\nvoid main(){ vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); vUv = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }';
 
   var FIELD_FS = '#version 300 es\nprecision highp float; precision highp sampler2D;\n' +
-  'uniform sampler2D uSph; uniform int uCount; uniform float uAspect; uniform float uT; uniform vec2 uWind;\n' +
+  'uniform sampler2D uSph; uniform int uCount; uniform float uAspect; uniform float uT; uniform vec2 uWind; uniform int uPrim; uniform float uPrimAmt;\n' +
   'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
@@ -41,6 +42,10 @@
   '    vec2 d = p - s.xy; float r = s.z;\n' +
   '    vec4 sh = texelFetch(uSph, ivec2(i, 2), 0);   // noise anchor.xy, stretch (1 = round)\n' +
   '    if(sh.z != 1.0){ float along = dot(d, uWind), across = d.x * uWind.y - d.y * uWind.x; d = vec2(along / sh.z, across * sqrt(sh.z)); }\n' +
+  '    // the primitive: the same soft union, a different metric per puff (1 disc, 2 drop, 3 box)\n' +
+  '    if(uPrim == 1) d.y *= 1.0 + 1.5 * uPrimAmt;\n' +
+  '    else if(uPrim == 2) d.x *= 1.0 + 2.0 * uPrimAmt * max(0.0, -d.y) / r;\n' +
+  '    else if(uPrim == 3){ vec2 q = d * d; d *= mix(1.0, sqrt(sqrt(dot(q, q))) / max(length(d), 1e-6), uPrimAmt); }\n' +
   '    float d2 = dot(d, d);\n' +
   '    if(d2 > r * r * 2.25) continue;\n' +
   '    float dist = sqrt(d2);\n' +
@@ -156,7 +161,7 @@
     gl.getExtension('EXT_color_buffer_float');
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
-    this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT', 'uWind']);
+    this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT', 'uWind', 'uPrim', 'uPrimAmt']);
     this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uTexel', 'uAspect', 'uLight', 'uShadow', 'uHighlight', 'uFill', 'uBands', 'uStack', 'uBand', 'uTopY', 'uBaseY', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uFlow', 'uTime', 'uSmooth', 'uRef', 'uPixelated', 'uHaze', 'uDither', 'uAnchor', 'uSkyColor']);
     this._sphData = new Float32Array(MAX_SPH * 3 * 4);
     this._sphTex = gl.createTexture();
@@ -198,6 +203,7 @@
     var shear = Math.max(0, num(look.shear, 0)), wa = num(look.wind, 0) * Math.PI / 180, wx = Math.cos(wa), wy = -Math.sin(wa);
     // lean: the whole cloud tilts downwind with height above the base line (the crown furthest)
     var lean = num(look.lean, 0);
+    var prim = PRIMS.indexOf(look.prim), pa = clamp(num(look.primAmt, 1), 0, 1);
     var B = sim.blobs, A = sim.aux, S = sim.spin, F = sim.detail, count = Math.min(sim.blobCount | 0, 128), baseStart = num(sim.baseStart, count);
     var children = Math.max(0, Math.round(num(look.children, 4))), ratio = clamp(num(look.ratio, 0.42), 0.1, 0.8);
     var levels = clamp(Math.round(num(look.levels, 3)), 1, 3), life = Math.max(0, num(look.life, 1)), embed = clamp(num(look.embed, 0.78), 0.3, 1);
@@ -265,6 +271,7 @@
           var shell = q.r * embed * (0.7 + 0.3 * env);
           // the child sits on the (sheared) shell: its offset is stretched like the parent
           var ox = ux * shell, oy = uy * shell;
+          if (prim === 1) oy /= 1 + 1.5 * pa; else if (prim === 2) ox /= 1 + 2 * pa * Math.max(0, -uy); else if (prim === 3) { var qx = ox * ox, qy = oy * oy, l4 = Math.sqrt(Math.sqrt(qx * qx + qy * qy)), ll = Math.sqrt(qx + qy) || 1e-6, kk = 1 + pa * (ll / l4 - 1); ox *= kk; oy *= kk; }
           if (q.st !== 1) { var al2 = ox * wx + oy * wy, ac2 = ox * wy - oy * wx, sa = al2 * q.st, sc = ac2 / Math.sqrt(q.st); ox = wx * sa + wy * sc; oy = wy * sa - wx * sc; }
           var x = q.x + ox, y = q.y + oy, z = q.z + uz * shell * depthScale;
           // stacked shade: the own gradient is in the shader; the inherited part is the parent's
@@ -294,6 +301,7 @@
     gl.uniform1i(this._fu.uSph, 0); gl.uniform1i(this._fu.uCount, this.count); gl.uniform1f(this._fu.uAspect, asp);
     gl.uniform1f(this._fu.uT, Math.max(0.002, ref * 0.08 * num(look.softness, 1.4)));
     var wa = num(look.wind, 0) * Math.PI / 180; gl.uniform2f(this._fu.uWind, Math.cos(wa), -Math.sin(wa));
+    gl.uniform1i(this._fu.uPrim, PRIMS.indexOf(look.prim) < 0 ? 0 : PRIMS.indexOf(look.prim)); gl.uniform1f(this._fu.uPrimAmt, clamp(num(look.primAmt, 1), 0, 1));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // shade
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);
@@ -317,5 +325,6 @@
   };
 
   PuffRenderer.MAX_SPH = MAX_SPH;
+  PuffRenderer.PRIMS = PRIMS;
   window.PuffRenderer = PuffRenderer;
 })();
