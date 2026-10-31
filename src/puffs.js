@@ -196,6 +196,8 @@
     // shear: one world direction (the wind) for the whole cloud, so dispersal reads as the air
     // moving, not as each parcel rolling
     var shear = Math.max(0, num(look.shear, 0)), wa = num(look.wind, 0) * Math.PI / 180, wx = Math.cos(wa), wy = -Math.sin(wa);
+    // lean: the whole cloud tilts downwind with height above the base line (the crown furthest)
+    var lean = num(look.lean, 0);
     var B = sim.blobs, A = sim.aux, S = sim.spin, F = sim.detail, count = Math.min(sim.blobCount | 0, 128), baseStart = num(sim.baseStart, count);
     var children = Math.max(0, Math.round(num(look.children, 4))), ratio = clamp(num(look.ratio, 0.42), 0.1, 0.8);
     var levels = clamp(Math.round(num(look.levels, 3)), 1, 3), life = Math.max(0, num(look.life, 1)), embed = clamp(num(look.embed, 0.78), 0.3, 1);
@@ -230,6 +232,7 @@
       var dis = 1 - mixed * link;
       var stretch = 1 + shear * dis;
       var rx = pivX + (B[o] - pivX) * zoom, ry = pivY + (B[o + 1] - pivY) * zoom;
+      var hgt = Math.max(0, pivY - ry) * lean; rx += wx * hgt; ry += wy * hgt;
       r *= zoom;
       if (!put(rx, ry, r, z0, 0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry)) break;
       queue.push({ x: rx, y: ry, r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * num(look.roll, 1), fresh: fresh, mixed: mixed, stack: 0, dis: dis, st: stretch, anx: rx, any: ry });
