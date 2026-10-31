@@ -38,9 +38,9 @@
     <div id="cirrus"></div>
   </div>
 </div>
-<script src="src/sim.js?v=100"></script>
-<script src="src/puffs.js?v=100"></script>
-<script src="src/motion.js?v=100"></script>
+<script src="src/sim.js?v=101"></script>
+<script src="src/puffs.js?v=101"></script>
+<script src="src/motion.js?v=101"></script>
 <script>
 (function () {
   'use strict';
@@ -56,7 +56,7 @@
     atmos: 0.35, depthFall: 0.6, sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, baseShade: 0.5, stackShade: 0.4,
     cirrus: 0.35, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, pixelated: true };
   // the sky's own parameters
-  var P = { clouds: 7, drift: 0.01, parallax: 0.03, sway: 57, near: 0.6 };
+  var P = { clouds: 9, drift: 0.01, parallax: 0.03, sway: 57, near: 0.6 };
 
   // species: the form of a cloud (sim preset + overrides, layout, primitive, tree); scale is the
   // size at the nearest depth; weight(far) says how likely it is at a given depth (0 far .. 1 near)
@@ -96,14 +96,17 @@
     var zoom = sp.scale * (0.3 + 0.7 * Math.pow(far, 1.2)) * P.near;
     var look = { children: sp.children || 4, ratio: sp.ratio || 0.62, levels: sp.levels || (far < 0.35 ? 2 : 3), life: sp.life || 1, embed: sp.embed || 0.9, depth: sp.depth || 1,
       shear: sp.shear || 0, shearBias: sp.shearBias || 0, wind: sp.wind || 0, lean: sp.lean || 0, prim: sp.prim, primAmt: sp.primAmt === undefined ? 1 : sp.primAmt,
-      zoom: zoom, panX: -0.8 + 1.6 * ((i + rng() * 0.7) / n) + (rng() - 0.5) * 0.1, panY: (0.12 - 0.14 * far) + (rng() - 0.5) * 0.1, far: far };
+      zoom: zoom, panX: -0.8 + 1.6 * ((i + rng() * 0.7) / n) + (rng() - 0.5) * 0.1, panY: (-0.22 + 0.3 * far) + (rng() - 0.5) * 0.12, far: far };
     return { sim: sim, look: look, name: name, speed: P.drift * (0.15 + 0.85 * far) };
   }
   function build() {
     var rng = mulberry((+$('seed').value | 0) * 7919 + 17);
     clouds = [];
     var n = Math.max(1, Math.round(P.clouds));
-    for (var i = 0; i < n; i++) clouds.push(makeCloud(rng, i, n));
+    // stratified depths (every sky gets its full range) in a shuffled order across the width
+    var fars = []; for (var i = 0; i < n; i++) fars.push(Math.pow((i + 0.1 + rng() * 0.8) / n, 0.9));
+    for (i = n - 1; i > 0; i--) { var j = Math.floor(rng() * (i + 1)), tmp = fars[i]; fars[i] = fars[j]; fars[j] = tmp; }
+    for (i = 0; i < n; i++) clouds.push(makeCloud(rng, i, n, fars[i]));
     clouds.sort(function (a, b) { return a.look.far - b.look.far; });
     window.clouds = clouds;
   }
