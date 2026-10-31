@@ -20,7 +20,7 @@
       forces: {}, look: { children: 4, ratio: 0.62, levels: 3, life: 1, embed: 0.9, depth: 1 },
       depth: [0.4, 1], scale: 1.0 },
     cumulonimbus: { label: 'Cumulonimbus', engine: 'thermal', preset: 'tower', shape: 'tower', prim: 'sphere', primAmt: 1,
-      forces: { height: 0.4, count: 44, pulse: 18, formTime: 150 },
+      forces: { height: 0.4, count: 44, pulse: 18, formTime: 150, parallax: 0.02 },
       look: { children: 4, ratio: 0.6, levels: 3, life: 1, embed: 0.9, depth: 1, lean: 0.25, wind: 0, shear: 0.6, baseShade: 0.75 },
       extra: { engine: 'layer', preset: 'anvil', atTop: true, dy: -0.03, look: { levels: 1, prim: 'disc', primAmt: 0.9, shear: 1.2, lean: 0 } },
       depth: [0.5, 1], scale: 1.3 },
@@ -61,7 +61,7 @@
     ],
     layer: [
       ['count', 'Parcels', 0, 127, 1], ['heads', 'Heads', 1, 40, 1], ['trail', 'Trail', 1, 24, 1], ['size', 'Size', 0.005, 0.15, 0.001], ['width', 'Width', 0.2, 2, 0.01], ['thick', 'Thickness', 0, 0.3, 0.005], ['level', 'Level', 0, 1, 0.01],
-      ['cell', 'Cell', 0.02, 0.3, 0.005], ['rows', 'Rows', 1, 8, 1], ['gap', 'Gap', 0, 0.9, 0.01], ['streets', 'Streets', 0, 1, 0.01], ['cover', 'Cover', 0.5, 3, 0.05], ['undulate', 'Undulate', 0, 0.05, 0.001], ['wave', 'Wave', 0.5, 8, 0.1], ['striate', 'Striate', 1, 4, 0.05], ['lead', 'Lead', 0, 1, 0.01],
+      ['cell', 'Cell', 0.02, 0.3, 0.005], ['rows', 'Rows', 1, 8, 1], ['gap', 'Gap', 0, 0.9, 0.01], ['streets', 'Streets', 0, 1, 0.01], ['cover', 'Cover', 0.5, 3, 0.05], ['undulate', 'Undulate', 0, 0.05, 0.001], ['wave', 'Wave', 0.5, 8, 0.1], ['striate', 'Striate', 1, 4, 0.05], ['lead', 'Lead', 0, 1, 0.01], ['taper', 'Taper', 0, 1, 0.01], ['offset', 'Offset', -0.5, 0.5, 0.01],
       ['curve', 'Curve', 0, 3, 0.05], ['fall', 'Fall', 0, 0.5, 0.005], ['lag', 'Lag', 0, 0.6, 0.005], ['plane', 'Plane step', 0.02, 0.3, 0.005], ['spread', 'Spread', 0, 5, 0.05], ['lobes', 'Lobes', 0, 2, 0.05], ['beads', 'Beads', 0, 1, 0.01],
       ['jitter', 'Jitter', 0, 1, 0.01], ['breathe', 'Breathe (s)', 2, 60, 1], ['life', 'Life (s)', 5, 200, 1], ['drift', 'Drift', 0, 0.05, 0.001], ['wind', 'Wind (deg)', -45, 45, 1], ['fresh', 'Fresh', 0, 1, 0.01], ['parallax', 'Parallax', 0, 0.08, 0.002], ['sway', 'Sway (s)', 5, 120, 1]
     ],
@@ -69,7 +69,7 @@
   };
   // which layer sliders matter per mode (the rest are hidden)
   window.LAYER_MODE_KEYS = {
-    sheet: ['count', 'size', 'width', 'thick', 'level', 'cover', 'undulate', 'wave', 'striate', 'lead', 'jitter', 'breathe', 'life', 'drift', 'wind', 'fresh', 'parallax', 'sway'],
+    sheet: ['count', 'size', 'width', 'thick', 'level', 'cover', 'undulate', 'wave', 'striate', 'lead', 'taper', 'offset', 'jitter', 'breathe', 'life', 'drift', 'wind', 'fresh', 'parallax', 'sway'],
     cells: ['count', 'size', 'width', 'thick', 'level', 'cell', 'rows', 'gap', 'streets', 'jitter', 'breathe', 'life', 'drift', 'wind', 'fresh', 'parallax', 'sway'],
     streak: ['heads', 'trail', 'size', 'width', 'thick', 'level', 'curve', 'fall', 'lag', 'plane', 'spread', 'lobes', 'beads', 'life', 'drift', 'wind', 'fresh', 'parallax', 'sway']
   };

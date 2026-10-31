@@ -147,3 +147,39 @@ veil mode, and a cloud object that may hold more than one sim (the cumulonimbus 
 `docs/types/<type>.svg` (+ .png): four-panel schematics in the style of docs/cumulus-motion.svg,
 drawn by Codex from the briefs above: 1 the forming mechanism, 2 the structure in cross
 section, 3 how it evolves and dissipates, 4 the painted simplification.
+
+## Status (2026-10-31, overnight)
+
+Built: `src/layer.js` (LayerSim: sheet / cells / streak), `src/presets.js` (the eleven types plus
+the lens, with engine, sim preset, layout, primitive, form and preferred sky depth), the puff
+editor's Type dropdown (the Forces panel follows the engine and the layer mode), the sky drawing
+every type by depth, the cumulonimbus anvil as a second sim riding on the tower's top, the
+cirrostratus veil in the shade pass, per-parcel stretch from the sim (streets, trails), and the
+ten schematics (`docs/types/<type>.svg` with a `.jpg` render).
+
+| type | drawing | first render (puff editor, fast-forwarded) |
+|---|---|---|
+| humilis | docs/types/humilis.jpg | docs/types/humilis-render.png |
+| congestus | docs/cumulus-motion.svg | docs/types/congestus-render.png |
+| cumulonimbus | docs/types/cumulonimbus.jpg | docs/types/cumulonimbus-render.png |
+| stratocumulus | docs/types/stratocumulus.jpg | docs/types/stratocumulus-render.png |
+| stratus | docs/types/stratus.jpg | docs/types/stratus-render.png |
+| altocumulus | docs/types/altocumulus.jpg | docs/types/altocumulus-render.png |
+| lenticular | (altocumulus inset) | docs/types/lenticular-render.png |
+| altostratus | docs/types/altostratus.jpg | docs/types/altostratus-render.png |
+| cirrocumulus | docs/types/cirrocumulus.jpg | docs/types/cirrocumulus-render.png |
+| cirrostratus | docs/types/cirrostratus.jpg | docs/types/cirrostratus-render.png |
+| cirrus | docs/types/cirrus.jpg | docs/types/cirrus-render.png |
+| contrail | docs/types/contrail.jpg | docs/types/contrail-render.png |
+
+Judged against the drawings: cirrus (hook + tail), contrail (line → scallops → beads),
+stratocumulus (lumpy carpet), cumulonimbus (tower + tapered anvil ahead), lenticular and
+cirrocumulus read as intended. Weakest: stratus and altostratus are bands with too little
+raggedness and too much brightness (their style lives in the sky look, not the type);
+altocumulus wants denser rows; humilis still reads as a small congestus rather than a flattened
+one. Nothing watched over a long run; everything fast-forwarded and screenshotted.
+
+Not built: a halo for cirrostratus; the sun as a disc through altostratus; mamma under the
+anvil; rain curtains; per-type style overrides (haze, stack shade) in a mixed sky, where one
+style serves all clouds, so a stratus in the sky is lit like a cumulus. The last is the next
+renderer step: carry haze and stack weights per puff from the sim, as freshness already is.
