@@ -204,6 +204,9 @@
     for (var i = 0; i < count; i++) {
       var o = i * 4, r = B[o + 2], link = A[o + 3];
       if (r <= 1e-4 || link <= 1e-6) continue;
+      // the silhouette ignores depth, so burial alone cannot hide a parcel: it grows in and shrinks
+      // out with its link instead (smooth, no pop at spawn or evaporation)
+      r *= link * (2 - link);
       var ax = S[o], ay = S[o + 1], az = S[o + 2], al = Math.sqrt(ax * ax + ay * ay + az * az);
       if (al < 1e-6) { ax = 0; ay = 0; az = 1; } else { ax /= al; ay /= al; az /= al; }
       var fresh = F ? clamp(F[i], 0, 1) : 1;
