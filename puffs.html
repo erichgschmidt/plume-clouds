@@ -42,9 +42,9 @@
     <div id="light"></div>
   </div>
 </div>
-<script src="src/sim.js?v=92"></script>
-<script src="src/puffs.js?v=92"></script>
-<script src="src/motion.js?v=92"></script>
+<script src="src/sim.js?v=93"></script>
+<script src="src/puffs.js?v=93"></script>
+<script src="src/motion.js?v=93"></script>
 <script>
 (function () {
   'use strict';
@@ -98,7 +98,8 @@
   var STORE = 'plume-puffs-looks';
   function saved() { try { return JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (e) { return {}; } }
   function applyLook(L) {
-    $('seed').value = L.seed; sim.reset(L.seed, sim.preset);
+    $('seed').value = L.seed; sim.shape = L.shape || 'ring'; sim.reset(L.seed, sim.preset);
+    document.querySelectorAll('#shapes .btn').forEach(function (x) { x.classList.toggle('on', x.textContent === sim.shape); });
     for (var k in L.forces) sim.params[k] = L.forces[k]; sim.reseat();
     for (var j in L.look) look[j] = L.look[j];
     refresh();
@@ -116,7 +117,7 @@
     var name = $('lookName').value.trim(); if (!name) return;
     var forces = {}; FORCES.forEach(function (s) { forces[s[0]] = sim.params[s[0]]; });
     var lk = {}; SURFACE.concat(LIGHT).forEach(function (s) { lk[s[0]] = look[s[0]]; });
-    var all = saved(); all[name] = { seed: +$('seed').value | 0, forces: forces, look: lk };
+    var all = saved(); all[name] = { seed: +$('seed').value | 0, shape: sim.shape, forces: forces, look: lk };
     localStorage.setItem(STORE, JSON.stringify(all)); drawLooks();
   });
   $('btnDel').addEventListener('click', function () {
