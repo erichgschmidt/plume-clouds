@@ -38,7 +38,7 @@
   'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
-  '  float m = -1e9, acc = 0.0, dSum = 0.0, sSum = 0.0, fSum = 0.0, xSum = 0.0, bSum = 0.0, wSum = 0.0, cSum = 0.0; vec2 anc = vec2(0.0);   // online log-sum-exp\n' +
+  '  float m = -1e9, acc = 0.0, dSum = 0.0, sSum = 0.0, fSum = 0.0, xSum = 0.0, bSum = 0.0, wSum = 0.0, cIdx = 0.0; vec2 anc = vec2(0.0);   // online log-sum-exp; cIdx: the cloud of the highest puff\n' +
   '  float sm = -1e9, sacc = 0.0;                            // silhouette (soft union of r - dist)\n' +
   '  float T = uT;\n' +
   '  for(int i = 0; i < 4096; i++){\n' +
@@ -63,8 +63,8 @@
   '    vec4 a = texelFetch(uSph, ivec2(i, 1), 0);\n' +
   '    float h = (d2 < r * r) ? s.w + sqrt(r * r - d2) : s.w - (dist - r) * 2.0;\n' +
   '    float w;\n' +
-  '    if(h > m){ float k = exp((m - h) / T); acc = acc * k + 1.0; dSum = dSum * k + a.y; sSum = sSum * k + a.x; fSum = fSum * k + a.z; xSum = xSum * k + a.w; anc = anc * k + sh.xy; bSum = bSum * k + wd.z; wSum = wSum * k + fract(wd.w) * 4.0; cSum = cSum * k + floor(wd.w) * 0.1; m = h; }\n' +
-  '    else { w = exp((h - m) / T); acc += w; dSum += w * a.y; sSum += w * a.x; fSum += w * a.z; xSum += w * a.w; anc += w * sh.xy; bSum += w * wd.z; wSum += w * fract(wd.w) * 4.0; cSum += w * floor(wd.w) * 0.1; }\n' +
+  '    if(h > m){ float k = exp((m - h) / T); acc = acc * k + 1.0; dSum = dSum * k + a.y; sSum = sSum * k + a.x; fSum = fSum * k + a.z; xSum = xSum * k + a.w; anc = anc * k + sh.xy; bSum = bSum * k + wd.z; wSum = wSum * k + fract(wd.w) * 4.0; cIdx = floor(wd.w); m = h; }\n' +
+  '    else { w = exp((h - m) / T); acc += w; dSum += w * a.y; sSum += w * a.x; fSum += w * a.z; xSum += w * a.w; anc += w * sh.xy; bSum += w * wd.z; wSum += w * fract(wd.w) * 4.0; }\n' +
   '  }\n' +
   '  float H = (acc > 0.0) ? m + T * log(acc) : -1.0;\n' +
   '  float sil = (sacc > 0.0) ? (sm + log(sacc)) * T : -1.0;\n' +
@@ -72,12 +72,14 @@
   '  float ia = acc > 0.0 ? 1.0 / acc : 0.0;\n' +
   '  o = vec4(H, dSum * ia, sSum * ia, mask);\n' +
   '  o2 = vec4(acc > 0.0 ? fSum * ia : 1.0, xSum * ia, anc * ia);\n' +
-  '  o3 = vec4(bSum * ia, acc > 0.0 ? wSum * ia : 1.0, acc > 0.0 ? cSum * ia : 1.0, 1.0);\n' +
+  '  o3 = vec4(bSum * ia, acc > 0.0 ? wSum * ia : 1.0, cIdx, 1.0);\n' +
   '}';
 
   var SHADE_FS = '#version 300 es\nprecision highp float;\n' +
   'uniform sampler2D uField; uniform sampler2D uAux; uniform sampler2D uAux2; uniform vec2 uTexel; uniform float uAspect; uniform vec3 uLight;\n' +
-  'uniform float uShadow, uHighlight, uFill, uBands, uStack, uBand, uNoise, uNoiseScale, uNoise2, uNoise2Scale, uNoiseBias, uFlow, uTime, uSmooth, uRef, uPixelated, uHaze, uDither, uAnchor;\n' +
+  'uniform float uHighlight, uFill, uBands, uNoise, uNoiseScale, uNoise2, uNoise2Scale, uNoiseBias, uFlow, uTime, uRef, uPixelated, uAnchor;\n' +
+  '// per-cloud style, indexed by the cloud of the highest puff: A = (depth weight, haze, stack shade, dither), B = (shadow, base shade, noise scale, normal smooth)\n' +
+  'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
   'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow;\n' +
   'uniform vec3 uSkyColor;\n' +
   'in vec2 vUv; out vec4 fragColor;\n' +
@@ -141,35 +143,36 @@
   '  vec2 uv = (uPixelated > 0.5) ? (floor(vUv / uTexel) + 0.5) * uTexel : vUv;\n' +
   '  vec4 f = texture(uField, uv);\n' +
   '  vec4 ax = texture(uAux, uv);\n' +
-  '  vec4 bx = texture(uAux2, uv);   // band, puff depth weight, cloud depth weight\n' +
-  '  float dis = uDither * ax.g;   // dispersing puffs dissolve into the pixel grid\n' +
+  '  vec4 bx = texture(uAux2, uv);   // band, puff depth weight, cloud index\n' +
+  '  int ci = clamp(int(bx.b + 0.5), 0, 31); vec4 sA = uStyleA[ci], sB = uStyleB[ci];\n' +
+  '  float dis = sA.w * ax.g;   // dispersing puffs dissolve into the pixel grid\n' +
   '  float th = dis > 0.001 ? mix(0.5, (bayer(floor(vUv / uTexel) + 7.0) + 0.5) * 0.9 + 0.05, dis) : 0.5;\n' +
   '  if(f.a < th){ fragColor = vec4(sky(uv), 1.0); return; }\n' +
   '  // depth weight: 1 near .. 0 far. Far volumes: softer normal, weaker shadow, less noise, bluer\n' +
   '  float dw = clamp(bx.g, 0.0, 1.0), far = uDepthFall * (1.0 - dw);\n' +
-  '  float s = 1.0 + uSmooth * 2.0 + far * 3.0;   // normal footprint in texels\n' +
+  '  float s = 1.0 + sB.w * 2.0 + far * 3.0;   // normal footprint in texels\n' +
   '  vec2 dx = vec2(uTexel.x * s, 0.0), dy = vec2(0.0, uTexel.y * s);\n' +
   '  float wx = 2.0 * uTexel.x * s, wy = 2.0 * uTexel.y * s * uAspect;   // world units\n' +
-  '  float namp = 1.0 - 0.6 * far;\n' +
+  '  float namp = (1.0 - 0.6 * far) * sB.z;\n' +
   '  // noise bias: the macro (undisplaced) light decides where the noise lives (-1 shadow only .. +1 light only)\n' +
   '  vec3 n0 = normalAt(uv, dx, dy, wx, wy, 0.0, namp);\n' +
   '  float l0 = dot(n0, uLight);\n' +
   '  float bias = uNoiseBias > 0.0 ? mix(1.0, smoothstep(-0.2, 0.5, l0), uNoiseBias) : mix(1.0, smoothstep(0.5, -0.2, l0), -uNoiseBias);\n' +
   '  vec3 n = normalAt(uv, dx, dy, wx, wy, bias, namp);\n' +
   '  // haze: an old, mixed parcel softens (flatter normal, less direct light, fainter edge)\n' +
-  '  float haze = uHaze * (1.0 - ax.r);\n' +
+  '  float haze = sA.y * (1.0 - ax.r);\n' +
   '  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), 0.7 * haze + 0.4 * far));\n' +
   '  float lambert = dot(n, uLight);\n' +
   '  float bounce = max(0.0, dot(n, normalize(vec3(-uLight.x, -uLight.y, 0.25))));\n' +
-  '  float band = uBand * bx.r;\n' +
-  '  float stack = uStack * f.b;\n' +
+  '  float band = sB.y * bx.r;\n' +
+  '  float stack = sA.z * f.b;\n' +
   '  float direct = 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - 0.7 * band) * (1.0 - 0.5 * stack);\n' +
   '  float ambient = (0.18 + uFill * bounce) * (1.0 - band) * (1.0 - 0.8 * stack);\n' +
-  '  float light = ambient + direct * (1.0 - uShadow * (1.0 - 0.6 * far) * smoothstep(0.1, -0.2, lambert));\n' +
+  '  float light = ambient + direct * (1.0 - sB.x * (1.0 - 0.6 * far) * smoothstep(0.1, -0.2, lambert));\n' +
   '  light = mix(light, 0.45, 0.5 * haze);\n' +
   '  light += bayer(floor(vUv / uTexel)) * 0.012;\n' +
   '  vec3 cloud = palette(light);\n' +
-  '  cloud = mix(cloud, uSkyColor, uAtmos * (1.0 - clamp(bx.b, 0.0, 1.0)));   // atmospheric perspective between clouds\n' +
+  '  cloud = mix(cloud, uSkyColor, uAtmos * (1.0 - clamp(sA.x, 0.0, 1.0)));   // atmospheric perspective between clouds\n' +
   '  float edge = dis > 0.001 ? 1.0 : smoothstep(0.5, 0.5 + 0.45 * haze, f.a);   // a hazy parcel loses its hard edge\n' +
   '  fragColor = vec4(mix(sky(uv), cloud, edge), 1.0);\n' +
   '}';
@@ -193,7 +196,7 @@
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uTexel', 'uAspect', 'uLight', 'uShadow', 'uHighlight', 'uFill', 'uBands', 'uStack', 'uBand', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uFlow', 'uTime', 'uSmooth', 'uRef', 'uPixelated', 'uHaze', 'uDither', 'uAnchor', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 4);
     this._sphTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
@@ -228,12 +231,12 @@
 
   // Per-cloud form settings resolved from its look (every transform in one place).
   // Order of the view transforms on a root: Scale about the base line -> Lean by height -> Pan.
-  function form(cloud) {
+  function form(cloud, idx) {
     var look = cloud.look || {}, sim = cloud.sim;
     var wa = num(look.wind, 0) * Math.PI / 180, zoom = clamp(num(look.zoom, 1), 0.1, 4);
     var baseY = num(sim.baseY, 0.5), topY = num(sim.topY, 0), prim = Math.max(0, PRIMS.indexOf(look.prim));
     return {
-      sim: sim, zoom: zoom, pivX: num(sim.cx, 0.5), pivY: baseY, panX: num(look.panX, 0), panY: num(look.panY, 0),
+      sim: sim, idx: Math.min(31, idx | 0), zoom: zoom, pivX: num(sim.cx, 0.5), pivY: baseY, panX: num(look.panX, 0), panY: num(look.panY, 0),
       ref: (sim.refRadius || 0.08) * zoom,
       shear: Math.max(0, num(look.shear, 0)), shearBias: clamp(num(look.shearBias, 0), -1, 1), wx: Math.cos(wa), wy: -Math.sin(wa), lean: num(look.lean, 0),
       prim: prim, pa: clamp(num(look.primAmt, 1), 0, 1), primPacked: prim + clamp(num(look.primAmt, 1), 0, 1) * 0.5,
@@ -264,7 +267,7 @@
     var queue = [], q, j, c, F;
     // roots
     for (c = 0; c < clouds.length; c++) {
-      F = form(clouds[c]);
+      F = form(clouds[c], c);
       var sim = F.sim, B = sim.blobs, A = sim.aux, S = sim.spin, Dt = sim.detail, STR = sim.stretch || null;
       var count = Math.min(sim.blobCount | 0, 128), baseStart = num(sim.baseStart, count);
       for (var i = 0; i < count; i++) {
@@ -282,13 +285,14 @@
         var z0 = ((A[o + 1] - 0.5) * 2 * F.ref - (1 - link) * r * 2.5) * F.depthScale + F.zOff;
         var dis = 1 - mixed * link;
         // the puff's own depth weight: 1 on the near face of the cloud, 0 at the back; the cloud's
-        // depth weight scales the whole thing. Packed as floor(cloud dw * 10) + puff dw / 4.
+        // depth weight scales the whole thing. Packed as cloud index + puff dw / 4.
         var pdw = clamp(0.5 + 0.5 * (z0 - F.zOff) / (F.ref * 2), 0, 1) * F.dw;
-        var dwp = Math.round(F.dw * 10) + pdw * 0.25;
+        var dwp = F.idx + pdw * 0.25;
         var stretch = (1 + F.shear * dis * (1 + F.shearBias * (2 * pdw - 1))) * (STR ? Math.max(0.2, STR[i]) : 1);   // the sim may stretch a parcel itself (streets, trails)
         var rx = F.pivX + (B[o] - F.pivX) * F.zoom, ry = F.pivY + (B[o + 1] - F.pivY) * F.zoom;
         var hgt = Math.max(0, F.pivY - ry) * F.lean; rx += F.wx * hgt + F.panX; ry += F.wy * hgt + F.panY;
         r *= F.zoom;
+        if (r <= 1e-4) continue;   // a parcel still too small to draw: skip it, never stop the loop (put() fails for the budget too, and that break hid every later parcel)
         var band = smoothstep(0, 0.7, 1 - (F.baseT - ry) / F.spanT);
         if (!put(rx, ry, r, z0, 0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp)) break;
         queue.push({ F: F, x: rx, y: ry, r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: 0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp });
@@ -345,7 +349,7 @@
           // gradient at the birth point (uy > 0 is the parent's underside)
           var stack = q.stack * 0.6 + 0.5 * smoothstep(-0.6, 0.9, uy);
           var band2 = smoothstep(0, 0.7, 1 - (F.baseT - y) / F.spanT);
-          var pdw2 = clamp(0.5 + 0.5 * (z - F.zOff) / (F.ref * 2), 0, 1) * F.dw, dwp2 = Math.round(F.dw * 10) + pdw2 * 0.25;
+          var pdw2 = clamp(0.5 + 0.5 * (z - F.zOff) / (F.ref * 2), 0, 1) * F.dw, dwp2 = F.idx + pdw2 * 0.25;
           put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2);
           next.push({ F: F, x: x, y: y, r: cr, z: z, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any });
         }
@@ -368,7 +372,7 @@
     var gl = this.gl, c = this.canvas, asp = c.height / c.width;
     // the style reference radius: the nearest (largest-scale) cloud's
     var ref = 0.08;
-    if (clouds.length) { ref = 0; for (var i = 0; i < clouds.length; i++) ref = Math.max(ref, form(clouds[i]).ref); }
+    if (clouds.length) { ref = 0; for (var i = 0; i < clouds.length; i++) ref = Math.max(ref, form(clouds[i], i).ref); }
     this.resize(this._w);
     this._tree(clouds, time);
     // field
@@ -388,14 +392,23 @@
     gl.uniform1i(su.uField, 1); gl.uniform1i(su.uAux, 2); gl.uniform1i(su.uAux2, 3); gl.uniform2f(su.uTexel, 1 / this._w, 1 / this._h); gl.uniform1f(su.uAspect, asp);
     var sunA = num(sky.sun, 60) * Math.PI / 180, el = num(sky.elevation, 40) * Math.PI / 180;
     gl.uniform3f(su.uLight, Math.cos(sunA) * Math.cos(el), -Math.sin(sunA) * Math.cos(el), Math.sin(el));
-    gl.uniform1f(su.uShadow, clamp(num(sky.shadow, 0.64), 0, 1)); gl.uniform1f(su.uHighlight, clamp(num(sky.highlight, 0.68), 0, 1));
+    gl.uniform1f(su.uHighlight, clamp(num(sky.highlight, 0.68), 0, 1));
     gl.uniform1f(su.uFill, num(sky.fill, 0.2)); gl.uniform1f(su.uBands, num(sky.bands, 5));
-    gl.uniform1f(su.uStack, clamp(num(sky.stackShade, 0.4), 0, 1)); gl.uniform1f(su.uBand, clamp(num(sky.baseShade, 0.5), 0, 1));
     gl.uniform1f(su.uNoise, num(sky.noise, 0.3)); gl.uniform1f(su.uNoiseScale, num(sky.noiseScale, 1)); gl.uniform1f(su.uFlow, num(sky.flow, 0.01));
-    gl.uniform1f(su.uNoise2, num(sky.noise2, 0)); gl.uniform1f(su.uNoise2Scale, num(sky.noise2Scale, 4)); gl.uniform1f(su.uNoiseBias, clamp(num(sky.noiseBias, 0), -1, 1)); gl.uniform1f(su.uHaze, clamp(num(sky.haze, 0.5), 0, 1)); gl.uniform1f(su.uDither, clamp(num(sky.dither, 0), 0, 1)); gl.uniform1f(su.uAnchor, clamp(num(sky.anchor, 1), 0, 1));
+    gl.uniform1f(su.uNoise2, num(sky.noise2, 0)); gl.uniform1f(su.uNoise2Scale, num(sky.noise2Scale, 4)); gl.uniform1f(su.uNoiseBias, clamp(num(sky.noiseBias, 0), -1, 1)); gl.uniform1f(su.uAnchor, clamp(num(sky.anchor, 1), 0, 1));
     gl.uniform1f(su.uAtmos, clamp(num(sky.atmos, 0), 0, 1)); gl.uniform1f(su.uDepthFall, clamp(num(sky.depthFall, 0), 0, 1));
     gl.uniform1f(su.uCirrus, clamp(num(sky.cirrus, 0), 0, 1)); gl.uniform1f(su.uCirrusScale, num(sky.cirrusScale, 2)); gl.uniform1f(su.uCirrusAngle, num(sky.cirrusAngle, -12) * Math.PI / 180); gl.uniform1f(su.uCirrusFlow, num(sky.cirrusFlow, 0.01)); gl.uniform1f(su.uVeil, clamp(num(sky.veil, 0), 0, 1));
-    gl.uniform1f(su.uTime, time); gl.uniform1f(su.uSmooth, clamp(num(sky.smooth, 0.5), 0, 1)); gl.uniform1f(su.uRef, ref);
+    gl.uniform1f(su.uTime, time); gl.uniform1f(su.uRef, ref);
+    // per-cloud style: a cloud's look may set haze, stackShade, dither, shadow, baseShade, noise and
+    // smooth for itself (a stratus is hazy and flat, a cirrus dithered, whatever the sky's style says)
+    var SA = this._styleA || (this._styleA = new Float32Array(128)), SB = this._styleB || (this._styleB = new Float32Array(128));
+    for (var ci = 0; ci < 32; ci++) {
+      var L = ci < clouds.length ? (clouds[ci].look || {}) : {}, o4 = ci * 4;
+      var pick = function (k, d) { return L[k] !== undefined ? num(L[k], d) : num(sky[k], d); };
+      SA[o4] = clamp(num(L.far, 1), 0, 1); SA[o4 + 1] = clamp(pick('haze', 0.5), 0, 1); SA[o4 + 2] = clamp(pick('stackShade', 0.4), 0, 1); SA[o4 + 3] = clamp(pick('dither', 0), 0, 1);
+      SB[o4] = clamp(pick('shadow', 0.64), 0, 1); SB[o4 + 1] = clamp(pick('baseShade', 0.5), 0, 1); SB[o4 + 2] = L.noise !== undefined ? num(L.noise, 0.3) / Math.max(0.01, num(sky.noise, 0.3)) : 1; SB[o4 + 3] = clamp(pick('smooth', 0.5), 0, 1);
+    }
+    gl.uniform4fv(su.uStyleA, SA); gl.uniform4fv(su.uStyleB, SB);
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);
     gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);
     gl.drawArrays(gl.TRIANGLES, 0, 3);

@@ -179,7 +179,15 @@ raggedness and too much brightness (their style lives in the sky look, not the t
 altocumulus wants denser rows; humilis still reads as a small congestus rather than a flattened
 one. Nothing watched over a long run; everything fast-forwarded and screenshotted.
 
+Per-type style in a mixed sky (built after the overnight pass): the field pass carries the cloud
+index of the highest puff at each pixel, and the shade pass looks up that cloud's style in a
+uniform array (haze, stack shade, dither, shadow, base shade, noise, normal smooth). A type's
+`look` sets any of these for itself; the sky's STYLE sliders fill in the rest. So a stratus in
+the sky is hazy and flat while a congestus beside it keeps its stack shade.
+
+Fixed at the same time: the renderer's root loop stopped at the first parcel too small to draw
+(a guard meant for the full budget), which hid every later parcel of that cloud for a frame or
+two whenever one spawned or re-entered: the popping of whole trails, heads and sheet patches.
+
 Not built: a halo for cirrostratus; the sun as a disc through altostratus; mamma under the
-anvil; rain curtains; per-type style overrides (haze, stack shade) in a mixed sky, where one
-style serves all clouds, so a stratus in the sky is lit like a cumulus. The last is the next
-renderer step: carry haze and stack weights per puff from the sim, as freshness already is.
+anvil; rain curtains.
