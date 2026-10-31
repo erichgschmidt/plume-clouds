@@ -29,6 +29,7 @@
     <h3>Formation</h3>
     <div class="seg" id="presets"></div>
     <div class="seg" id="looks" style="margin-top:4px"></div>
+    <div class="row" style="margin-top:4px"><input id="lookName" placeholder="preset name" style="flex:1;min-width:0"><button class="btn" id="btnSave">Save</button><button class="btn" id="btnDel">Delete</button></div>
     <div class="row" style="margin-top:6px"><button class="btn" id="btnPlay">Pause</button><button class="btn" id="btnReset">Reset</button><label style="width:auto">Seed</label><input id="seed" type="number" value="1" style="width:56px"></div>
     <h3>Forces</h3>
     <div id="forces"></div>
@@ -40,9 +41,9 @@
     <div id="light"></div>
   </div>
 </div>
-<script src="src/sim.js?v=88"></script>
-<script src="src/puffs.js?v=88"></script>
-<script src="src/motion.js?v=88"></script>
+<script src="src/sim.js?v=89"></script>
+<script src="src/puffs.js?v=89"></script>
+<script src="src/motion.js?v=89"></script>
 <script>
 (function () {
   'use strict';
@@ -55,7 +56,7 @@
   var sim = new ThermalSim({ seed: 1, preset: 'congestus', aspect: canvas.height / canvas.width });
 
   var look = { children: 6, ratio: 0.62, levels: 3, life: 1, embed: 0.9, softness: 1.0, depth: 1, roll: 1,
-    noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, flow: 0.04, smooth: 0.5, haze: 0.5, shear: 0, zoom: 1,
+    noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, flow: 0.04, smooth: 0.5, haze: 0.5, shear: 0, wind: 0, dither: 0, anchor: 1, zoom: 1,
     sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, baseShade: 0.5, stackShade: 0.4, pixelated: true };
 
   var FORCES = [
@@ -64,8 +65,8 @@
     ['count', 'Parcels', 4, 63, 1], ['size', 'Size', 0.03, 0.2, 0.001], ['jitter', 'Jitter', 0, 0.5, 0.005], ['mixing', 'Mixing (s)', 1, 30, 0.5], ['pulse', 'Bubble (s)', 0, 40, 0.5], ['base', 'Base level', 0.2, 1, 0.01], ['rollGain', 'Roll gain', 0, 24, 0.1], ['formTime', 'Form (s)', 0, 300, 5], ['reservoir', 'Base share', 0, 0.6, 0.05], ['parallax', 'Parallax', 0, 0.08, 0.002], ['sway', 'Sway (s)', 5, 120, 1]
   ];
   var SURFACE = [['children', 'Children', 0, 6, 1], ['ratio', 'Size ratio', 0.25, 0.7, 0.01], ['levels', 'Levels', 1, 3, 1], ['life', 'Life', 0, 3, 0.01], ['embed', 'Embed', 0.4, 1, 0.01], ['softness', 'Softness', 0.3, 4, 0.01], ['depth', 'Depth', 0, 2, 0.01],
-    ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['smooth', 'Normal smooth', 0, 1, 0.01], ['shear', 'Shear', 0, 3, 0.05], ['zoom', 'Scale', 0.5, 2.5, 0.05]];
-  var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['shadow', 'Shadow', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
+    ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['shear', 'Shear', 0, 3, 0.05], ['wind', 'Wind (deg)', -90, 90, 1], ['zoom', 'Scale', 0.5, 2.5, 0.05]];
+  var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['shadow', 'Shadow', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
   var sliders = {};
   function slider(parent, target, spec) {
     var row = document.createElement('div'); row.className = 'row';
@@ -92,15 +93,34 @@
     lantern: { seed: 1, forces: { updraft: 0.04, width: 0.13, height: 0.18, rise: 0.0004, expand: 0.0002, settle: 0.61, count: 60, size: 0.03, jitter: 0.5, mixing: 20.5, pulse: 0, base: 0.21, rollGain: 8.4, formTime: 90, reservoir: 0.35, parallax: 0 },
       look: { children: 5, ratio: 0.7, levels: 3, life: 0.11, embed: 0.67, softness: 4, depth: 2, noise: 0.11, noiseScale: 4, noise2: 0, noiseBias: 0, flow: 0.034, smooth: 0, haze: 0, sun: 81, elevation: -40, shadow: 0.64, baseShade: 0.59, stackShade: 1, bands: 5 } }
   };
-  Object.keys(LOOKS).forEach(function (name) {
-    var L = LOOKS[name], b = document.createElement('button'); b.className = 'btn'; b.textContent = name;
-    b.addEventListener('click', function () {
-      $('seed').value = L.seed; sim.reset(L.seed, sim.preset);
-      for (var k in L.forces) sim.params[k] = L.forces[k]; sim.reseat();
-      for (var j in L.look) look[j] = L.look[j];
-      refresh();
+  // saved presets live in localStorage beside the built-in ones
+  var STORE = 'plume-puffs-looks';
+  function saved() { try { return JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (e) { return {}; } }
+  function applyLook(L) {
+    $('seed').value = L.seed; sim.reset(L.seed, sim.preset);
+    for (var k in L.forces) sim.params[k] = L.forces[k]; sim.reseat();
+    for (var j in L.look) look[j] = L.look[j];
+    refresh();
+  }
+  function drawLooks() {
+    var all = Object.assign({}, LOOKS, saved()), host = $('looks'); host.innerHTML = '';
+    Object.keys(all).forEach(function (name) {
+      var b = document.createElement('button'); b.className = 'btn'; b.textContent = name;
+      b.addEventListener('click', function () { applyLook(all[name]); $('lookName').value = name; });
+      host.appendChild(b);
     });
-    $('looks').appendChild(b);
+  }
+  drawLooks();
+  $('btnSave').addEventListener('click', function () {
+    var name = $('lookName').value.trim(); if (!name) return;
+    var forces = {}; FORCES.forEach(function (s) { forces[s[0]] = sim.params[s[0]]; });
+    var lk = {}; SURFACE.concat(LIGHT).forEach(function (s) { lk[s[0]] = look[s[0]]; });
+    var all = saved(); all[name] = { seed: +$('seed').value | 0, forces: forces, look: lk };
+    localStorage.setItem(STORE, JSON.stringify(all)); drawLooks();
+  });
+  $('btnDel').addEventListener('click', function () {
+    var name = $('lookName').value.trim(), all = saved(); if (!all[name]) return;
+    delete all[name]; localStorage.setItem(STORE, JSON.stringify(all)); drawLooks();
   });
   var playing = true;
   $('btnPlay').addEventListener('click', function () { playing = !playing; this.textContent = playing ? 'Pause' : 'Play'; });
