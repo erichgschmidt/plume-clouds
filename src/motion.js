@@ -25,7 +25,7 @@
  */
 (function () {
   'use strict';
-  var MAX = 64;
+  var MAX = 128;   // core + up to 63 parcels + the reservoir, all of it every frame (a 64 cap let the reservoir pop in and out)
 
   function mulberry32(a) {
     return function () {
@@ -281,6 +281,7 @@
       n++;
     }
     // basal reservoir: wide, dense, soft (no small caps), pinned just above the base line
+    this.baseStart = n;
     for (i = 0; i < this.base.length && n < MAX; i++) {
       var q = this.base[i]; o = n * 4;
       var qs = Math.sin(q.phi);

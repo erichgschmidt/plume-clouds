@@ -196,7 +196,7 @@
     // shear: one world direction (the wind) for the whole cloud, so dispersal reads as the air
     // moving, not as each parcel rolling
     var shear = Math.max(0, num(look.shear, 0)), wa = num(look.wind, 0) * Math.PI / 180, wx = Math.cos(wa), wy = -Math.sin(wa);
-    var B = sim.blobs, A = sim.aux, S = sim.spin, F = sim.detail, count = Math.min(sim.blobCount | 0, 64);
+    var B = sim.blobs, A = sim.aux, S = sim.spin, F = sim.detail, count = Math.min(sim.blobCount | 0, 128), baseStart = num(sim.baseStart, count);
     var children = Math.max(0, Math.round(num(look.children, 4))), ratio = clamp(num(look.ratio, 0.42), 0.1, 0.8);
     var levels = clamp(Math.round(num(look.levels, 3)), 1, 3), life = Math.max(0, num(look.life, 1)), embed = clamp(num(look.embed, 0.78), 0.3, 1);
     var depthScale = num(look.depth, 1);
@@ -221,17 +221,18 @@
       r *= link * (2 - link);
       var ax = S[o], ay = S[o + 1], az = S[o + 2], al = Math.sqrt(ax * ax + ay * ay + az * az);
       if (al < 1e-6) { ax = 0; ay = 0; az = 1; } else { ax /= al; ay /= al; az /= al; }
-      var fresh = F ? clamp(F[i], 0, 1) : 1;
+      // the reservoir's low detail value means 'no small caps', not 'mixed away': it never disperses
+      var isBase = i >= baseStart, fresh = F ? clamp(F[i], 0, 1) : 1, mixed = isBase ? 1 : fresh;
       // depth from the sim (aux.y: 0 back .. 1 front); a parcel still linking in is buried behind
       var z0 = ((A[o + 1] - 0.5) * 2 * ref - (1 - link) * r * 1.5) * depthScale;
       // dispersal: how far along the parcel is in mixing away (old flank or evaporating): it
       // stretches with the wind, and the shade pass can dither it out
-      var dis = 1 - fresh * link;
+      var dis = 1 - mixed * link;
       var stretch = 1 + shear * dis;
       var rx = pivX + (B[o] - pivX) * zoom, ry = pivY + (B[o + 1] - pivY) * zoom;
       r *= zoom;
-      if (!put(rx, ry, r, z0, 0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], fresh, dis, stretch, rx, ry)) break;
-      queue.push({ x: rx, y: ry, r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * num(look.roll, 1), fresh: fresh, stack: 0, dis: dis, st: stretch, anx: rx, any: ry });
+      if (!put(rx, ry, r, z0, 0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry)) break;
+      queue.push({ x: rx, y: ry, r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * num(look.roll, 1), fresh: fresh, mixed: mixed, stack: 0, dis: dis, st: stretch, anx: rx, any: ry });
     }
     for (var level = 0; level < levels - 1 && queue.length; level++) {
       next = [];
@@ -266,8 +267,8 @@
           // stacked shade: the own gradient is in the shader; the inherited part is the parent's
           // gradient at the birth point (uy > 0 is the parent's underside)
           var stack = q.stack * 0.6 + 0.5 * smoothstep(-0.6, 0.9, uy);
-          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[Math.min(level + 1, 2)], q.fresh, q.dis, q.st, q.anx, q.any);
-          next.push({ x: x, y: y, r: cr, z: z, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any });
+          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[Math.min(level + 1, 2)], q.mixed, q.dis, q.st, q.anx, q.any);
+          next.push({ x: x, y: y, r: cr, z: z, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any });
         }
       }
       queue = next;
