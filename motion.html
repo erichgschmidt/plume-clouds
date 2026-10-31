@@ -38,9 +38,9 @@
     <div id="light"></div>
   </div>
 </div>
-<script src="src/sim.js?v=83"></script>
-<script src="src/render.js?v=83"></script>
-<script src="src/motion.js?v=83"></script>
+<script src="src/sim.js?v=84"></script>
+<script src="src/render.js?v=84"></script>
+<script src="src/motion.js?v=84"></script>
 <script>
 (function () {
   'use strict';
@@ -74,7 +74,7 @@
     var val = document.createElement('span'); val.className = 'val';
     row.appendChild(label); row.appendChild(range); row.appendChild(val); parent.appendChild(row);
     function show() { var v = target()[spec[0]]; range.value = v; val.textContent = spec[4] >= 1 ? String(v) : (+v).toFixed(spec[4] < 0.001 ? 4 : spec[4] < 0.01 ? 3 : 2); }
-    range.addEventListener('input', function () { var v = +range.value; if (spec[0] === 'width') sim.width0 = v; if (spec[0] === 'height') sim.height0 = v; target()[spec[0]] = v; show(); });
+    range.addEventListener('input', function () { var v = +range.value; target()[spec[0]] = v; if (spec[0] === 'width' || spec[0] === 'height' || spec[0] === 'base') sim.reseat(); show(); });
     sliders[spec[0]] = show; show();
   }
   FORCES.forEach(function (s) { slider($('forces'), function () { return sim.params; }, s); });

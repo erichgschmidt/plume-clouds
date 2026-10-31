@@ -29,10 +29,10 @@
 
   var FIELD_FS = '#version 300 es\nprecision highp float; precision highp sampler2D;\n' +
   'uniform sampler2D uSph; uniform int uCount; uniform float uAspect; uniform float uT;\n' +
-  'in vec2 vUv; out vec4 o;\n' +
+  'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
-  '  float m = -1e9, acc = 0.0, dSum = 0.0, sSum = 0.0;   // online log-sum-exp\n' +
+  '  float m = -1e9, acc = 0.0, dSum = 0.0, sSum = 0.0, fSum = 0.0;   // online log-sum-exp\n' +
   '  float sm = -1e9, sacc = 0.0;                            // silhouette (soft union of r - dist)\n' +
   '  float T = uT;\n' +
   '  for(int i = 0; i < 2048; i++){\n' +
@@ -43,22 +43,22 @@
   '    float dist = sqrt(d2);\n' +
   '    float e = (r - dist) / T;\n' +
   '    if(e > sm){ sacc = sacc * exp(sm - e) + 1.0; sm = e; } else sacc += exp(e - sm);\n' +
-  '    if(d2 >= r * r) continue;\n' +
   '    vec4 a = texelFetch(uSph, ivec2(i, 1), 0);\n' +
-  '    float h = s.w + sqrt(r * r - d2);\n' +
+  '    float h = (d2 < r * r) ? s.w + sqrt(r * r - d2) : s.w - (dist - r) * 2.0;\n' +
   '    float w;\n' +
-  '    if(h > m){ float k = exp((m - h) / T); acc = acc * k + 1.0; dSum = dSum * k + a.y; sSum = sSum * k + a.x; m = h; }\n' +
-  '    else { w = exp((h - m) / T); acc += w; dSum += w * a.y; sSum += w * a.x; }\n' +
+  '    if(h > m){ float k = exp((m - h) / T); acc = acc * k + 1.0; dSum = dSum * k + a.y; sSum = sSum * k + a.x; fSum = fSum * k + a.z; m = h; }\n' +
+  '    else { w = exp((h - m) / T); acc += w; dSum += w * a.y; sSum += w * a.x; fSum += w * a.z; }\n' +
   '  }\n' +
   '  float H = (acc > 0.0) ? m + T * log(acc) : -1.0;\n' +
   '  float sil = (sacc > 0.0) ? (sm + log(sacc)) * T : -1.0;\n' +
   '  float mask = smoothstep(-0.5 * T, 0.5 * T, sil);\n' +
   '  o = vec4(H, acc > 0.0 ? dSum / acc : 0.0, acc > 0.0 ? sSum / acc : 0.0, mask);\n' +
+  '  o2 = vec4(acc > 0.0 ? fSum / acc : 1.0, 0.0, 0.0, 1.0);\n' +
   '}';
 
   var SHADE_FS = '#version 300 es\nprecision highp float;\n' +
-  'uniform sampler2D uField; uniform vec2 uTexel; uniform float uAspect; uniform vec3 uLight;\n' +
-  'uniform float uShadow, uHighlight, uFill, uBands, uStack, uBand, uTopY, uBaseY, uNoise, uNoiseScale, uFlow, uTime, uSmooth, uRef, uPixelated;\n' +
+  'uniform sampler2D uField; uniform sampler2D uAux; uniform vec2 uTexel; uniform float uAspect; uniform vec3 uLight;\n' +
+  'uniform float uShadow, uHighlight, uFill, uBands, uStack, uBand, uTopY, uBaseY, uNoise, uNoiseScale, uNoise2, uNoise2Scale, uNoiseBias, uFlow, uTime, uSmooth, uRef, uPixelated, uHaze;\n' +
   'uniform vec3 uSkyColor;\n' +
   'in vec2 vUv; out vec4 fragColor;\n' +
   // simplex-ish 2D noise (Ashima-style, compact)
@@ -79,10 +79,18 @@
   '}\n' +
   'float fbm(vec2 p){ return snoise(p) + 0.5 * snoise(p * 2.03 + 7.1) + 0.25 * snoise(p * 4.07 + 3.3); }\n' +
   // displaced height at a uv (the one surface term)
-  'float hAt(vec2 uv){\n' +
+  'float hAt(vec2 uv, vec2 uv0, float bias){\n' +
   '  vec4 f = texture(uField, uv);\n' +
-  '  vec2 w = vec2(uv.x, (1.0 - uv.y) * uAspect) * uNoiseScale / uRef + vec2(uTime * uFlow, uTime * uFlow * 0.37);\n' +
-  '  return f.r + uNoise * uRef * 0.5 * f.g * fbm(w);\n' +
+  '  if(f.a < 0.5) f = texture(uField, uv0);   // never read height outside the silhouette (the rim)\n' +
+  '  vec2 w0 = vec2(uv.x, (1.0 - uv.y) * uAspect) / uRef;\n' +
+  '  float t = uTime * uFlow;\n' +
+  '  float n1 = fbm(w0 * uNoiseScale + vec2(t, t * 0.37));\n' +
+  '  float n2 = snoise(w0 * uNoise2Scale + vec2(-t * 0.6, t * 0.8) + 11.0) + 0.5 * snoise(w0 * uNoise2Scale * 2.1 + vec2(t * 0.3, -t * 0.5) + 23.0);\n' +
+  '  return f.r + uRef * 0.5 * f.g * bias * (uNoise * n1 + uNoise2 * n2);\n' +
+  '}\n' +
+  'vec3 normalAt(vec2 uv, vec2 dx, vec2 dy, float wx, float wy, float bias){\n' +
+  '  float hL = hAt(uv - dx, uv, bias), hR = hAt(uv + dx, uv, bias), hU = hAt(uv - dy, uv, bias), hD = hAt(uv + dy, uv, bias);\n' +
+  '  return normalize(vec3(-(hR - hL) / wx, (hD - hU) / wy, 1.0));   // world y is down; uv y is up\n' +
   '}\n' +
   'float bayer(vec2 p){ vec2 q = mod(floor(p), 4.0); float m[16]; m[0]=0.;m[1]=8.;m[2]=2.;m[3]=10.;m[4]=12.;m[5]=4.;m[6]=14.;m[7]=6.;m[8]=3.;m[9]=11.;m[10]=1.;m[11]=9.;m[12]=15.;m[13]=7.;m[14]=13.;m[15]=5.; return m[int(q.y) * 4 + int(q.x)] / 16.0 - 0.5; }\n' +
   'vec3 palette(float l){\n' +
@@ -100,9 +108,15 @@
   '  if(f.a < 0.5){ fragColor = vec4(uSkyColor, 1.0); return; }\n' +
   '  float s = 1.0 + uSmooth * 2.0;   // normal footprint in texels\n' +
   '  vec2 dx = vec2(uTexel.x * s, 0.0), dy = vec2(0.0, uTexel.y * s);\n' +
-  '  float hL = hAt(uv - dx), hR = hAt(uv + dx), hU = hAt(uv - dy), hD = hAt(uv + dy);\n' +
   '  float wx = 2.0 * uTexel.x * s, wy = 2.0 * uTexel.y * s * uAspect;   // world units\n' +
-  '  vec3 n = normalize(vec3(-(hR - hL) / wx, (hD - hU) / wy, 1.0));   // world y is down; uv y is up\n' +
+  '  // noise bias: the macro (undisplaced) light decides where the noise lives (-1 shadow only .. +1 light only)\n' +
+  '  vec3 n0 = normalAt(uv, dx, dy, wx, wy, 0.0);\n' +
+  '  float l0 = dot(n0, uLight);\n' +
+  '  float bias = uNoiseBias > 0.0 ? mix(1.0, smoothstep(-0.2, 0.5, l0), uNoiseBias) : mix(1.0, smoothstep(0.5, -0.2, l0), -uNoiseBias);\n' +
+  '  vec3 n = normalAt(uv, dx, dy, wx, wy, bias);\n' +
+  '  // haze: an old, mixed parcel softens (flatter normal, less direct light, fainter edge)\n' +
+  '  float haze = uHaze * (1.0 - texture(uAux, uv).r);\n' +
+  '  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), 0.7 * haze));\n' +
   '  float lambert = dot(n, uLight);\n' +
   '  float bounce = max(0.0, dot(n, normalize(vec3(-uLight.x, -uLight.y, 0.25))));\n' +
   '  float wy0 = (1.0 - uv.y) * uAspect;\n' +
@@ -111,8 +125,11 @@
   '  float direct = 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - 0.7 * band) * (1.0 - 0.5 * stack);\n' +
   '  float ambient = (0.18 + uFill * bounce) * (1.0 - band) * (1.0 - 0.8 * stack);\n' +
   '  float light = ambient + direct * (1.0 - uShadow * smoothstep(0.1, -0.2, lambert));\n' +
+  '  light = mix(light, 0.45, 0.5 * haze);\n' +
   '  light += bayer(floor(vUv / uTexel)) * 0.012;\n' +
-  '  fragColor = vec4(palette(light), 1.0);\n' +
+  '  vec3 cloud = palette(light);\n' +
+  '  float edge = smoothstep(0.5, 0.5 + 0.45 * haze, f.a);   // a hazy parcel loses its hard edge\n' +
+  '  fragColor = vec4(mix(uSkyColor, cloud, edge), 1.0);\n' +
   '}';
 
   function compile(gl, type, src) {
@@ -134,13 +151,13 @@
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uTexel', 'uAspect', 'uLight', 'uShadow', 'uHighlight', 'uFill', 'uBands', 'uStack', 'uBand', 'uTopY', 'uBaseY', 'uNoise', 'uNoiseScale', 'uFlow', 'uTime', 'uSmooth', 'uRef', 'uPixelated', 'uSkyColor']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uTexel', 'uAspect', 'uLight', 'uShadow', 'uHighlight', 'uFill', 'uBands', 'uStack', 'uBand', 'uTopY', 'uBaseY', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uFlow', 'uTime', 'uSmooth', 'uRef', 'uPixelated', 'uHaze', 'uSkyColor']);
     this._sphData = new Float32Array(MAX_SPH * 2 * 4);
     this._sphTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, MAX_SPH, 2, 0, gl.RGBA, gl.FLOAT, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    this._fieldTex = gl.createTexture(); this._fbo = gl.createFramebuffer();
+    this._fieldTex = gl.createTexture(); this._auxTex = gl.createTexture(); this._fbo = gl.createFramebuffer();
     this._w = 0; this._h = 0;
     this.resize(240);
     this.count = 0;
@@ -152,12 +169,16 @@
     var w = Math.max(32, width | 0), h = Math.max(32, Math.round(w * asp));
     if (w === this._w && h === this._h) return;
     this._w = w; this._h = h;
-    gl.bindTexture(gl.TEXTURE_2D, this._fieldTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    [this._fieldTex, this._auxTex].forEach(function (tex) {
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    });
     gl.bindFramebuffer(gl.FRAMEBUFFER, this._fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this._fieldTex, 0);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, this._auxTex, 0);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   };
 
@@ -170,11 +191,11 @@
     var depthScale = num(look.depth, 1);
     var LEVEL_DETAIL = [0.25, 0.6, 1.0];
 
-    function put(x, y, r, z0, stack, detail) {
+    function put(x, y, r, z0, stack, detail, fresh) {
       if (n >= MAX_SPH || r <= 1e-4) return false;
       var o = n * 4, o2 = (MAX_SPH + n) * 4;
       D[o] = x; D[o + 1] = y; D[o + 2] = r; D[o + 3] = z0;
-      D[o2] = stack; D[o2 + 1] = detail; D[o2 + 2] = 0; D[o2 + 3] = 0;
+      D[o2] = stack; D[o2 + 1] = detail; D[o2 + 2] = fresh; D[o2 + 3] = 0;
       n++; return true;
     }
     // breadth first: every root, then every child, then grandchildren until the budget is spent,
@@ -188,7 +209,7 @@
       var fresh = F ? clamp(F[i], 0, 1) : 1;
       // depth from the sim (aux.y: 0 back .. 1 front); a parcel still linking in is buried behind
       var z0 = ((A[o + 1] - 0.5) * 2 * ref - (1 - link) * r * 1.5) * depthScale;
-      if (!put(B[o], B[o + 1], r, z0, 0, fresh * LEVEL_DETAIL[0])) break;
+      if (!put(B[o], B[o + 1], r, z0, 0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], fresh)) break;
       queue.push({ x: B[o], y: B[o + 1], r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * num(look.roll, 1), fresh: fresh, stack: 0 });
     }
     for (var level = 0; level < levels - 1 && queue.length; level++) {
@@ -221,7 +242,7 @@
           // stacked shade: the own gradient is in the shader; the inherited part is the parent's
           // gradient at the birth point (uy > 0 is the parent's underside)
           var stack = q.stack * 0.6 + 0.5 * smoothstep(-0.6, 0.9, uy);
-          put(x, y, cr, z, stack, q.fresh * LEVEL_DETAIL[Math.min(level + 1, 2)]);
+          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[Math.min(level + 1, 2)], q.fresh);
           next.push({ x: x, y: y, r: cr, z: z, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, stack: stack });
         }
       }
@@ -248,8 +269,9 @@
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);
     gl.useProgram(this._shade);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this._fieldTex);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this._auxTex);
     var su = this._su;
-    gl.uniform1i(su.uField, 1); gl.uniform2f(su.uTexel, 1 / this._w, 1 / this._h); gl.uniform1f(su.uAspect, asp);
+    gl.uniform1i(su.uField, 1); gl.uniform1i(su.uAux, 2); gl.uniform2f(su.uTexel, 1 / this._w, 1 / this._h); gl.uniform1f(su.uAspect, asp);
     var sunA = num(look.sun, 60) * Math.PI / 180, el = num(look.elevation, 40) * Math.PI / 180;
     gl.uniform3f(su.uLight, Math.cos(sunA) * Math.cos(el), -Math.sin(sunA) * Math.cos(el), Math.sin(el));
     gl.uniform1f(su.uShadow, clamp(num(look.shadow, 0.64), 0, 1)); gl.uniform1f(su.uHighlight, clamp(num(look.highlight, 0.68), 0, 1));
@@ -257,6 +279,7 @@
     gl.uniform1f(su.uStack, clamp(num(look.stackShade, 0.4), 0, 1)); gl.uniform1f(su.uBand, clamp(num(look.baseShade, 0.5), 0, 1));
     gl.uniform1f(su.uTopY, num(sim.topY, 0)); gl.uniform1f(su.uBaseY, num(sim.baseY, asp));
     gl.uniform1f(su.uNoise, num(look.noise, 0.3)); gl.uniform1f(su.uNoiseScale, num(look.noiseScale, 1)); gl.uniform1f(su.uFlow, num(look.flow, 0.01));
+    gl.uniform1f(su.uNoise2, num(look.noise2, 0)); gl.uniform1f(su.uNoise2Scale, num(look.noise2Scale, 4)); gl.uniform1f(su.uNoiseBias, clamp(num(look.noiseBias, 0), -1, 1)); gl.uniform1f(su.uHaze, clamp(num(look.haze, 0.5), 0, 1));
     gl.uniform1f(su.uTime, time); gl.uniform1f(su.uSmooth, clamp(num(look.smooth, 0.5), 0, 1)); gl.uniform1f(su.uRef, ref);
     gl.uniform1f(su.uPixelated, look.pixelated === false ? 0 : 1);
     gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);

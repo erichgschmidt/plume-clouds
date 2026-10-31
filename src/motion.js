@@ -68,14 +68,11 @@
     this.rng = mulberry32(this.seed ^ 0x9E3779B1);
     var def = PRESETS[preset] || PRESETS.congestus;
     for (var k in def) this.params[k] = def[k];
-    this.params.parallax = 0.02;
+    this.params.parallax = 0.02; this.params.sway = 57;
     this.preset = preset;
     this.time = 0;
     this.cx = 0.5; this.cy = this.cy0 = this.aspect * 0.66;   // thermal centre (world: y top-down)
-    this.width0 = this.params.width; this.height0 = this.params.height;
-    this.width = this.width0; this.height = this.height0;
-    // the condensation level is a fixed world height, not a floor that moves with the thermal
-    this.baseY = this.cy + this.params.base * this.height0;
+    this.reseat();
     this.parcels = [];
     this.base = [];               // the basal reservoir: dense, slow, soft parcels just above the base line
     this.waiting = 0;             // retired parcels queued for re-entry
@@ -131,6 +128,14 @@
     return p;
   };
 
+  // the ring geometry (Width / Height / Base level) re-seats the thermal on the fixed base line
+  ThermalSim.prototype.reseat = function () {
+    this.width0 = this.params.width; this.height0 = this.params.height;
+    this.width = this.width0; this.height = this.height0;
+    this.cy = Math.max(this.height0 * 1.15 + 0.22 * this.aspect, this.cy0);
+    // the condensation level is a fixed world height, not a floor that moves with the thermal
+    this.baseY = this.cy0 + this.params.base * this.height0;
+  };
   ThermalSim.prototype.setPreset = function (preset) { this.reset(this.seed, preset); };
 
   ThermalSim.prototype.step = function (dt) {
@@ -241,7 +246,8 @@
     var size = P.size, rMax = P.size * 3;
     // parallax: a slow sideways sway of the eye; every parcel shifts by its depth (pure translation,
     // the forms keep their shape)
-    var swx = (P.parallax || 0) * Math.sin(this.time * 0.11), swy = (P.parallax || 0) * 0.35 * Math.sin(this.time * 0.073 + 1.0);
+    var sw = 6.2832 / Math.max(5, P.sway || 57);
+    var swx = (P.parallax || 0) * Math.sin(this.time * sw), swy = (P.parallax || 0) * 0.35 * Math.sin(this.time * sw * 0.66 + 1.0);
     B[0] = this.cx; B[1] = this.cy; B[2] = size * 0.8; B[3] = 7.7;
     A[0] = 0; A[1] = 0.5; A[2] = -1; A[3] = 1;
     S[0] = 0; S[1] = 0; S[2] = 1; S[3] = 1e-6; D[0] = 1;

@@ -28,3 +28,21 @@ mask); shade pass -> screen; 1849 puffs at 120 s cost well under a millisecond.
 Frames: `docs/night/20-puffs-t45.png`, `20-puffs-t120.png` (Children 6, Size ratio 0.62,
 Embed 0.9, Softness 1.0, Noise 0.15). The crown reads as stacked domes; the base still shows
 small puffs on bare large spheres and is the first thing to judge.
+
+## Second pass (seven items)
+
+- **Rim / double rim**: the height field was only defined inside the spheres, so the band of
+  silhouette pixels just outside them (wider with Softness, and read by a wide Normal smooth
+  footprint) had no height and lit up as an outline. Height is now defined over the whole
+  silhouette (outside a sphere it falls away steeply) and the normal never samples beyond the
+  mask (`21-puffs-soft4-smooth1.png`: Softness 4, Normal smooth 1, no rim).
+- **Height launches the cloud**: Width / Height / Base level changed the ring under a base line
+  computed at reset. They now re-seat the thermal (`sim.reseat()`), in both sandboxes.
+- **Parallax motion**: `Sway (s)` is the period of the eye's sway (57 s default).
+- **Noise**: `Flow` default 0.04 (it was crawling at 0.01); a second, finer set (`Noise 2`,
+  `Noise 2 scale`); `Noise bias` (-1 only in shadow .. +1 only in light, decided by the
+  undisplaced light); coverage: freshness now halves the noise on an old flank instead of
+  removing it, so it is no longer centred on the fresh crown.
+- **Haze**: an old, mixed parcel (low freshness from the sim) softens: flatter normal, direct
+  light pulled toward the mid tone, and a fainter silhouette edge (`Haze`, 0.5 default). The
+  field pass writes freshness to a second target for this.
