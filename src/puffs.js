@@ -80,7 +80,7 @@
   'uniform float uHighlight, uFill, uBands, uNoise, uNoiseScale, uNoise2, uNoise2Scale, uNoiseBias, uFlow, uTime, uRef, uPixelated, uAnchor;\n' +
   '// per-cloud style, indexed by the cloud of the highest puff: A = (depth weight, haze, stack shade, dither), B = (shadow, base shade, noise scale, normal smooth)\n' +
   'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
-  'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow;\n' +
+  'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow, uDissolve, uDotSize;\n' +
   'uniform vec3 uSkyColor;\n' +
   'in vec2 vUv; out vec4 fragColor;\n' +
   // simplex-ish 2D noise (Ashima-style, compact)
@@ -126,17 +126,24 @@
   '  return col;\n' +
   '}\n' +
   // displaced height at a uv (the one surface term)
-  'float hAt(vec2 uv, vec2 uv0, float bias, float namp){\n' +
+  'vec2 hAt(vec2 uv, vec2 uv0, float bias, float namp){\n' +
   '  vec4 f = texture(uField, uv);\n' +
-  '  if(f.a < 0.5) f = texture(uField, uv0);   // never read height outside the silhouette (the rim)\n' +
+  '  float ins = f.a < 0.5 ? 0.0 : 1.0;\n' +
+  '  if(ins < 0.5) f = texture(uField, uv0);   // never read height outside the silhouette (the rim)\n' +
   '  vec2 w0 = (vec2(uv.x, (1.0 - uv.y) * uAspect) - uAnchor * texture(uAux, uv0).ba) / uRef;   // noise rides with the parcel\n' +
   '  float t = uTime * uFlow;\n' +
   '  float n1 = fbm(w0 * uNoiseScale + vec2(t, t * 0.37));\n' +
   '  float n2 = snoise(w0 * uNoise2Scale + vec2(-t * 0.6, t * 0.8) + 11.0) + 0.5 * snoise(w0 * uNoise2Scale * 2.1 + vec2(t * 0.3, -t * 0.5) + 23.0);\n' +
-  '  return f.r + uRef * 0.5 * f.g * bias * namp * (uNoise * n1 + uNoise2 * n2);\n' +
+  '  return vec2(f.r + uRef * 0.5 * f.g * bias * namp * (uNoise * n1 + uNoise2 * n2), ins);\n' +
   '}\n' +
+  '// a sample outside the silhouette is extrapolated through the centre from its opposite (a one-sided\n' +
+  '// slope), not flattened: flattening gave every edge a band one footprint wide with its own normal\n' +
+  '// regime, which read as a second outline\n' +
+  'float pairL(vec2 a, vec2 b, float hc){ return a.y > 0.5 ? a.x : (b.y > 0.5 ? 2.0 * hc - b.x : hc); }\n' +
   'vec3 normalAt(vec2 uv, vec2 dx, vec2 dy, float wx, float wy, float bias, float namp){\n' +
-  '  float hL = hAt(uv - dx, uv, bias, namp), hR = hAt(uv + dx, uv, bias, namp), hU = hAt(uv - dy, uv, bias, namp), hD = hAt(uv + dy, uv, bias, namp);\n' +
+  '  vec2 L = hAt(uv - dx, uv, bias, namp), R = hAt(uv + dx, uv, bias, namp), U = hAt(uv - dy, uv, bias, namp), D = hAt(uv + dy, uv, bias, namp);\n' +
+  '  float hc = hAt(uv, uv, bias, namp).x;\n' +
+  '  float hL = pairL(L, R, hc), hR = pairL(R, L, hc), hU = pairL(U, D, hc), hD = pairL(D, U, hc);\n' +
   '  return normalize(vec3(-(hR - hL) / wx, (hD - hU) / wy, 1.0));   // world y is down; uv y is up\n' +
   '}\n' +
   'void main(){\n' +
@@ -146,8 +153,8 @@
   '  vec4 bx = texture(uAux2, uv);   // band, puff depth weight, cloud index\n' +
   '  int ci = clamp(int(bx.b + 0.5), 0, 31); vec4 sA = uStyleA[ci], sB = uStyleB[ci];\n' +
   '  float dis = sA.w * ax.g;   // dispersing puffs dissolve into the pixel grid\n' +
-  '  float th = dis > 0.001 ? mix(0.5, (bayer(floor(vUv / uTexel) + 7.0) + 0.5) * 0.9 + 0.05, dis) : 0.5;\n' +
-  '  if(f.a * (1.0 - 0.7 * dis) < th){ fragColor = vec4(sky(uv), 1.0); return; }   // a strongly dispersing puff also loses interior pixels (wisps dissolve)\n' +
+  '  float th = dis > 0.001 ? mix(0.5, (bayer(floor(vUv / (uTexel * uDotSize)) + 7.0) + 0.5) * 0.9 + 0.05, dis) : 0.5;\n' +
+  '  if(f.a * (1.0 - uDissolve * dis) < th){ fragColor = vec4(sky(uv), 1.0); return; }   // a strongly dispersing puff also loses interior pixels (wisps dissolve)\n' +
   '  // depth weight: 1 near .. 0 far. Far volumes: softer normal, weaker shadow, less noise, bluer\n' +
   '  float dw = clamp(bx.g, 0.0, 1.0), far = uDepthFall * (1.0 - dw);\n' +
   '  float s = 1.0 + sB.w * 2.0 + far * 3.0;   // normal footprint in texels\n' +
@@ -196,7 +203,7 @@
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 4);
     this._sphTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
@@ -398,6 +405,7 @@
     gl.uniform1f(su.uNoise2, num(sky.noise2, 0)); gl.uniform1f(su.uNoise2Scale, num(sky.noise2Scale, 4)); gl.uniform1f(su.uNoiseBias, clamp(num(sky.noiseBias, 0), -1, 1)); gl.uniform1f(su.uAnchor, clamp(num(sky.anchor, 1), 0, 1));
     gl.uniform1f(su.uAtmos, clamp(num(sky.atmos, 0), 0, 1)); gl.uniform1f(su.uDepthFall, clamp(num(sky.depthFall, 0), 0, 1));
     gl.uniform1f(su.uCirrus, clamp(num(sky.cirrus, 0), 0, 1)); gl.uniform1f(su.uCirrusScale, num(sky.cirrusScale, 2)); gl.uniform1f(su.uCirrusAngle, num(sky.cirrusAngle, -12) * Math.PI / 180); gl.uniform1f(su.uCirrusFlow, num(sky.cirrusFlow, 0.01)); gl.uniform1f(su.uVeil, clamp(num(sky.veil, 0), 0, 1));
+    gl.uniform1f(su.uDissolve, clamp(num(sky.dissolve, 0.7), 0, 1)); gl.uniform1f(su.uDotSize, Math.max(1, Math.round(num(sky.dotSize, 1))));
     gl.uniform1f(su.uTime, time); gl.uniform1f(su.uRef, ref);
     // per-cloud style: a cloud's look may set haze, stackShade, dither, shadow, baseShade, noise and
     // smooth for itself (a stratus is hazy and flat, a cirrus dithered, whatever the sky's style says)
