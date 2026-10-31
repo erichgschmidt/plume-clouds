@@ -195,5 +195,17 @@ puff also loses interior pixels to the dither, so wisps dissolve into dots rathe
 hard disc. Stratus: lit top rim, grey lower mass (base shade 0.7), wisps below. Altostratus: more,
 smaller, strongly striated parcels (striate 2.8) over a thicker band, one grey tone with grain.
 
+Double outline fixed: a normal sample that fell outside the silhouette was flattened to the
+centre height, so every edge carried a band one footprint wide with its own normal regime; it is
+now extrapolated through the centre from its opposite. Dissolve and Dot size control the dither.
+
+The sky has a camera (commit after b18aadd): a cloud lives in a world at lateral x, distance z
+and altitude h, projected toward a horizon line with scale 1 / z (`look.cam` in the renderer).
+The camera glides forward (Travel), so near clouds pass overhead and leave through the top while
+far ones creep in from the horizon; wind (Drift) and camera sway (Parallax) move clouds by 1 / z.
+Sheets lie flat: a layer sim's rows are depth, not height, so a stratocumulus deck recedes toward
+the horizon and its far rows converge. Altitude per type (ALT in sky.html): low cloud low, cirrus
+high. A cloud past the camera or out of the frustum re-forms far away as a new one.
+
 Not built: a halo for cirrostratus; the sun as a disc through altostratus; mamma under the
 anvil; rain curtains.

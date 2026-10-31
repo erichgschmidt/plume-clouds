@@ -242,7 +242,14 @@
     var look = cloud.look || {}, sim = cloud.sim;
     var wa = num(look.wind, 0) * Math.PI / 180, zoom = clamp(num(look.zoom, 1), 0.1, 4);
     var baseY = num(sim.baseY, 0.5), topY = num(sim.topY, 0), prim = Math.max(0, PRIMS.indexOf(look.prim));
+    // camera (the sky): the cloud sits in the world at lateral x, distance z and altitude h (world
+    // units: screen units at distance 1), s world units per sim unit; it is projected toward the
+    // horizon line with scale f / z. flat: how much of the sim's height is depth instead (a sheet
+    // lies in a plane that recedes, span world units deep), so far rows converge on the horizon.
+    var C = look.cam || null;
+    if (C) zoom = clamp(C.s * C.f / Math.max(0.05, C.z), 0.05, 8);
     return {
+      cam: C ? { x: C.x, z: C.z, h: C.h, s: C.s, f: C.f, hor: C.hor, flat: clamp(num(C.flat, 0), 0, 1), k: num(C.span, 0) / Math.max(1e-3, baseY - topY), spanS: Math.max(1e-3, baseY - topY) } : null,
       sim: sim, idx: Math.min(31, idx | 0), zoom: zoom, pivX: num(sim.cx, 0.5), pivY: baseY, panX: num(look.panX, 0), panY: num(look.panY, 0),
       ref: (sim.refRadius || 0.08) * zoom,
       shear: Math.max(0, num(look.shear, 0)), shearBias: clamp(num(look.shearBias, 0), -1, 1), wx: Math.cos(wa), wy: -Math.sin(wa), lean: num(look.lean, 0),
@@ -296,13 +303,22 @@
         var pdw = clamp(0.5 + 0.5 * (z0 - F.zOff) / (F.ref * 2), 0, 1) * F.dw;
         var dwp = F.idx + pdw * 0.25;
         var stretch = (1 + F.shear * dis * (1 + F.shearBias * (2 * pdw - 1))) * (STR ? Math.max(0.2, STR[i]) : 1);   // the sim may stretch a parcel itself (streets, trails)
-        var rx = F.pivX + (B[o] - F.pivX) * F.zoom, ry = F.pivY + (B[o + 1] - F.pivY) * F.zoom;
-        var hgt = Math.max(0, F.pivY - ry) * F.lean; rx += F.wx * hgt + F.panX; ry += F.wy * hgt + F.panY;
-        r *= F.zoom;
+        var rx, ry, hgt, band;
+        if (F.cam) {
+          var C = F.cam, dy = F.pivY - B[o + 1], zp = Math.max(0.05, C.z + C.flat * dy * C.k), sc = C.f / zp;
+          rx = 0.5 + (C.x + (B[o] - F.pivX) * C.s) * sc; ry = C.hor - (C.h + (1 - C.flat) * dy * C.s) * sc;
+          hgt = Math.max(0, (1 - C.flat) * dy * C.s * sc) * F.lean; rx += F.wx * hgt; ry += F.wy * hgt;
+          r *= C.s * sc;
+          band = smoothstep(0, 0.7, 1 - dy / C.spanS);
+        } else {
+          rx = F.pivX + (B[o] - F.pivX) * F.zoom; ry = F.pivY + (B[o + 1] - F.pivY) * F.zoom;
+          hgt = Math.max(0, F.pivY - ry) * F.lean; rx += F.wx * hgt + F.panX; ry += F.wy * hgt + F.panY;
+          r *= F.zoom;
+          band = smoothstep(0, 0.7, 1 - (F.baseT - ry) / F.spanT);
+        }
         if (r <= 1e-4) continue;   // a parcel still too small to draw: skip it, never stop the loop (put() fails for the budget too, and that break hid every later parcel)
-        var band = smoothstep(0, 0.7, 1 - (F.baseT - ry) / F.spanT);
         if (!put(rx, ry, r, z0, 0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp)) break;
-        queue.push({ F: F, x: rx, y: ry, r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: 0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp });
+        queue.push({ F: F, x: rx, y: ry, r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: 0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band });
       }
     }
     // plan the budget: how many puffs each deeper level wants; the deepest level that does not fit
@@ -355,10 +371,10 @@
           // stacked shade: the own gradient is in the shader; the inherited part is the parent's
           // gradient at the birth point (uy > 0 is the parent's underside)
           var stack = q.stack * 0.6 + 0.5 * smoothstep(-0.6, 0.9, uy);
-          var band2 = smoothstep(0, 0.7, 1 - (F.baseT - y) / F.spanT);
+          var band2 = F.cam ? q.band : smoothstep(0, 0.7, 1 - (F.baseT - y) / F.spanT);   // under the camera the band is the parent's (a sheet's rows are depth, not height)
           var pdw2 = clamp(0.5 + 0.5 * (z - F.zOff) / (F.ref * 2), 0, 1) * F.dw, dwp2 = F.idx + pdw2 * 0.25;
           put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2);
-          next.push({ F: F, x: x, y: y, r: cr, z: z, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any });
+          next.push({ F: F, x: x, y: y, r: cr, z: z, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2 });
         }
       }
       queue = next;

@@ -29,7 +29,7 @@
     <h3>Sky</h3>
     <div class="row"><button class="btn" id="btnNew">Regenerate</button><button class="btn" id="btnPlay">Pause</button><label style="width:auto">Seed</label><input id="seed" type="number" value="1" style="width:56px"></div>
     <div id="skyp"></div>
-    <p class="hint">Every cloud is its own sim drawn into one field. Depth sets its scale, parallax, drift, detail and haze; the cloud type (src/presets.js, plus any preset saved in the puff editor) sets its engine and form.</p>
+    <p class="hint">Every cloud is its own sim placed in a world (lateral position, distance, altitude) and projected toward the horizon; the camera glides forward, so near clouds pass overhead and far ones creep in from the horizon. Distance sets scale, parallax, detail and haze; the cloud type (src/presets.js, plus any preset saved in the puff editor) sets its engine and form.</p>
     <h3>Style</h3>
     <div id="style"></div>
     <h3>Light</h3>
@@ -38,11 +38,11 @@
     <div id="cirrus"></div>
   </div>
 </div>
-<script src="src/sim.js?v=110"></script>
-<script src="src/puffs.js?v=110"></script>
-<script src="src/motion.js?v=110"></script>
-<script src="src/layer.js?v=110"></script>
-<script src="src/presets.js?v=110"></script>
+<script src="src/sim.js?v=111"></script>
+<script src="src/puffs.js?v=111"></script>
+<script src="src/motion.js?v=111"></script>
+<script src="src/layer.js?v=111"></script>
+<script src="src/presets.js?v=111"></script>
 <script>
 (function () {
   'use strict';
@@ -58,7 +58,11 @@
     atmos: 0.35, depthFall: 0.6, sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, baseShade: 0.5, stackShade: 0.4,
     cirrus: 0.35, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, pixelated: true };
   // the sky's own parameters
-  var P = { clouds: 9, drift: 0.01, parallax: 0.03, sway: 57, near: 0.6 };
+  var P = { clouds: 12, drift: 0.004, travel: 0.012, parallax: 0.03, sway: 57, near: 0.6, horizon: 0.86 };
+  var Z_NEAR = 0.5, Z_FAR = 3.0;   // world distances: a cloud nearer than Z_NEAR has passed overhead and re-forms at Z_FAR
+  // altitude by type, as a fraction of the frame height at distance 1 (low cloud at the bottom of the scale, cirrus at the top)
+  var ALT = { humilis: 0.45, congestus: 0.45, cumulonimbus: 0.4, stratocumulus: 0.42, stratus: 0.36, altocumulus: 0.62, lenticular: 0.58, altostratus: 0.6, cirrocumulus: 0.8, cirrus: 0.82, contrail: 0.84 };
+  function farOf(z) { return Math.max(0, Math.min(1, (1 / z - 0.3) / 0.7)); }   // the renderer's depth weight (1 near .. 0 far) from distance
 
   // species: the cloud types from src/presets.js (engine, sim preset, layout, primitive, form,
   // preferred depth range), plus any preset saved in the puff editor
@@ -90,45 +94,45 @@
     var asp = canvas.height / canvas.width;
     return eng === 'layer' ? new LayerSim({ seed: seed, preset: preset, aspect: asp }) : new ThermalSim({ seed: seed, preset: preset, aspect: asp, shape: shape });
   }
-  function makeCloud(rng, i, n, farIn) {
-    var far = farIn !== undefined ? farIn : Math.pow(rng(), 0.8);   // 0 far .. 1 near
-    var name = pick(rng, far), sp = SPECIES[name], seed = Math.floor(rng() * 1e6);
+  function makeCloud(rng, z) {
+    var far = farOf(z), aspect = canvas.height / canvas.width;
+    var name = pick(rng, rng()), sp = SPECIES[name], seed = Math.floor(rng() * 1e6);   // the type's depth preference is a taste, not the spawn distance (every cloud starts far)
     var sim = makeSim(sp.engine, sp.preset, seed, sp.shape);
     if (sp.forces) for (var k in sp.forces) sim.params[k] = sp.forces[k];
-    sim.params.parallax = P.parallax * (0.15 + 0.85 * far); sim.params.sway = P.sway;
+    sim.params.parallax = 0;   // the camera sways, not the cloud
     sim.reseat();
-    var zoom = (sp.scale || 1) * (0.3 + 0.7 * Math.pow(far, 1.2)) * P.near;
-    var look = { prim: sp.prim, primAmt: sp.primAmt === undefined ? 1 : sp.primAmt, zoom: zoom,
-      panX: -0.8 + 1.6 * ((i + rng() * 0.7) / n) + (rng() - 0.5) * 0.1, panY: (-0.22 + 0.3 * far) + (rng() - 0.5) * 0.12, far: far };
+    var look = { prim: sp.prim, primAmt: sp.primAmt === undefined ? 1 : sp.primAmt, far: far };
     FORM_KEYS.forEach(function (fk) { if (sp.look && sp.look[fk] !== undefined) look[fk] = sp.look[fk]; });
-    if (look.levels === undefined) look.levels = far < 0.35 ? 2 : 3;
-    if (far < 0.35 && look.levels > 2) look.levels = 2;   // far clouds: fewer levels
+    if (look.levels === undefined) look.levels = 3;
     var sims = [{ sim: sim, look: look }];
     if (sp.extra) {
       var ex = makeSim(sp.extra.engine, sp.extra.preset, seed + 1, 'ring');
-      ex.params.parallax = sim.params.parallax; ex.params.sway = P.sway;
+      ex.params.parallax = 0;
       sims.push({ sim: ex, look: Object.assign({}, look, sp.extra.look || {}), dy: sp.extra.dy || 0, atTop: true });
     }
-    return { sims: sims, name: name, far: far, speed: P.drift * (0.15 + 0.85 * far) };
+    // world placement: within the frustum at this distance (half width z / 2 on screen), at the
+    // type's altitude; a sheet lies flat and recedes over span
+    var s = (sp.scale || 1) * P.near, flat = sp.engine === 'layer' ? (sim.params.mode === 'streak' ? 0.5 : 1) : 0;
+    var base = ALT[CLOUD_PRESETS[name] ? name : (sp.type || 'congestus')] || 0.3;
+    return { sims: sims, name: name, far: far, z: z, x: (rng() - 0.5) * 1.1 * z, h: (base + (rng() - 0.5) * 0.08) * aspect, s: s, flat: flat,
+      span: flat ? s * (sim.params.width || 1) * 1.2 : 0 };
   }
   function build() {
     var rng = mulberry((+$('seed').value | 0) * 7919 + 17);
     clouds = [];
     var n = Math.max(1, Math.round(P.clouds));
-    // stratified depths (every sky gets its full range) in a shuffled order across the width
-    var fars = []; for (var i = 0; i < n; i++) fars.push(Math.pow((i + 0.1 + rng() * 0.8) / n, 0.9));
-    for (i = n - 1; i > 0; i--) { var j = Math.floor(rng() * (i + 1)), tmp = fars[i]; fars[i] = fars[j]; fars[j] = tmp; }
-    for (i = 0; i < n; i++) clouds.push(makeCloud(rng, i, n, fars[i]));
-    clouds.sort(function (a, b) { return a.far - b.far; });
+    // stratified distances, more of them far away (the frustum widens with distance)
+    for (var i = 0; i < n; i++) clouds.push(makeCloud(rng, Z_NEAR + 0.3 + Math.sqrt((i + rng()) / n) * (Z_FAR - Z_NEAR - 0.3)));
+    clouds.sort(function (a, b) { return b.z - a.z; });
     window.clouds = clouds;
   }
 
-  var SKYP = [['clouds', 'Clouds', 1, 14, 1], ['near', 'Near size', 0.3, 1.4, 0.01], ['drift', 'Drift', 0, 0.05, 0.001], ['parallax', 'Parallax', 0, 0.08, 0.002], ['sway', 'Sway (s)', 5, 120, 1]];
+  var SKYP = [['clouds', 'Clouds', 1, 14, 1], ['near', 'Near size', 0.3, 1.4, 0.01], ['travel', 'Travel', 0, 0.05, 0.001], ['drift', 'Drift', -0.02, 0.02, 0.001], ['parallax', 'Parallax', 0, 0.08, 0.002], ['sway', 'Sway (s)', 5, 120, 1], ['horizon', 'Horizon', 0.5, 1, 0.01]];
   var STYLE = [['softness', 'Softness', 0.3, 4, 0.01], ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['dissolve', 'Dissolve', 0, 1, 0.01], ['dotSize', 'Dot size', 1, 4, 1], ['atmos', 'Atmosphere', 0, 1, 0.01], ['depthFall', 'Depth falloff', 0, 1, 0.01]];
   var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['shadow', 'Shadow', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
   var CIRRUS = [['cirrus', 'Cirrus', 0, 1, 0.01], ['cirrusScale', 'Scale', 0.5, 6, 0.1], ['cirrusAngle', 'Angle (deg)', -45, 45, 1], ['cirrusFlow', 'Flow', 0, 0.1, 0.001]];
-  var TIPS = { clouds: 'How many clouds the sky holds (regenerates).', near: 'Scale of the nearest cloud; every depth scales from it (regenerates).', drift: 'Sideways drift speed; near clouds drift faster. A cloud that leaves the frame re-forms on the other side.',
-    parallax: 'Sway of the eye; near clouds sway more.', sway: 'Period of the sway in seconds.', atmos: 'How much far clouds take on the sky colour.', depthFall: 'How much far clouds lose shadow, noise and crispness.',
+  var TIPS = { clouds: 'How many clouds the sky holds (regenerates).', near: 'Size of a cloud at distance 1 (regenerates).', travel: 'Forward glide of the camera; a cloud that passes overhead re-forms far away.', drift: 'Sideways wind in world units; near clouds cross faster.',
+    parallax: 'Sway of the camera; near clouds sway more.', horizon: 'Where the horizon line sits (fraction of the height); far clouds converge on it.', sway: 'Period of the sway in seconds.', atmos: 'How much far clouds take on the sky colour.', depthFall: 'How much far clouds lose shadow, noise and crispness.',
     cirrus: 'Amount of high streak cloud behind everything.', cirrusScale: 'Size of the cirrus streaks.', cirrusAngle: 'Direction of the streaks.', cirrusFlow: 'Scroll speed of the streaks.' };
   var sliders = {};
   function slider(parent, target, spec, onChange) {
@@ -143,7 +147,6 @@
   }
   SKYP.forEach(function (s) { slider($('skyp'), function () { return P; }, s, function (k) {
     if (k === 'clouds' || k === 'near') build();
-    else clouds.forEach(function (c) { c.sims.forEach(function (e) { e.sim.params.parallax = P.parallax * (0.15 + 0.85 * c.far); e.sim.params.sway = P.sway; }); c.speed = P.drift * (0.15 + 0.85 * c.far); });
   }); });
   STYLE.forEach(function (s) { slider($('style'), function () { return sky; }, s); });
   LIGHT.forEach(function (s) { slider($('light'), function () { return sky; }, s); });
@@ -159,19 +162,33 @@
   var last = performance.now(), fpsT = 0, frames = 0, fps = 0, t = 0;
   function loop(now) {
     var dt = Math.min(0.1, (now - last) / 1000); last = now;
+    var aspect = canvas.height / canvas.width;
     if (playing) {
       t += dt;
       for (var i = 0; i < clouds.length; i++) {
         var c = clouds[i], main = c.sims[0];
         for (var j = 0; j < c.sims.length; j++) {
           var e = c.sims[j];
-          e.sim.aspect = canvas.height / canvas.width;
+          e.sim.aspect = aspect;
           if (e.atTop) { e.sim.params.level = (main.sim.topY + e.dy) / main.sim.aspect; e.sim.params.wind = main.look.wind || 0; }
           e.sim.step(dt);
-          e.look.panX = main.look.panX; e.look.panY = main.look.panY;
         }
-        main.look.panX += c.speed * dt;
-        if (main.look.panX > 0.85) { main.look.panX = -0.85; c.sims.forEach(function (e) { e.sim.reset(Math.floor(Math.random() * 1e6), e.sim.preset); }); }
+        // the camera glides forward and the wind carries the cloud sideways; past the camera (or
+        // out of the frustum) it re-forms far away as a new cloud
+        c.z -= P.travel * dt; c.x += P.drift * dt;
+        if (c.z < Z_NEAR || Math.abs(c.x) > 0.5 * c.z + 0.3) clouds[i] = makeCloud(mulberry(Math.floor(Math.random() * 1e9)), Z_FAR + Math.random() * 0.4);
+      }
+    }
+    // projection: camera sway in world units, the horizon line, each sim's world frame
+    var sw = 6.2832 / Math.max(5, P.sway), camX = P.parallax * Math.sin(t * sw), camY = P.parallax * 0.35 * Math.sin(t * sw * 0.66 + 1), hor = P.horizon * aspect;
+    for (i = 0; i < clouds.length; i++) {
+      c = clouds[i]; main = c.sims[0]; c.far = farOf(c.z);
+      for (j = 0; j < c.sims.length; j++) {
+        e = c.sims[j];
+        var h = c.h - camY, flat = c.flat, span = c.span;
+        if (e.atTop) { h += (main.sim.baseY - e.sim.baseY) * c.s; flat = 1; span = c.s * 0.9; }   // the anvil spreads flat at the tower top
+        e.look.cam = { x: c.x - camX, z: c.z, h: h, s: c.s, f: 1, hor: hor, flat: flat, span: span };
+        e.look.far = c.far;
       }
     }
     var flat = []; clouds.forEach(function (c) { c.sims.forEach(function (e) { flat.push(e); }); });
