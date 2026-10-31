@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plume Clouds — Puffs</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1b1f22; color: #d8e2e6; font: 12px/1.4 system-ui, sans-serif; overflow: hidden; }
+  #app { display: flex; height: 100%; }
+  #stage { flex: 1; position: relative; background: #10303c; }
+  canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+  #panel { user-select: none; -webkit-user-select: none; width: 260px; background: #23282c; border-left: 1px solid #000; overflow-y: auto; padding: 8px; box-sizing: border-box; }
+  h3 { margin: 10px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #9fb0b8; }
+  .row { display: flex; align-items: center; gap: 6px; height: 22px; }
+  .row label { width: 72px; color: #b8c4ca; white-space: nowrap; overflow: hidden; }
+  .row input[type=range] { flex: 1; min-width: 0; }
+  .row .val { width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+  .btn { background: #343b40; color: #d8e2e6; border: 1px solid #000; border-radius: 3px; padding: 3px 8px; font: inherit; cursor: pointer; }
+  .btn.on { background: #4a7a94; }
+  .seg { display: flex; gap: 4px; flex-wrap: wrap; }
+  #hud { position: absolute; left: 10px; top: 10px; background: rgba(0,0,0,.45); padding: 6px 10px; border-radius: 4px; white-space: pre; }
+  p.hint { color: #8d9ca4; margin: 4px 0 8px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage"><canvas id="canvas"></canvas><div id="hud"></div></div>
+  <div id="panel">
+    <h3>Formation</h3>
+    <div class="seg" id="presets"></div>
+    <div class="seg" id="looks" style="margin-top:4px"></div>
+    <div class="row" style="margin-top:4px"><input id="lookName" placeholder="preset name" style="flex:1;min-width:0"><button class="btn" id="btnSave">Save</button><button class="btn" id="btnDel">Delete</button></div>
+    <div class="row" style="margin-top:6px"><button class="btn" id="btnPlay">Pause</button><button class="btn" id="btnReset">Reset</button><label style="width:auto">Seed</label><input id="seed" type="number" value="1" style="width:56px"></div>
+    <h3>Shape</h3>
+    <div class="row"><label>Layout</label><select id="shapes" style="flex:1"></select></div>
+    <div class="row"><label>Primitive</label><select id="prims" style="flex:1"></select></div>
+    <h3>View</h3>
+    <div id="view"></div>
+    <h3>Forces</h3>
+    <div id="forces"></div>
+    <h3>Surface</h3>
+    <div id="surface"></div>
+    <h3>Light</h3>
+    <div id="light"></div>
+  </div>
+</div>
+<script src="src/sim.js?v=97"></script>
+<script src="src/puffs.js?v=97"></script>
+<script src="src/motion.js?v=97"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var canvas = $('canvas'), stageEl = $('stage'), hud = $('hud');
+  function fit() { canvas.width = Math.max(320, Math.floor(stageEl.clientWidth / 2)); canvas.height = Math.max(200, Math.floor(stageEl.clientHeight / 2)); }
+  fit(); addEventListener('resize', fit);
+  var renderer = new PuffRenderer(canvas);
+  renderer.resize(240);
+  var sim = new ThermalSim({ seed: 1, preset: 'congestus', aspect: canvas.height / canvas.width });
+
+  var look = { children: 6, ratio: 0.62, levels: 3, life: 1, embed: 0.9, softness: 1.0, depth: 1, roll: 1,
+    noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, flow: 0.04, smooth: 0.5, haze: 0.5, shear: 0, wind: 0, lean: 0, prim: 'sphere', primAmt: 1, panX: 0, panY: 0, dither: 0, anchor: 1, zoom: 1,
+    sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, baseShade: 0.5, stackShade: 0.4, pixelated: true };
+
+  var FORCES = [
+    ['updraft', 'Updraft', 0, 0.5, 0.005], ['width', 'Width', 0.05, 0.5, 0.005], ['height', 'Height', 0.05, 0.6, 0.005],
+    ['rise', 'Rise', 0, 0.02, 0.0005], ['expand', 'Expand', 0, 0.01, 0.0002], ['settle', 'Settle', 0, 1, 0.01],
+    ['count', 'Parcels', 4, 63, 1], ['size', 'Size', 0.03, 0.2, 0.001], ['jitter', 'Jitter', 0, 0.5, 0.005], ['mixing', 'Mixing (s)', 1, 30, 0.5], ['pulse', 'Bubble (s)', 0, 40, 0.5], ['base', 'Base level', 0.2, 1, 0.01], ['rollGain', 'Roll gain', 0, 24, 0.1], ['formTime', 'Form (s)', 0, 300, 5], ['reservoir', 'Base share', 0, 0.6, 0.05], ['parallax', 'Parallax', 0, 0.08, 0.002], ['sway', 'Sway (s)', 5, 120, 1]
+  ];
+  var SURFACE = [['children', 'Children', 0, 6, 1], ['ratio', 'Size ratio', 0.25, 0.7, 0.01], ['levels', 'Levels', 1, 3, 1], ['life', 'Life', 0, 3, 0.01], ['embed', 'Embed', 0.4, 1, 0.01], ['softness', 'Softness', 0.3, 4, 0.01], ['depth', 'Depth', 0, 2, 0.01],
+    ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['shear', 'Shear', 0, 3, 0.05], ['wind', 'Wind (deg)', -90, 90, 1], ['lean', 'Lean', -1, 1, 0.01], ['primAmt', 'Primitive amt', 0, 1, 0.01]];
+  var VIEW = [['zoom', 'Scale', 0.5, 2.5, 0.05], ['panX', 'Pan X', -1, 1, 0.01], ['panY', 'Pan Y', -1, 1, 0.01]];
+  var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['shadow', 'Shadow', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
+  var TIPS = {
+    updraft: 'Strength of the thermal: how fast parcels rise up the axis and roll over at the top.',
+    width: 'Ring width: how far the circulation spreads sideways.',
+    height: 'Ring height: how tall the circulation is above the base line.',
+    rise: 'Slow drift of the whole thermal upward over time (capped).',
+    expand: 'Slow widening of the ring over time (capped).',
+    settle: 'Drag near the base: higher keeps the lowest parcels lingering longer.',
+    count: 'Number of live parcels (root puffs).',
+    size: 'Base radius of a parcel; everything scales from it.',
+    jitter: 'Random wander added to each parcel\'s motion.',
+    mixing: 'Seconds a sinking flank parcel stays fresh before it mixes away and retires.',
+    pulse: 'Seconds between bubbles: cohorts of new parcels released with a surge up the axis. 0 is a steady trickle.',
+    base: 'Condensation level: the flat base line below which parcels evaporate.',
+    rollGain: 'How fast billows roll with the local vorticity.',
+    formTime: 'Seconds the cloud takes to form from a compact puff. 0 starts fully grown.',
+    reservoir: 'Share of parcels kept as a dense, soft reservoir just above the base.',
+    parallax: 'Sideways sway of the eye; every parcel shifts by its depth.',
+    sway: 'Period of the parallax sway in seconds.',
+    children: 'Puffs each parcel grows on its shell, at every level.',
+    ratio: 'Child radius as a fraction of its parent.',
+    levels: 'Depth of the recursion: 1 is bare parcels, 3 is grandchildren.',
+    life: 'Speed of the child cycle (born on top, carried round, swells, subsides, reseeds). 0 freezes it.',
+    embed: 'How far out on the parent shell a child sits: lower buries it, higher perches it.',
+    softness: 'Blend width of the soft union between puffs.',
+    depth: 'Scale of the pseudo-3D depth: how far back puffs sit behind their neighbours.',
+    noise: 'Amplitude of the main surface noise.',
+    noiseScale: 'Frequency of the main noise.',
+    noise2: 'Amplitude of the finer second noise.',
+    noise2Scale: 'Frequency of the second noise.',
+    noiseBias: 'Where noise lives: -1 only in shadow, +1 only in light.',
+    flow: 'Scroll speed of the noise over the surface.',
+    anchor: 'How much the noise rides on each parcel (1) versus staying fixed in screen space (0).',
+    smooth: 'Footprint of the normal: higher softens the shading.',
+    shear: 'How far dispersing parcels stretch along the wind as they mix away.',
+    wind: 'Wind direction in degrees for Shear and Lean. 0 is to the right.',
+    lean: 'Tilt of the whole cloud downwind with height above the base.',
+    primAmt: 'Blend from a sphere (0) to the chosen primitive (1).',
+    sun: 'Sun azimuth in degrees.',
+    elevation: 'Sun elevation in degrees; negative lights from below.',
+    shadow: 'Darkness of the shadowed side.',
+    fill: 'Bounce light from the sky side, opposite the sun.',
+    baseShade: 'Darkening from crown to base across the whole cloud.',
+    stackShade: 'Darkening each puff inherits from sitting under its parent.',
+    haze: 'Softening of old, mixed parcels: flatter shading and a fainter edge.',
+    dither: 'Dispersing puffs dissolve into the pixel grid instead of fading.',
+    bands: 'Number of colour bands in the palette.',
+    zoom: 'View scale about the base line; the sim is untouched.',
+    panX: 'View offset sideways.',
+    panY: 'View offset up and down.'
+  };
+  var sliders = {};
+  function slider(parent, target, spec) {
+    var row = document.createElement('div'); row.className = 'row';
+    var label = document.createElement('label'); label.textContent = spec[1]; label.title = TIPS[spec[0]] || '';
+    var range = document.createElement('input'); range.type = 'range'; range.min = spec[2]; range.max = spec[3]; range.step = spec[4]; range.title = label.title;
+    var val = document.createElement('span'); val.className = 'val';
+    row.appendChild(label); row.appendChild(range); row.appendChild(val); parent.appendChild(row);
+    function show() { var v = target()[spec[0]]; range.value = v; val.textContent = spec[4] >= 1 ? String(v) : (+v).toFixed(spec[4] < 0.001 ? 4 : spec[4] < 0.01 ? 3 : 2); }
+    range.addEventListener('input', function () { var v = +range.value; target()[spec[0]] = v; if (spec[0] === 'width' || spec[0] === 'height' || spec[0] === 'base') sim.reseat(); show(); });
+    sliders[spec[0]] = show; show();
+  }
+  FORCES.forEach(function (s) { slider($('forces'), function () { return sim.params; }, s); });
+  SURFACE.forEach(function (s) { slider($('surface'), function () { return look; }, s); });
+  LIGHT.forEach(function (s) { slider($('light'), function () { return look; }, s); });
+  VIEW.forEach(function (s) { slider($('view'), function () { return look; }, s); });
+  function refresh() { for (var k in sliders) sliders[k](); }
+
+  ThermalSim.PRESETS.forEach(function (p) {
+    var b = document.createElement('button'); b.className = 'btn' + (p === sim.preset ? ' on' : ''); b.textContent = p;
+    b.addEventListener('click', function () { sim.setPreset(p); refresh(); document.querySelectorAll('#presets .btn').forEach(function (x) { x.classList.toggle('on', x === b); }); });
+    $('presets').appendChild(b);
+  });
+  // Page presets: forces + surface + light together (the sim preset row above only sets forces).
+  var LOOKS = {
+    lantern: { seed: 1, forces: { updraft: 0.04, width: 0.13, height: 0.18, rise: 0.0004, expand: 0.0002, settle: 0.61, count: 60, size: 0.03, jitter: 0.5, mixing: 20.5, pulse: 0, base: 0.21, rollGain: 8.4, formTime: 90, reservoir: 0.35, parallax: 0 },
+      look: { children: 5, ratio: 0.7, levels: 3, life: 0.11, embed: 0.67, softness: 4, depth: 2, noise: 0.11, noiseScale: 4, noise2: 0, noiseBias: 0, flow: 0.034, smooth: 0, haze: 0, sun: 81, elevation: -40, shadow: 0.64, baseShade: 0.59, stackShade: 1, bands: 5 } }
+  };
+  // saved presets live in localStorage beside the built-in ones
+  var STORE = 'plume-puffs-looks';
+  function saved() { try { return JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (e) { return {}; } }
+  function applyLook(L) {
+    $('seed').value = L.seed; sim.shape = L.shape || 'ring'; sim.reset(L.seed, sim.preset);
+    $('shapes').value = sim.shape;
+    for (var k in L.forces) sim.params[k] = L.forces[k]; sim.reseat();
+    for (var j in L.look) look[j] = L.look[j];
+    look.prim = L.prim || 'sphere'; $('prims').value = look.prim;
+    refresh();
+  }
+  function drawLooks() {
+    var all = Object.assign({}, LOOKS, saved()), host = $('looks'); host.innerHTML = '';
+    Object.keys(all).forEach(function (name) {
+      var b = document.createElement('button'); b.className = 'btn'; b.textContent = name;
+      b.addEventListener('click', function () { applyLook(all[name]); $('lookName').value = name; });
+      host.appendChild(b);
+    });
+  }
+  drawLooks();
+  $('btnSave').addEventListener('click', function () {
+    var name = $('lookName').value.trim(); if (!name) return;
+    var forces = {}; FORCES.forEach(function (s) { forces[s[0]] = sim.params[s[0]]; });
+    var lk = {}; SURFACE.concat(LIGHT, VIEW).forEach(function (s) { lk[s[0]] = look[s[0]]; });
+    var all = saved(); all[name] = { seed: +$('seed').value | 0, shape: sim.shape, prim: look.prim, forces: forces, look: lk };
+    localStorage.setItem(STORE, JSON.stringify(all)); drawLooks();
+  });
+  $('btnDel').addEventListener('click', function () {
+    var name = $('lookName').value.trim(), all = saved(); if (!all[name]) return;
+    delete all[name]; localStorage.setItem(STORE, JSON.stringify(all)); drawLooks();
+  });
+  function fill(sel, names, cur) { names.forEach(function (nm) { var o = document.createElement('option'); o.value = nm; o.textContent = nm; sel.appendChild(o); }); sel.value = cur; }
+  fill($('shapes'), ThermalSim.SHAPES, sim.shape); fill($('prims'), PuffRenderer.PRIMS, look.prim);
+  $('shapes').addEventListener('change', function () { sim.setShape(this.value); refresh(); });
+  $('prims').addEventListener('change', function () { look.prim = this.value; });
+  var playing = true;
+  $('btnPlay').addEventListener('click', function () { playing = !playing; this.textContent = playing ? 'Pause' : 'Play'; });
+  $('btnReset').addEventListener('click', function () { sim.reset(+$('seed').value | 0, sim.preset); refresh(); });
+  $('seed').addEventListener('change', function () { sim.reset(+this.value | 0, sim.preset); });
+
+  window.sim = sim; window.look = look; window.renderer = renderer;
+  var last = performance.now(), fpsT = 0, frames = 0, fps = 0;
+  function loop(now) {
+    var dt = Math.min(0.1, (now - last) / 1000); last = now;
+    sim.aspect = canvas.height / canvas.width;
+    if (playing) sim.step(dt);
+    renderer.render(sim, look, sim.time);
+    frames++; fpsT += dt;
+    if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
+    hud.textContent = 'fps ' + fps + '   parcels ' + sim.blobCount + '   puffs ' + renderer.count + '   t ' + sim.time.toFixed(0) + 's';
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
