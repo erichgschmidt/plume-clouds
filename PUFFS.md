@@ -88,8 +88,8 @@ stratocumulus, tower, altocumulus, plus any preset saved in puffs.html), scale, 
 drift, detail level and haze from depth; one field, one style. Measured: 7 clouds, 3983 puffs,
 400-texel field: render 0.89 ms, tree 0.94 ms, sims 0.05 ms (`29-sky-seed1-t80.jpg`).
 
-**Old renderer**: motion.html / src/render.js stay as a reference. They read only the first 64
-blobs and have no shape dropdown; not updated further.
+**Old renderer**: motion.html (the reference sandbox the rebuild started from) is removed as of
+2026-10-31. src/render.js stays because index.html, game.html and puff.html still use it.
 
 **Still open**: the sky's composition is a first pass (far clouds too few and too low in frame
 at some seeds); species weights are hand-set; no per-cloud wind drift of the cirrus; the
