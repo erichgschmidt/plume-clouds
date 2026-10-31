@@ -28,6 +28,7 @@
   <div id="panel">
     <h3>Formation</h3>
     <div class="seg" id="presets"></div>
+    <div class="seg" id="looks" style="margin-top:4px"></div>
     <div class="row" style="margin-top:6px"><button class="btn" id="btnPlay">Pause</button><button class="btn" id="btnReset">Reset</button><label style="width:auto">Seed</label><input id="seed" type="number" value="1" style="width:56px"></div>
     <h3>Forces</h3>
     <div id="forces"></div>
@@ -39,9 +40,9 @@
     <div id="light"></div>
   </div>
 </div>
-<script src="src/sim.js?v=84"></script>
-<script src="src/puffs.js?v=84"></script>
-<script src="src/motion.js?v=84"></script>
+<script src="src/sim.js?v=85"></script>
+<script src="src/puffs.js?v=85"></script>
+<script src="src/motion.js?v=85"></script>
 <script>
 (function () {
   'use strict';
@@ -85,6 +86,21 @@
     var b = document.createElement('button'); b.className = 'btn' + (p === sim.preset ? ' on' : ''); b.textContent = p;
     b.addEventListener('click', function () { sim.setPreset(p); refresh(); document.querySelectorAll('#presets .btn').forEach(function (x) { x.classList.toggle('on', x === b); }); });
     $('presets').appendChild(b);
+  });
+  // Page presets: forces + surface + light together (the sim preset row above only sets forces).
+  var LOOKS = {
+    lantern: { seed: 1, forces: { updraft: 0.04, width: 0.13, height: 0.18, rise: 0.0004, expand: 0.0002, settle: 0.61, count: 60, size: 0.03, jitter: 0.5, mixing: 20.5, pulse: 0, base: 0.21, rollGain: 8.4, formTime: 90, reservoir: 0.35, parallax: 0 },
+      look: { children: 5, ratio: 0.7, levels: 3, life: 0.11, embed: 0.67, softness: 4, depth: 2, noise: 0.11, noiseScale: 4, noise2: 0, noiseBias: 0, flow: 0.034, smooth: 0, haze: 0, sun: 81, elevation: -40, shadow: 0.64, baseShade: 0.59, stackShade: 1, bands: 5 } }
+  };
+  Object.keys(LOOKS).forEach(function (name) {
+    var L = LOOKS[name], b = document.createElement('button'); b.className = 'btn'; b.textContent = name;
+    b.addEventListener('click', function () {
+      $('seed').value = L.seed; sim.reset(L.seed, sim.preset);
+      for (var k in L.forces) sim.params[k] = L.forces[k]; sim.reseat();
+      for (var j in L.look) look[j] = L.look[j];
+      refresh();
+    });
+    $('looks').appendChild(b);
   });
   var playing = true;
   $('btnPlay').addEventListener('click', function () { playing = !playing; this.textContent = playing ? 'Pause' : 'Play'; });
