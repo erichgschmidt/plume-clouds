@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title desc">
+  <title id="title">How a cirrostratus cloud gets its shape</title>
+  <desc id="desc">Four schematic panels show a spreading ice veil ahead of a warm front, a thin fibrous high layer and a 22 degree solar halo, thickening toward altostratus, and a pale painted sky. Hexagonal ice crystals refract sunlight to make the halo. Orange arrows indicate air motion. Halo views are sky views, not cross sections; dimensions are schematic.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#ce6847" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <marker id="lightArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#b58d42" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <style>
+      text { font-family: 'Segoe UI', Arial, sans-serif; fill: #374750; }
+      .heading { font-size: 21px; font-weight: 650; }
+      .label { font-size: 16px; }
+      .small { font-size: 14px; }
+      .note { font-size: 17px; }
+      .outline { stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .motion { fill: none; stroke: #ce6847; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .leader { fill: none; stroke: #657c89; stroke-width: 1.4; stroke-linecap: round; }
+      .cloud { fill: #fffbee; stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .fibre { fill: none; stroke: #9bafbe; stroke-width: 1.5; stroke-linecap: round; }
+    </style>
+    <pattern id="grain" width="29" height="23" patternUnits="userSpaceOnUse"><path d="M4 8 l5 -1 M19 18 l3 -1" stroke="#9bafbe" stroke-width="1" opacity=".22"/></pattern>
+    <linearGradient id="paleSky" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#dcecf1"/><stop offset="1" stop-color="#f6f3ea"/></linearGradient>
+  </defs>
+  <rect width="1400" height="900" fill="#f6f3ea"/>
+  <text x="40" y="58" font-size="34" font-weight="650">How a cirrostratus cloud gets its shape</text>
+  <text x="42" y="88" font-size="17" fill="#657c89">High ice spreads into a thin veil. Sunlight makes a halo. The sheet thickens as a warm front approaches.</text>
+  <g fill="#dcecf1" stroke="#bdced2" stroke-width="1.5">
+    <rect x="30" y="120" width="325" height="735" rx="18"/>
+    <rect x="368" y="120" width="325" height="735" rx="18"/>
+    <rect x="706" y="120" width="325" height="735" rx="18"/>
+    <rect x="1044" y="120" width="326" height="735" rx="18"/>
+  </g>
+  <!-- 1: Sky view of a spreading veil, with a separate crystal detail. -->
+  <g>
+    <circle cx="60" cy="154" r="15" fill="#fffbee"/><text x="60" y="160" text-anchor="middle" font-size="17" font-weight="700">1</text>
+    <text x="84" y="161" class="heading">Ice veil spreads</text>
+    <text x="50" y="197" class="small">High ice arrives ahead of a warm front</text>
+    <text x="192" y="247" text-anchor="middle" class="label">a veil across the whole sky</text>
+    <path d="M57 320 Q49 303 68 295 Q79 280 100 290 Q117 272 140 286 Q163 271 185 283 Q210 270 234 284 Q257 273 278 288 Q303 279 322 299 Q338 310 327 327 L327 441 Q336 461 314 468 Q294 483 272 470 Q248 485 226 474 Q201 487 180 474 Q154 486 132 474 Q109 487 87 472 Q59 480 56 457Z" class="cloud" fill-opacity=".5" stroke-opacity=".6"/>
+    <path d="M57 449 Q83 465 106 454 Q137 468 163 456 Q197 468 224 456 Q259 468 287 455 Q311 466 327 450 L327 461 Q304 479 278 468 Q251 481 226 470 Q200 483 176 470 Q146 482 120 470 Q88 481 57 463Z" fill="#b6c5cd" opacity=".35"/>
+    <path d="M72 326 Q125 308 172 318 M216 302 L304 292 M77 435 Q125 419 164 425 M222 443 Q267 425 313 430" class="fibre" opacity=".6"/>
+    <circle cx="192" cy="378" r="66" fill="none" stroke="#fffbee" stroke-width="9"/>
+    <circle cx="192" cy="378" r="62" fill="none" stroke="#e1cfaa" stroke-width="1.5"/>
+    <circle cx="192" cy="378" r="16" fill="#f7dda0" stroke="#b58d42" stroke-width="2"/>
+    <path d="M177 275 Q126 262 79 278 M211 275 Q266 259 313 277" class="motion"/>
+    <text x="192" y="510" text-anchor="middle" class="small">halo around the sun</text>
+    <path d="M244 494 L260 456" class="leader"/>
+    <path d="M156 554 L172 544 L188 554 L188 574 L172 584 L156 574Z" class="cloud"/>
+    <path d="M106 551 L160 559 L184 570 L235 598" fill="none" stroke="#b58d42" stroke-width="2" marker-end="url(#lightArrow)"/>
+    <text x="192" y="628" text-anchor="middle" class="label">hexagonal ice bends sunlight</text>
+    <text x="52" y="690" class="note"><tspan x="52">Ice crystals spread into a veil.</tspan><tspan x="52" dy="27">The sky stays translucent;</tspan><tspan x="52" dy="27">refracted light forms a halo.</tspan></text>
+    <text x="52" y="818" class="small">Sky view; crystal detail enlarged</text>
+  </g>
+  <!-- 2: Separate the vertical section from the angular sky view. -->
+  <g>
+    <circle cx="398" cy="154" r="15" fill="#fffbee"/><text x="398" y="160" text-anchor="middle" font-size="17" font-weight="700">2</text>
+    <text x="422" y="161" class="heading">A thin high layer</text>
+    <text x="388" y="197" class="small">Fibrous ice lets the bright sun show</text>
+    <text x="530" y="247" text-anchor="middle" class="label">cross-section: thin, high sheet</text>
+    <path d="M397 289 Q407 278 424 284 Q440 274 459 282 Q478 272 497 280 Q517 271 537 279 Q557 271 577 278 Q597 270 617 278 Q641 270 663 281 L663 300 Q643 310 622 302 Q601 312 580 304 Q560 313 539 306 Q518 314 497 307 Q476 316 455 309 Q433 318 412 310 Q394 314 397 289Z" class="cloud"/>
+    <path d="M399 302 Q431 308 460 301 T522 299 T584 295 T662 293 L663 300 Q638 312 614 304 Q580 313 548 306 Q517 315 488 308 Q452 318 424 310 L400 310Z" fill="#b6c5cd" opacity=".6"/>
+    <path d="M411 293 L466 287 M478 294 L536 285 M551 291 L608 282 M620 290 L649 284" class="fibre"/>
+    <path d="M419 336 L642 322" class="motion"/>
+    <path d="M401 376 H662" class="leader" stroke-dasharray="4 6" opacity=".4"/>
+    <text x="530" y="410" text-anchor="middle" class="small">looking up through the layer</text>
+    <circle cx="531" cy="519" r="77" fill="#fffbee" fill-opacity=".22" stroke="#fffbee" stroke-width="9"/>
+    <circle cx="531" cy="519" r="73" fill="none" stroke="#e1cfaa" stroke-width="1.5"/>
+    <circle cx="531" cy="519" r="16" fill="#f7dda0" stroke="#b58d42" stroke-width="2"/>
+    <path d="M531 519 L600 488" class="leader"/>
+    <text x="563" y="478" class="label">22°</text>
+    <text x="531" y="632" text-anchor="middle" class="label">halo: 22° from the sun</text>
+    <text x="390" y="690" class="note"><tspan x="390">A shallow sheet lies high up.</tspan><tspan x="390" dy="27">Fine fibres soften its edges;</tspan><tspan x="390" dy="27">the sun remains distinct.</tspan></text>
+    <text x="390" y="818" class="small">Halo radius is an angle on the sky</text>
+  </g>
+  <!-- 3: Successive stages, not two simultaneous cloud decks. -->
+  <g>
+    <circle cx="736" cy="154" r="15" fill="#fffbee"/><text x="736" y="160" text-anchor="middle" font-size="17" font-weight="700">3</text>
+    <text x="760" y="161" class="heading">The veil thickens</text>
+    <text x="726" y="197" class="small">Fibres align with the high wind</text>
+    <text x="868" y="247" text-anchor="middle" class="label">earlier: cirrostratus</text>
+    <path d="M740 297 Q749 283 768 290 Q787 277 807 286 Q830 274 851 283 Q873 272 895 281 Q916 270 938 280 Q961 269 982 280 Q1000 276 1000 294 L997 313 Q977 323 958 316 Q935 327 914 319 Q892 329 871 321 Q849 332 828 324 Q805 334 783 327 Q758 335 740 324Z" class="cloud" fill-opacity=".65"/>
+    <path d="M742 317 Q770 326 798 317 T856 313 T914 308 T998 302 L997 313 Q973 324 950 317 Q923 330 899 322 Q870 333 843 325 Q815 337 788 328 Q760 336 742 324Z" fill="#b6c5cd" opacity=".5"/>
+    <path d="M759 307 L815 296 M828 305 L890 292 M905 301 L973 287" class="fibre"/>
+    <path d="M757 361 L981 337" class="motion"/>
+    <text x="866" y="391" text-anchor="middle" class="small">high wind stretches the fibres</text>
+    <path d="M868 418 V458 M862 452 L868 458 L874 452" class="leader"/>
+    <text x="868" y="490" text-anchor="middle" class="label">later: altostratus</text>
+    <path d="M741 530 Q753 515 774 523 Q795 510 818 520 Q840 508 864 518 Q888 507 911 517 Q935 507 957 518 Q981 509 997 526 L999 587 Q984 602 961 595 Q936 606 914 597 Q889 609 865 599 Q839 610 817 601 Q791 611 769 601 Q744 608 740 589Z" class="cloud"/>
+    <path d="M742 554 Q773 568 804 555 Q838 571 871 556 Q904 572 935 556 Q968 569 998 550 L999 587 Q981 604 959 595 Q934 606 910 598 Q886 608 862 599 Q838 610 813 601 Q786 611 763 600 Q746 606 740 589Z" fill="#a5b6c3"/>
+    <path d="M754 586 Q870 591 987 580" class="fibre"/>
+    <text x="868" y="635" text-anchor="middle" class="label">a deeper, greyer sheet</text>
+    <text x="728" y="690" class="note"><tspan x="728">As the warm front nears,</tspan><tspan x="728" dy="27">the layer can deepen and lower.</tspan><tspan x="728" dy="27">The sun dims; the halo fades.</tspan></text>
+    <text x="728" y="818" class="small">A common sequence, shown over time</text>
+  </g>
+  <!-- 4: Restrained painted sky; scallops describe the veil's edge. -->
+  <g>
+    <circle cx="1074" cy="154" r="15" fill="#fffbee"/><text x="1074" y="160" text-anchor="middle" font-size="17" font-weight="700">4</text>
+    <text x="1098" y="155" class="heading">Painted (Ghibli)</text>
+    <text x="1098" y="181" class="heading">simplification</text>
+    <text x="1066" y="215" class="small">Lift the sky colour toward pale</text>
+    <text x="1206" y="267" text-anchor="middle" class="label">a faint ring, a bright sun</text>
+    <path d="M1072 324 Q1083 308 1104 316 Q1126 302 1150 312 Q1174 299 1197 309 Q1221 297 1244 308 Q1267 297 1291 309 Q1318 302 1340 320 L1340 552 Q1325 568 1302 560 Q1278 573 1254 563 Q1228 575 1204 564 Q1178 576 1154 565 Q1128 576 1107 565 Q1084 572 1072 555Z" fill="url(#paleSky)" stroke="#97abb6" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M1073 536 Q1104 548 1134 539 Q1170 552 1205 541 Q1240 553 1275 541 Q1309 551 1339 538 L1340 552 Q1325 568 1302 560 Q1278 573 1254 563 Q1228 575 1204 564 Q1178 576 1154 565 Q1128 576 1107 565 Q1084 572 1073 555Z" fill="#b6c5cd" opacity=".25"/>
+    <rect x="1080" y="326" width="252" height="221" fill="url(#grain)"/>
+    <circle cx="1206" cy="423" r="78" fill="none" stroke="#fffbee" stroke-width="10" opacity=".8"/>
+    <circle cx="1206" cy="423" r="73" fill="none" stroke="#e1cfaa" stroke-width="1.5" opacity=".6"/>
+    <circle cx="1206" cy="423" r="19" fill="#fffbee"/>
+    <circle cx="1206" cy="423" r="13" fill="#f7dda0" opacity=".8"/>
+    <path d="M1090 363 Q1122 351 1150 354 M1256 525 Q1292 511 1320 515" class="fibre" opacity=".3"/>
+    <text x="1206" y="605" text-anchor="middle" class="label">faint grain; almost no shadow</text>
+    <path d="M1308 584 L1323 565 L1316 523" class="leader"/>
+    <text x="1206" y="635" text-anchor="middle" class="small">soft scallops dissolve into the sky</text>
+    <text x="1066" y="690" class="note"><tspan x="1066">Keep the veil broad and pale.</tspan><tspan x="1066" dy="27">Use only a trace of fibres;</tspan><tspan x="1066" dy="27">let the halo carry the detail.</tspan></text>
+    <text x="1066" y="818" class="small">A painting study of the same structure</text>
+  </g>
+  <path d="M42 878 L66 878" class="motion"/><text x="77" y="883" font-size="13">air motion</text>
+  <text x="1367" y="883" text-anchor="end" font-size="13" fill="#657c89">Schematic sections and sky views • cloud edges evolve continuously</text>
+</svg>

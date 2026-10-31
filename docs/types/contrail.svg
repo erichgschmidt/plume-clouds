@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title desc">
+  <title id="title">How a contrail cloud gets its shape</title>
+  <desc id="desc">Four panels show aircraft exhaust freezing into a contrail, a sinking wake vortex pair, sideways spreading, pendant lobes and fading beads, then a painted simplification.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#ce6847" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <marker id="lightArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#b58d42" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <style>
+      text { font-family: 'Segoe UI', Arial, sans-serif; fill: #374750; }
+      .heading { font-size: 21px; font-weight: 650; }
+      .label { font-size: 16px; }
+      .small { font-size: 14px; }
+      .note { font-size: 17px; }
+      .outline { stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .motion { fill: none; stroke: #ce6847; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .leader { fill: none; stroke: #657c89; stroke-width: 1.4; stroke-linecap: round; }
+      .cloud { fill: #fffbee; stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <rect width="1400" height="900" fill="#f6f3ea"/>
+  <text x="40" y="58" font-size="34" font-weight="650">How a contrail cloud gets its shape</text>
+  <text x="42" y="88" font-size="17" fill="#657c89">Exhaust freezes into ice. The wake sinks and rolls. Wind stretches the trail into scallops and beads.</text>
+  <g fill="#dcecf1" stroke="#bdced2" stroke-width="1.5">
+    <rect x="30" y="120" width="325" height="735" rx="18"/>
+    <rect x="368" y="120" width="325" height="735" rx="18"/>
+    <rect x="706" y="120" width="325" height="735" rx="18"/>
+    <rect x="1044" y="120" width="326" height="735" rx="18"/>
+  </g>
+
+  <!-- 1: Along-track exhaust above an aft-looking section of the wake. -->
+  <g>
+    <circle cx="60" cy="154" r="15" fill="#fffbee"/><text x="60" y="160" text-anchor="middle" font-size="17" font-weight="700">1</text>
+    <text x="84" y="161" class="heading">Aircraft and wake</text>
+    <text x="50" y="197" class="small">Exhaust water vapour freezes into ice</text>
+    <text x="192" y="246" text-anchor="middle" class="label">ice-supersaturated air</text>
+    <path d="M66 308 Q87 302 110 307 Q133 301 155 306 L246 311 L246 319 L154 321 Q131 326 110 322 Q84 327 66 321Z" class="cloud"/>
+    <path d="M67 318 Q110 322 155 316 L246 316 L246 319 L154 321 Q131 326 110 322 Q84 327 67 321Z" fill="#b6c5cd"/>
+    <path d="M299 315 L271 309 L251 283 L242 283 L251 310 L229 311 L219 301 L212 301 L217 315 L212 329 L219 329 L229 319 L251 320 L242 347 L251 347 L271 321Z" fill="#748c99" stroke="#657c89" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M279 275 L316 275" class="motion"/>
+    <text x="192" y="378" text-anchor="middle" class="label">wake pair, viewed from behind</text>
+    <path d="M77 482 C63 458 75 429 98 429 Q112 413 128 427 C155 424 168 452 153 476 Q154 502 131 506 Q100 519 84 501Z" class="cloud"/>
+    <path d="M231 476 C216 452 229 424 256 427 Q272 413 286 429 C309 429 321 458 307 482 Q300 513 269 508 Q237 512 231 476Z" class="cloud"/>
+    <path d="M78 478 Q113 495 154 474 Q158 504 131 506 Q100 519 84 501Z M231 474 Q270 495 308 478 Q300 513 269 508 Q237 512 231 476Z" fill="#a5b6c3"/>
+    <path d="M89 475 C69 433 129 419 144 453 C158 487 115 499 107 470" class="motion"/>
+    <path d="M295 475 C315 433 255 419 240 453 C226 487 269 499 277 470" class="motion"/>
+    <path d="M178 443 Q192 471 192 511 M113 530 L113 567 M271 530 L271 567" class="motion"/>
+    <text x="192" y="607" text-anchor="middle" class="label">opposite rolls sink together</text>
+    <text x="52" y="670" class="note"><tspan x="52">Cold air turns exhaust moisture</tspan><tspan x="52" dy="27">into a bright line of ice.</tspan><tspan x="52" dy="27">The rolling wake carries</tspan><tspan x="52" dy="27">the young trail downward.</tspan></text>
+    <text x="52" y="818" class="small">Moist air lets the ice trail persist</text>
+  </g>
+  <!-- 2: Transverse section; upper and lower sketches are successive times. -->
+  <g>
+    <circle cx="398" cy="154" r="15" fill="#fffbee"/><text x="398" y="160" text-anchor="middle" font-size="17" font-weight="700">2</text>
+    <text x="422" y="161" class="heading">Line becomes a band</text>
+    <text x="388" y="197" class="small">Cross section: shear and turbulence</text>
+    <text x="531" y="253" text-anchor="middle" class="label">young trail: thin, bright line</text>
+    <path d="M474 301 Q485 294 497 299 Q511 293 523 299 Q538 293 551 299 Q568 294 585 301 L585 309 Q569 314 552 309 Q538 315 523 309 Q509 315 497 309 Q485 314 474 309Z" class="cloud"/>
+    <path d="M477 308 Q529 313 582 307" fill="none" stroke="#b6c5cd" stroke-width="3"/>
+    <path d="M531 346 L531 393" class="leader" stroke-dasharray="4 5"/>
+    <text x="545" y="377" class="small">later</text>
+    <path d="M443 419 L610 419 M612 557 L445 557" class="motion"/>
+    <path d="M411 480 Q407 465 427 462 Q434 448 452 456 Q469 441 486 452 Q503 439 521 451 Q538 441 554 451 Q576 440 592 454 Q609 446 623 460 Q645 457 650 475 Q663 492 643 506 Q628 523 608 511 Q586 528 567 512 Q547 527 527 512 Q504 528 485 513 Q463 525 446 511 Q419 518 411 500 Q402 492 411 480Z" class="cloud"/>
+    <path d="M411 492 Q429 505 448 493 Q468 507 488 493 Q507 509 528 494 Q549 507 568 494 Q587 507 609 494 Q629 506 653 486 Q657 499 643 506 Q628 523 608 511 Q586 528 567 512 Q547 527 527 512 Q504 528 485 513 Q463 525 446 511 Q419 518 411 500Z" fill="#a5b6c3"/>
+    <path d="M454 484 Q467 461 484 482 M565 484 Q581 464 596 482 M431 481 L401 481 M631 481 L662 481" class="motion"/>
+    <text x="531" y="603" text-anchor="middle" class="label">sideways spread + small eddies</text>
+    <text x="390" y="670" class="note"><tspan x="390">Winds differ with height.</tspan><tspan x="390" dy="27">Shear stretches the ice;</tspan><tspan x="390" dy="27">turbulence mixes its edges</tspan><tspan x="390" dy="27">into a wider, softer band.</tspan></text>
+    <text x="390" y="818" class="small">Across the trail; time runs downward</text>
+  </g>
+  <!-- 3: Side-view stages, showing one possible breakup sequence. -->
+  <g>
+    <circle cx="736" cy="154" r="15" fill="#fffbee"/><text x="736" y="160" text-anchor="middle" font-size="17" font-weight="700">3</text>
+    <text x="760" y="161" class="heading">Lobes, beads, fading</text>
+    <text x="726" y="197" class="small">The sinking wake pulls lobes downward</text>
+    <text x="868" y="250" text-anchor="middle" class="label">pendant lobes below the band</text>
+    <path d="M738 292 Q752 280 772 287 Q789 278 808 287 Q828 277 847 287 Q867 279 886 287 Q908 278 927 288 Q953 279 977 291 Q1000 288 1000 307 Q1005 336 984 339 Q977 371 955 353 Q936 375 921 341 Q903 355 886 336 Q880 377 856 355 Q836 374 822 338 Q803 353 788 336 Q780 369 758 350 Q737 352 740 325 Q728 308 738 292Z" class="cloud"/>
+    <path d="M739 314 Q762 327 785 312 Q807 329 827 313 Q850 330 874 314 Q897 327 921 314 Q949 329 972 313 Q987 321 1001 310 Q1005 336 984 339 Q977 371 955 353 Q936 375 921 341 Q903 355 886 336 Q880 377 856 355 Q836 374 822 338 Q803 353 788 336 Q780 369 758 350 Q737 352 740 325Z" fill="#a5b6c3"/>
+    <path d="M772 304 Q763 326 768 349 M862 304 Q851 330 859 352 M955 304 Q944 331 955 350" class="motion"/>
+    <text x="868" y="412" text-anchor="middle" class="label">gaps open: cirrocumulus-like beads</text>
+    <g class="cloud">
+      <path d="M741 455 Q737 442 750 438 Q754 424 768 431 Q784 424 788 439 Q804 441 799 455 Q802 472 786 474 Q772 487 760 475 Q741 477 741 455Z"/>
+      <path d="M831 455 Q824 439 840 435 Q847 423 859 432 Q878 424 882 441 Q897 445 891 460 Q887 480 870 474 Q854 484 845 472 Q829 473 831 455Z"/>
+      <path d="M927 451 Q924 437 939 434 Q947 421 960 431 Q977 426 981 441 Q997 447 987 464 Q982 479 965 473 Q950 482 939 470 Q925 470 927 451Z"/>
+    </g>
+    <path d="M742 458 Q761 468 775 457 Q785 464 800 453 Q802 472 786 474 Q772 487 760 475 Q741 477 742 458Z M831 457 Q850 468 866 456 Q879 466 892 454 Q887 480 870 474 Q854 484 845 472 Q829 473 831 457Z M927 455 Q943 465 958 454 Q974 466 989 452 Q982 479 965 473 Q950 482 939 470 Q925 470 927 455Z" fill="#b6c5cd"/>
+    <g opacity=".38" class="cloud">
+      <path d="M751 566 Q759 550 776 557 Q792 549 800 564 Q811 577 792 583 Q773 590 756 581 Q744 578 751 566Z"/>
+      <path d="M843 573 Q845 556 861 561 Q877 552 887 568 Q899 582 878 585 Q858 592 843 580Z"/>
+      <path d="M940 569 Q945 553 961 559 Q977 554 984 569 Q992 583 974 585 Q951 590 940 579Z"/>
+    </g>
+    <text x="868" y="620" text-anchor="middle" class="label">ice sublimates as the air dries</text>
+    <text x="728" y="690" class="note"><tspan x="728">The underside hangs in scallops.</tspan><tspan x="728" dy="27">The band can break into beads,</tspan><tspan x="728" dy="27">then soften and disappear.</tspan></text>
+    <text x="728" y="818" class="small">Side view; one possible evolution</text>
+  </g>
+  <!-- 4: A continuous painted trail, fresh head above and older beads below. -->
+  <g>
+    <circle cx="1074" cy="154" r="15" fill="#fffbee"/><text x="1074" y="160" text-anchor="middle" font-size="17" font-weight="700">4</text>
+    <text x="1098" y="155" class="heading">Painted (Ghibli)</text>
+    <text x="1098" y="181" class="heading">simplification</text>
+    <text x="1066" y="212" class="small">A bright thread opens into soft beads</text>
+    <g stroke="#b58d42" stroke-width="2" stroke-linecap="round">
+      <circle cx="1092" cy="259" r="17" fill="#f7dda0"/>
+      <path d="M1092 232 V226 M1092 286 V292 M1065 259 H1059 M1119 259 H1125 M1073 240 L1068 235 M1111 240 L1116 235"/>
+      <path d="M1115 281 L1143 315" fill="none" marker-end="url(#lightArrow)"/>
+    </g>
+    <text x="1128" y="263" class="small">sunlight</text>
+    <path d="M1304 288 L1299 326 Q1298 345 1289 358 Q1297 375 1280 387 Q1287 409 1266 419 Q1274 443 1250 452 Q1255 476 1230 483 Q1225 507 1203 499 Q1183 512 1173 494 Q1152 489 1165 468 Q1160 449 1181 442 Q1177 421 1197 414 Q1194 395 1215 390 Q1213 372 1234 369 Q1232 353 1251 347 Q1266 337 1277 319 L1298 286Z" fill="#fff9e7" stroke="#7b94a2" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M1299 326 Q1298 345 1289 358 Q1297 375 1280 387 Q1287 409 1266 419 Q1274 443 1250 452 Q1255 476 1230 483 Q1225 507 1203 499 Q1183 512 1173 494 Q1152 489 1165 468 Q1182 481 1198 467 Q1217 467 1220 445 Q1240 444 1240 421 Q1260 415 1256 394 Q1274 387 1270 371 Q1290 351 1299 326Z" fill="#a4b7c6"/>
+    <path d="M1165 479 Q1183 493 1202 481 Q1215 489 1233 476 Q1225 507 1203 499 Q1183 512 1173 494Z" fill="#7e98ac"/>
+    <path d="M1175 457 Q1183 445 1195 450 M1203 421 Q1210 409 1222 414 M1234 380 Q1241 370 1251 374" fill="none" stroke="#e1cfaa" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M1137 536 Q1131 519 1149 515 Q1156 500 1170 510 Q1190 504 1193 521 Q1209 529 1196 543 Q1187 558 1172 549 Q1156 560 1147 546 Q1134 548 1137 536Z" class="cloud"/>
+    <path d="M1137 536 Q1158 546 1170 534 Q1186 545 1200 532 Q1198 548 1185 551 Q1176 557 1172 549 Q1156 560 1147 546 Q1134 548 1137 536Z" fill="#a4b7c6"/>
+    <g opacity=".7"><path d="M1101 586 Q1096 573 1111 568 Q1119 554 1132 564 Q1150 560 1153 575 Q1167 587 1150 596 Q1137 606 1124 597 Q1106 603 1101 586Z" class="cloud"/><path d="M1101 586 Q1118 594 1130 583 Q1141 592 1158 582 Q1159 593 1150 596 Q1137 606 1124 597 Q1106 603 1101 586Z" fill="#b6c5cd"/></g>
+    <text x="1129" y="339" class="label">thin bright head</text><path d="M1238 334 L1287 309" class="leader"/>
+    <text x="1265" y="529" class="label">scallops</text><path d="M1257 520 L1240 476" class="leader"/>
+    <text x="1193" y="614" class="label">separate beads</text><path d="M1187 602 L1153 583" class="leader"/>
+    <text x="1066" y="690" class="note"><tspan x="1066">Start with a slender light stroke.</tspan><tspan x="1066" dy="27">Widen it into hanging scallops;</tspan><tspan x="1066" dy="27">leave gaps between older beads.</tspan></text>
+    <text x="1066" y="818" class="small">Group blue-grey shadows underneath</text>
+  </g>
+  <path d="M42 878 L66 878" class="motion"/><text x="77" y="883" font-size="13">air motion</text>
+  <text x="1367" y="883" text-anchor="end" font-size="13" fill="#657c89">Schematic views ? ice-cloud edges evolve continuously</text>
+</svg>

@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title desc">
+  <title id="title">How a cirrocumulus cloud gets its shape</title>
+  <desc id="desc">Four schematic panels show a thin high cloud layer developing ripples, tiny bright grains in cross-section, a short-lived drifting field, and a painted simplification. Orange arrows show air motion. Cream grains have blue-grey outlines but no shaded undersides.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#ce6847" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <style>
+      text { font-family: 'Segoe UI', Arial, sans-serif; fill: #374750; }
+      .heading { font-size: 21px; font-weight: 650; }
+      .label { font-size: 16px; }
+      .small { font-size: 14px; }
+      .note { font-size: 17px; }
+      .outline { stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .motion { fill: none; stroke: #ce6847; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .leader { fill: none; stroke: #657c89; stroke-width: 1.4; stroke-linecap: round; }
+      .cloud { fill: #fffbee; stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+    <path id="grain" d="M-16 5 C-22 1-19-7-13-7 C-13-14-5-16-1-10 C5-17 13-12 13-6 C21-6 23 3 17 7 C12 12 5 10 1 8 C-5 13-13 11-16 5Z" class="cloud"/>
+    <path id="fleck" d="M-5 2 Q-8-3-3-4 Q0-9 4-4 Q10-2 6 3 Q1 6-5 2Z" fill="#fffbee"/>
+  </defs>
+  <rect width="1400" height="900" fill="#f6f3ea"/>
+  <text x="40" y="58" font-size="34" font-weight="650">How a cirrocumulus cloud gets its shape</text>
+  <text x="42" y="88" font-size="17" fill="#657c89">A thin high layer ripples into tiny grains. Wind carries the pattern; the delicate cloud soon fades.</text>
+  <g fill="#dcecf1" stroke="#bdced2" stroke-width="1.5">
+    <rect x="30" y="120" width="325" height="735" rx="18"/>
+    <rect x="368" y="120" width="325" height="735" rx="18"/>
+    <rect x="706" y="120" width="325" height="735" rx="18"/>
+    <rect x="1044" y="120" width="326" height="735" rx="18"/>
+  </g>
+  <!-- 1: Instability in a thin high layer develops repeated small cells. -->
+  <g>
+    <circle cx="60" cy="154" r="15" fill="#fffbee"/><text x="60" y="160" text-anchor="middle" font-size="17" font-weight="700">1</text>
+    <text x="84" y="161" class="heading">A high layer ripples</text>
+    <text x="50" y="197" class="small">Thin ice cloud breaks into tiny cells</text>
+    <text x="192" y="254" text-anchor="middle" class="label">thin, nearly continuous layer</text>
+    <path d="M62 294 Q75 283 91 288 Q106 279 122 286 Q140 279 157 285 Q176 278 194 285 Q214 279 232 286 Q253 279 269 286 Q290 280 320 291 L320 307 Q293 313 267 307 Q241 314 216 308 Q191 314 165 308 Q139 314 114 308 Q87 313 62 307Z" class="cloud"/>
+    <path d="M192 329 L192 365" class="motion"/>
+    <text x="192" y="397" text-anchor="middle" class="label">small waves grow</text>
+    <path d="M62 449 Q77 413 94 440 Q110 465 126 438 Q142 411 158 439 Q174 465 190 438 Q206 411 222 438 Q238 464 254 438 Q270 413 286 440 Q302 462 320 441 L320 459 Q303 479 286 458 Q269 433 254 458 Q238 483 222 457 Q206 434 190 458 Q174 483 158 458 Q142 434 126 458 Q109 482 94 458 Q77 436 62 467Z" class="cloud"/>
+    <path d="M78 518 Q64 486 79 459 M141 515 Q126 484 141 457 M205 516 Q190 484 205 457 M269 516 Q254 485 269 459" class="motion"/>
+    <text x="192" y="551" text-anchor="middle" class="small">rising crests • sinking gaps</text>
+    <g transform="translate(0 601)"><use href="#grain" x="84"/><use href="#grain" x="139"/><use href="#grain" x="194"/><use href="#grain" x="249"/><use href="#grain" x="304"/></g>
+    <text x="52" y="690" class="note"><tspan x="52">Gentle overturning wrinkles</tspan><tspan x="52" dy="27">the shallow layer. Gaps open;</tspan><tspan x="52" dy="27">small grains repeat in rows.</tspan></text>
+    <text x="52" y="818" class="small">Schematic section through a ripple</text>
+  </g>
+  <!-- 2: The grains are shallow and bright, without dark cloud bases. -->
+  <g>
+    <circle cx="398" cy="154" r="15" fill="#fffbee"/><text x="398" y="160" text-anchor="middle" font-size="17" font-weight="700">2</text>
+    <text x="422" y="161" class="heading">Tiny bright grains</text>
+    <text x="388" y="197" class="small">A shallow field, seen in cross-section</text>
+    <text x="531" y="256" text-anchor="middle" class="label">from cirrus or cirrostratus</text>
+    <path d="M402 310 Q429 284 469 297 Q491 280 529 294 Q565 281 594 296 Q628 282 659 302 Q634 318 601 311 Q571 325 539 312 Q506 324 477 311 Q439 326 402 310Z" fill="#fffbee" opacity=".65"/>
+    <path d="M417 331 Q451 314 484 325 M568 331 Q605 315 642 325" fill="none" stroke="#fffbee" stroke-width="5" stroke-linecap="round"/>
+    <path d="M531 350 L531 395" class="motion"/>
+    <g transform="translate(0 450)"><use href="#grain" x="414"/><use href="#grain" x="461" y="-3"/><use href="#grain" x="508" y="2"/><use href="#grain" x="555" y="-2"/><use href="#grain" x="602" y="1"/><use href="#grain" x="649" y="-3"/></g>
+    <path d="M393 482 L668 482" stroke="#657c89" stroke-width="1.4" stroke-dasharray="6 6" fill="none"/>
+    <text x="531" y="530" text-anchor="middle" class="label">too thin for visible shading</text>
+    <path d="M531 511 L531 470" class="leader"/>
+    <text x="531" y="592" text-anchor="middle" class="label">bright above and below</text>
+    <text x="531" y="619" text-anchor="middle" class="small">Blue gaps separate the little grains</text>
+    <text x="390" y="690" class="note"><tspan x="390">The high veil becomes granular.</tspan><tspan x="390" dy="27">Each grain stays small and pale,</tspan><tspan x="390" dy="27">without a dark underside.</tspan></text>
+    <text x="390" y="818" class="small">Cream lobes = visible high cloud</text>
+  </g>
+  <!-- 3: Read the successive stages downward; arrows also show drift. -->
+  <g>
+    <circle cx="736" cy="154" r="15" fill="#fffbee"/><text x="736" y="160" text-anchor="middle" font-size="17" font-weight="700">3</text>
+    <text x="760" y="161" class="heading">A fleeting pattern</text>
+    <text x="726" y="197" class="small">Veil, ripples, drift, then clear sky</text>
+    <text x="730" y="250" class="label">a veil forms</text>
+    <path d="M738 289 Q757 269 782 280 Q804 266 829 278 Q853 265 875 278 Q902 266 927 279 Q960 267 990 287 Q967 305 939 298 Q911 311 885 299 Q858 310 830 299 Q803 310 776 298 Q754 306 738 289Z" fill="#fffbee" opacity=".75"/>
+    <path d="M759 317 L783 351" class="motion"/>
+    <text x="801" y="344" class="label">grains ripple</text>
+    <g transform="translate(0 390)"><use href="#grain" x="755"/><use href="#grain" x="805" y="-5"/><use href="#grain" x="855"/><use href="#grain" x="905" y="-5"/><use href="#grain" x="955"/></g>
+    <g transform="translate(0 429) scale(1 .8)"><use href="#grain" x="779"/><use href="#grain" x="829" y="-4"/><use href="#grain" x="879"/><use href="#grain" x="929" y="-4"/><use href="#grain" x="979"/></g>
+    <path d="M759 474 L826 474 M876 474 L982 474" class="motion"/>
+    <text x="868" y="509" text-anchor="middle" class="label">wind carries the field swiftly</text>
+    <g opacity=".55"><use href="#grain" transform="translate(802 557) scale(.8)"/><use href="#grain" transform="translate(856 553) scale(.65)"/><use href="#grain" transform="translate(908 559) scale(.5)"/></g>
+    <g opacity=".5"><use href="#fleck" x="949" y="554"/><use href="#fleck" x="974" y="558"/></g>
+    <path d="M792 594 L962 594" class="motion" stroke-dasharray="5 7" opacity=".55"/>
+    <text x="868" y="630" text-anchor="middle" class="label">grains fade into clear air</text>
+    <text x="728" y="690" class="note"><tspan x="728">Rows ripple as they travel.</tspan><tspan x="728" dy="27">Individual grains can form</tspan><tspan x="728" dy="27">and vanish within minutes.</tspan></text>
+    <text x="728" y="818" class="small">Successive moments, read downward</text>
+  </g>
+  <!-- 4: Repeated cream scallops; no blue-grey shadow masses. -->
+  <g>
+    <circle cx="1074" cy="154" r="15" fill="#fffbee"/><text x="1074" y="160" text-anchor="middle" font-size="17" font-weight="700">4</text>
+    <text x="1098" y="155" class="heading">Painted (Ghibli)</text>
+    <text x="1098" y="181" class="heading">simplification</text>
+    <text x="1066" y="216" class="small">Bright grains, speckled edges</text>
+    <text x="1206" y="272" text-anchor="middle" class="label">small scallops in loose rows</text>
+    <path d="M1206 282 L1197 328" class="leader"/>
+    <g>
+      <use href="#grain" transform="translate(1130 349) scale(.7)"/><use href="#grain" transform="translate(1170 341) scale(.75)"/><use href="#grain" transform="translate(1213 347) scale(.8)"/><use href="#grain" transform="translate(1256 340) scale(.7)"/>
+      <use href="#grain" transform="translate(1101 390) scale(.75)"/><use href="#grain" x="1146" y="385"/><use href="#grain" x="1198" y="393"/><use href="#grain" x="1250" y="384"/><use href="#grain" transform="translate(1301 391) scale(.8)"/>
+      <use href="#grain" transform="translate(1120 438) scale(.9)"/><use href="#grain" x="1171" y="431"/><use href="#grain" x="1225" y="440"/><use href="#grain" x="1279" y="432"/><use href="#grain" transform="translate(1320 442) scale(.6)"/>
+      <use href="#grain" transform="translate(1095 484) scale(.6)"/><use href="#grain" transform="translate(1138 480) scale(.9)"/><use href="#grain" x="1190" y="488"/><use href="#grain" x="1243" y="480"/><use href="#grain" transform="translate(1292 487) scale(.8)"/>
+      <use href="#grain" transform="translate(1163 526) scale(.7)"/><use href="#grain" transform="translate(1206 533) scale(.8)"/><use href="#grain" transform="translate(1250 526) scale(.65)"/>
+    </g>
+    <g><use href="#fleck" x="1103" y="355"/><use href="#fleck" x="1150" y="317"/><use href="#fleck" x="1285" y="352"/><use href="#fleck" x="1320" y="366"/><use href="#fleck" x="1079" y="421"/><use href="#fleck" x="1340" y="469"/><use href="#fleck" x="1117" y="522"/><use href="#fleck" x="1137" y="547"/><use href="#fleck" x="1282" y="531"/><use href="#fleck" x="1234" y="558"/></g>
+    <text x="1206" y="599" text-anchor="middle" class="label">sky shows through every gap</text>
+    <text x="1206" y="632" text-anchor="middle" class="label">no shadow side</text>
+    <text x="1066" y="690" class="note"><tspan x="1066">Keep the grains light and tiny.</tspan><tspan x="1066" dy="27">Suggest rows; scatter flecks</tspan><tspan x="1066" dy="27">where the pattern dissolves.</tspan></text>
+    <text x="1066" y="818" class="small">A painting study of the same structure</text>
+  </g>
+  <path d="M42 878 L66 878" class="motion"/><text x="77" y="883" font-size="13">air motion</text>
+  <text x="1367" y="883" text-anchor="end" font-size="13" fill="#657c89">Schematic sections and sky views • cloud edges evolve continuously</text>
+</svg>

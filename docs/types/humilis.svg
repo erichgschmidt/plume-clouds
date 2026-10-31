@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title desc">
+  <title id="title">How a humilis cloud gets its shape</title>
+  <desc id="desc">Four panels explain fair-weather cumulus humilis: small thermals meet an inversion lid, shallow clouds share a flat base, cells evaporate in 10–15 minutes, and small puffs simplify into lit tops and flat shadows.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#ce6847" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <marker id="lightArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#b58d42" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <style>
+      text { font-family: 'Segoe UI', Arial, sans-serif; fill: #374750; }
+      .heading { font-size: 21px; font-weight: 650; }
+      .label { font-size: 16px; }
+      .small { font-size: 14px; }
+      .note { font-size: 17px; }
+      .outline { stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .motion { fill: none; stroke: #ce6847; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .leader { fill: none; stroke: #657c89; stroke-width: 1.4; stroke-linecap: round; }
+      .cloud { fill: #fffbee; stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <rect width="1400" height="900" fill="#f6f3ea"/>
+  <text x="40" y="58" font-size="34" font-weight="650">How a humilis cloud gets its shape</text>
+  <text x="42" y="88" font-size="17" fill="#657c89">Cumulus humilis: fair-weather puffs. Small thermals condense, spread beneath a warm lid, then fade.</text>
+  <g fill="#dcecf1" stroke="#bdced2" stroke-width="1.5">
+    <rect x="30" y="120" width="325" height="735" rx="18"/>
+    <rect x="368" y="120" width="325" height="735" rx="18"/>
+    <rect x="706" y="120" width="325" height="735" rx="18"/>
+    <rect x="1044" y="120" width="326" height="735" rx="18"/>
+  </g>
+  <!-- 1: A shallow moist layer between condensation and the inversion. -->
+  <g>
+    <circle cx="60" cy="154" r="15" fill="#fffbee"/><text x="60" y="160" text-anchor="middle" font-size="17" font-weight="700">1</text>
+    <text x="84" y="161" class="heading">A lid stops the rise</text>
+    <text x="50" y="197" class="small">Small thermals rise from warm ground</text>
+    <text x="190" y="254" text-anchor="middle" class="label">inversion: warm, stable air</text>
+    <rect x="65" y="278" width="248" height="18" rx="4" fill="#c9c7a8" stroke="#959b81" stroke-width="2"/>
+    <path d="M75 282 L84 292 M102 282 L111 292 M129 282 L138 292 M156 282 L165 292 M183 282 L192 292 M210 282 L219 292 M237 282 L246 292 M264 282 L273 292 M291 282 L300 292" stroke="#959b81" stroke-width="1.3"/>
+    <path d="M95 397 C84 380 94 362 110 360 C107 341 124 328 140 335 C146 316 166 313 181 323 C194 308 216 312 225 327 C244 320 263 333 261 349 C283 350 291 378 276 397Z" class="cloud"/>
+    <path d="M95 377 Q119 393 142 378 Q169 395 193 379 Q225 395 249 378 Q266 385 283 374 L276 397 L95 397Z" fill="#9bafbe"/>
+    <path d="M95 397 H276" stroke="#637f94" stroke-width="3"/>
+    <path d="M62 405 H293" stroke="#657c89" stroke-width="1.7" stroke-dasharray="8 6"/>
+    <path d="M304 303 H314 V397 H304" class="leader"/>
+    <text x="191" y="439" text-anchor="middle" class="small">only a few hundred metres deep</text>
+    <path d="M185 389 V347 Q185 335 164 335 H139 M192 347 Q199 335 217 339 L239 346" class="motion"/>
+    <path d="M144 555 Q127 520 148 488 Q166 458 160 421 M222 556 Q241 526 224 496 Q205 463 218 422" class="motion"/>
+    <text x="190" y="478" text-anchor="middle" class="label">condensation level</text>
+    <path d="M83 469 L68 451 V410" class="leader"/>
+    <path d="M51 584 Q118 579 187 584 T334 583 L334 619 L51 619Z" fill="#c9c7a8"/>
+    <path d="M51 584 Q118 579 187 584 T334 583" fill="none" stroke="#959b81" stroke-width="2"/>
+    <text x="190" y="609" text-anchor="middle" class="small">sun-warmed ground</text>
+    <text x="52" y="670" class="note"><tspan x="52">Warm air rises and condenses.</tspan><tspan x="52" dy="27">The inversion caps its growth;</tspan><tspan x="52" dy="27">the little crown spreads out.</tspan></text>
+    <text x="52" y="818" class="small">A shallow cloud below a stable lid</text>
+  </g>
+  <!-- 2: Broad, shallow cross-section and a shared condensation height. -->
+  <g>
+    <circle cx="398" cy="154" r="15" fill="#fffbee"/><text x="398" y="160" text-anchor="middle" font-size="17" font-weight="700">2</text>
+    <text x="422" y="161" class="heading">Wider than tall</text>
+    <text x="388" y="197" class="small">A shallow cross-section, a level base</text>
+    <text x="530" y="271" text-anchor="middle" class="label">flattened, scalloped top</text>
+    <path d="M530 281 V320" class="leader"/>
+    <path d="M411 413 C399 396 409 377 425 375 C421 356 436 343 453 349 C459 331 477 326 492 336 C506 319 526 322 537 333 C552 320 573 325 580 339 C600 331 618 342 620 358 C643 354 660 377 650 390 Q662 402 650 413Z" class="cloud"/>
+    <path d="M411 391 Q434 405 458 392 Q481 407 506 392 Q534 407 559 392 Q587 406 611 392 Q632 403 653 389 L650 413 H411Z" fill="#9bafbe"/>
+    <path d="M411 413 H650" stroke="#637f94" stroke-width="3"/>
+    <text x="530" y="459" text-anchor="middle" class="label">flat, dark base</text>
+    <path d="M530 440 V419" class="leader"/>
+    <g class="cloud">
+      <path d="M396 568 Q387 549 402 544 Q400 529 415 531 Q425 513 439 528 Q458 520 465 539 Q482 541 476 568Z"/>
+      <path d="M492 568 Q481 548 498 540 Q499 523 516 529 Q530 511 545 529 Q567 524 569 543 Q585 550 575 568Z"/>
+      <path d="M594 568 Q586 550 601 545 Q601 530 617 532 Q629 515 643 532 Q661 528 665 546 Q678 555 669 568Z"/>
+    </g>
+    <path d="M396 558 H476 V568 H396Z M492 558 H575 V568 H492Z M594 558 H669 V568 H594Z" fill="#9bafbe"/>
+    <path d="M388 575 H675" stroke="#657c89" stroke-width="1.7" stroke-dasharray="8 6"/>
+    <text x="530" y="610" text-anchor="middle" class="label">many share the same base height</text>
+    <text x="390" y="670" class="note"><tspan x="390">Small lobes, little height.</tspan><tspan x="390" dy="27">Similar air reaches saturation</tspan><tspan x="390" dy="27">at a similar level across the sky.</tspan></text>
+    <text x="390" y="818" class="small">Humilis = low, with little vertical growth</text>
+  </g>
+  <!-- 3: Time reads down the panel; the neighbouring cell is spatially separate. -->
+  <g>
+    <circle cx="736" cy="154" r="15" fill="#fffbee"/><text x="736" y="160" text-anchor="middle" font-size="17" font-weight="700">3</text>
+    <text x="760" y="161" class="heading">A short life</text>
+    <text x="726" y="197" class="small">One cell lasts about 10–15 minutes</text>
+    <text x="733" y="249" class="label">Forms</text>
+    <path d="M750 326 Q739 309 754 300 Q753 284 769 286 Q779 268 794 283 Q815 280 818 298 Q835 309 825 326Z" class="cloud"/>
+    <path d="M750 315 H825 V326 H750Z" fill="#9bafbe"/>
+    <path d="M786 359 V336" class="motion"/>
+    <text x="859" y="302" class="small"><tspan x="859">a small thermal</tspan><tspan x="859" dy="21">feeds the puff</tspan></text>
+    <text x="733" y="395" class="label">Flattens</text>
+    <rect x="744" y="410" width="245" height="12" rx="3" fill="#c9c7a8" stroke="#959b81" stroke-width="2"/>
+    <path d="M751 481 Q739 463 755 455 Q753 437 772 439 Q783 425 797 436 Q813 425 828 438 Q847 430 853 448 Q874 447 874 463 Q885 471 877 481Z" class="cloud"/>
+    <path d="M751 469 H877 V481 H751Z" fill="#9bafbe"/>
+    <path d="M809 469 V451 Q809 446 794 446 H778 M816 451 Q831 446 846 453" class="motion"/>
+    <text x="900" y="457" class="small"><tspan x="900">the lid</tspan><tspan x="900" dy="21">limits rise</tspan></text>
+    <text x="733" y="535" class="label">Frays; a neighbour forms</text>
+    <path d="M748 603 Q739 592 752 585 Q744 574 759 572 Q759 557 773 566 Q786 553 794 566 Q812 555 817 574 Q834 571 831 585 Q847 591 836 603" fill="#fffbee" fill-opacity=".5" stroke="#97abb6" stroke-width="2" stroke-dasharray="5 6"/>
+    <path d="M744 572 Q734 558 742 548 M833 577 Q849 567 854 550" class="motion" opacity=".5"/>
+    <path d="M906 603 Q895 586 909 578 Q909 561 926 564 Q939 547 953 563 Q973 561 975 580 Q990 590 981 603Z" class="cloud"/>
+    <path d="M906 593 H981 V603 H906Z" fill="#9bafbe"/>
+    <path d="M942 637 V612" class="motion"/>
+    <text x="728" y="690" class="note"><tspan x="728">The supply of rising air fades.</tspan><tspan x="728" dy="27">Dry air mixes in; droplets</tspan><tspan x="728" dy="27">evaporate as a new puff grows.</tspan></text>
+    <text x="728" y="818" class="small">Successive moments, read top to bottom</text>
+  </g>
+  <!-- 4: Small separate puffs, each with one simple flat shadow. -->
+  <g>
+    <circle cx="1074" cy="154" r="15" fill="#fffbee"/><text x="1074" y="160" text-anchor="middle" font-size="17" font-weight="700">4</text>
+    <text x="1098" y="155" class="heading">Painted (Ghibli)</text>
+    <text x="1098" y="181" class="heading">simplification</text>
+    <text x="1064" y="210" class="small">A row of low puffs, with little stacking</text>
+    <g stroke="#b58d42" stroke-width="2" stroke-linecap="round">
+      <circle cx="1092" cy="269" r="17" fill="#f7dda0"/>
+      <path d="M1092 242 V236 M1092 296 V302 M1065 269 H1059 M1119 269 H1125 M1073 250 L1068 245 M1111 250 L1116 245 M1073 288 L1068 293 M1111 288 L1116 293"/>
+      <path d="M1116 294 L1150 339" fill="none" marker-end="url(#lightArrow)"/>
+    </g>
+    <text x="1128" y="270" class="small">sunlight</text>
+    <text x="1210" y="374" text-anchor="middle" class="label">crisp, lit scallops</text>
+    <path d="M1209 385 L1200 434" class="leader"/>
+    <g fill="#fff9e7" stroke="#7b94a2" stroke-width="2" stroke-linejoin="round">
+      <path d="M1076 505 Q1066 488 1080 478 Q1076 461 1094 460 Q1102 443 1117 454 Q1135 448 1140 467 Q1156 470 1151 486 Q1159 496 1152 505Z"/>
+      <path d="M1170 505 Q1159 487 1174 477 Q1170 458 1188 457 Q1196 436 1213 447 Q1230 439 1240 458 Q1257 455 1260 475 Q1278 485 1267 505Z"/>
+      <path d="M1291 505 Q1280 491 1293 480 Q1290 464 1306 464 Q1315 449 1329 461 Q1346 458 1347 477 Q1361 490 1350 505Z"/>
+    </g>
+    <path d="M1076 488 H1153 L1152 505 H1076Z M1170 488 H1272 L1267 505 H1170Z M1290 488 H1356 L1350 505 H1291Z" fill="#a4b7c6"/>
+    <path d="M1076 505 H1152 M1170 505 H1267 M1291 505 H1350" fill="none" stroke="#637f94" stroke-width="3" stroke-linecap="round"/>
+    <path d="M1083 476 Q1087 464 1099 468 M1181 473 Q1185 461 1197 465 M1199 452 Q1207 446 1214 454 M1299 479 Q1303 468 1314 473" fill="none" stroke="#e1cfaa" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="1207" y="560" text-anchor="middle" class="label">one flat shadow per puff</text>
+    <path d="M1210 538 V510" class="leader"/>
+    <text x="1207" y="608" text-anchor="middle" class="label">small forms spread sideways</text>
+    <text x="1066" y="690" class="note"><tspan x="1066">Keep the silhouette low.</tspan><tspan x="1066" dy="27">Light picks out the small tops;</tspan><tspan x="1066" dy="27">a single shadow unifies each base.</tspan></text>
+    <text x="1066" y="818" class="small">A painting study of the same structure</text>
+  </g>
+  <path d="M42 878 L66 878" class="motion"/><text x="77" y="883" font-size="13">air motion</text>
+  <text x="1367" y="883" text-anchor="end" font-size="13" fill="#657c89">Schematic cross-sections • cloud edges evolve continuously</text>
+</svg>

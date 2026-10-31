@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title desc">
+  <title id="title">How a cirrus cloud gets its shape</title>
+<desc id="desc">Four panels explain cirrus uncinus and fibratus: ice forms in a generating head, falls into slower wind, trails into a hooked fallstreak, and sublimates. A painted study shows bright fibres dissolving into pixels without a dark shadow side. Orange arrows show wind and crystal motion.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#ce6847" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <marker id="lightArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#b58d42" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <style>
+      text { font-family: 'Segoe UI', Arial, sans-serif; fill: #374750; }
+      .heading { font-size: 21px; font-weight: 650; }
+      .label { font-size: 16px; }
+      .small { font-size: 14px; }
+      .note { font-size: 17px; }
+      .outline { stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .motion { fill: none; stroke: #ce6847; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .leader { fill: none; stroke: #657c89; stroke-width: 1.4; stroke-linecap: round; }
+      .cloud { fill: #fffbee; stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <rect width="1400" height="900" fill="#f6f3ea"/>
+  <text x="40" y="58" font-size="34" font-weight="650">How a cirrus cloud gets its shape</text>
+  <text x="42" y="88" font-size="17" fill="#657c89">Ice crystals fall through changing winds. Shear stretches small heads into hooks and long mares&#8217; tails.</text>
+  <g fill="#dcecf1" stroke="#bdced2" stroke-width="1.5">
+    <rect x="30" y="120" width="325" height="735" rx="18"/>
+    <rect x="368" y="120" width="325" height="735" rx="18"/>
+    <rect x="706" y="120" width="325" height="735" rx="18"/>
+    <rect x="1044" y="120" width="326" height="735" rx="18"/>
+  </g>
+
+  <!-- 1: Wind blows right; longer arrows indicate faster wind aloft. -->
+  <g>
+    <circle cx="60" cy="154" r="15" fill="#fffbee"/><text x="60" y="160" text-anchor="middle" font-size="17" font-weight="700">1</text>
+    <text x="84" y="161" class="heading">Ice begins aloft</text>
+    <text x="50" y="197" class="small">A small head forms in moist high air</text>
+    <rect x="50" y="278" width="285" height="110" rx="16" fill="#b6c5cd" opacity=".25"/>
+    <path d="M50 279 H335 M50 388 H335" fill="none" stroke="#97abb6" stroke-width="1.5" stroke-dasharray="7 7"/>
+    <text x="52" y="251" class="label">top of moist high layer</text>
+    <path d="M221 257 L221 277" class="leader"/>
+    <path d="M231 331 Q217 318 229 306 Q226 290 242 291 Q249 276 262 287 Q277 278 285 293 Q301 292 301 309 Q315 320 302 333 Q270 342 231 331Z" class="cloud"/>
+    <path d="M231 323 Q246 331 259 323 Q281 335 306 321 Q310 328 302 333 Q267 343 231 331Z" fill="#b6c5cd"/>
+    <text x="242" y="371" class="small">ice head</text>
+    <path d="M264 350 L266 337" class="leader"/>
+    <path d="M66 317 H199 M66 425 H163 M66 519 H121" class="motion"/>
+    <text x="66" y="301" class="small">faster wind</text>
+    <text x="66" y="548" class="small">slower below</text>
+    <path d="M264 392 Q256 459 218 516" class="motion"/>
+    <g fill="none" stroke="#748c99" stroke-width="1.5" stroke-linecap="round">
+      <path d="M280 405 v12 m-5 -9 l10 6 m0 -6 l-10 6 M251 450 v12 m-5 -9 l10 6 m0 -6 l-10 6 M230 482 v12 m-5 -9 l10 6 m0 -6 l-10 6"/>
+    </g>
+    <text x="227" y="568" text-anchor="middle" class="label">crystals fall</text>
+    <text x="192" y="612" text-anchor="middle" class="small">Wind speed changes with height</text>
+    <text x="52" y="690" class="note"><tspan x="52">The head travels with fast air.</tspan><tspan x="52" dy="27">Falling ice enters slower air</tspan><tspan x="52" dy="27">and begins to lag behind.</tspan></text>
+    <text x="52" y="818" class="small">High cloud: ice, not liquid droplets</text>
+  </g>
+  <!-- 2: A spatial cross-section, with the head downwind of its fallstreak. -->
+  <g>
+    <circle cx="398" cy="154" r="15" fill="#fffbee"/><text x="398" y="160" text-anchor="middle" font-size="17" font-weight="700">2</text>
+    <text x="422" y="161" class="heading">A hook and a tail</text>
+    <text x="388" y="197" class="small">Falling ice trails behind the moving head</text>
+    <path d="M403 245 H493" class="motion"/><text x="508" y="250" class="small">wind direction</text>
+    <path d="M408 466 Q497 425 546 365 Q571 336 575 312 Q564 315 560 304 Q550 291 563 281 Q563 265 580 267 Q591 253 603 268 Q620 261 625 277 Q641 286 628 302 Q616 319 604 324 Q589 369 557 391 Q494 440 408 466Z" class="cloud"/>
+    <path d="M408 466 Q500 428 556 380 Q585 355 604 324 Q587 369 557 391 Q494 440 408 466Z" fill="#b6c5cd"/>
+    <path d="M431 448 Q521 403 561 349 M454 444 Q538 401 580 330" fill="none" stroke="#97abb6" stroke-width="1.3"/>
+    <path d="M643 321 Q633 391 574 423" class="motion"/>
+    <text x="407" y="319" class="label">uncinus</text><text x="407" y="342" class="small">hooked head</text>
+    <path d="M491 327 L550 300" class="leader"/>
+    <text x="408" y="504" class="small">tail: ice left behind, not wind reversal</text>
+    <path d="M406 582 Q481 552 638 530 Q612 541 589 542 Q581 551 563 548 Q551 559 535 555 Q477 568 406 582Z" class="cloud"/>
+    <path d="M419 604 Q514 572 653 553 Q633 565 611 563 Q596 576 580 571 Q502 588 419 604Z" fill="#fffbee" stroke="#97abb6" stroke-width="1.5"/>
+    <text x="526" y="637" text-anchor="middle" class="label">fibratus: straight fibres, no head</text>
+    <text x="390" y="690" class="note"><tspan x="390">Shear draws out a fallstreak.</tspan><tspan x="390" dy="27">Uncinus keeps a curved hook;</tspan><tspan x="390" dy="27">fibratus forms unhooked fibres.</tspan></text>
+    <text x="390" y="818" class="small">Side view: height above, downwind right</text>
+  </g>
+  <!-- 3: Separate snapshots of one cloud, read from top to bottom. -->
+  <g>
+    <circle cx="736" cy="154" r="15" fill="#fffbee"/><text x="736" y="160" text-anchor="middle" font-size="17" font-weight="700">3</text>
+    <text x="760" y="161" class="heading">Birth to dissolution</text>
+    <text x="726" y="197" class="small">One cloud, followed through time</text>
+    <text x="728" y="238" class="small">upwind</text><path d="M793 233 H914" class="motion"/><text x="928" y="238" class="small">downwind</text>
+    <text x="728" y="280" class="label">1  Head is born upwind</text>
+    <path d="M775 322 Q764 314 773 305 Q772 293 785 295 Q794 283 804 296 Q819 292 821 306 Q832 317 819 325 Q794 333 775 322Z" class="cloud"/>
+    <text x="728" y="366" class="label">2  Head moves on; tail grows</text>
+    <path d="M770 442 Q841 418 880 387 Q869 379 878 370 Q879 358 893 361 Q902 350 913 363 Q929 359 931 374 Q942 386 928 394 Q912 404 899 399 Q848 428 770 442Z" class="cloud"/>
+    <path d="M785 438 Q849 418 899 399 Q913 405 928 394 Q913 407 900 404 Q850 432 785 438Z" fill="#b6c5cd"/>
+    <text x="728" y="480" class="label">3  Head evaporates first*</text>
+    <path d="M802 549 Q861 527 921 503 Q903 520 885 519 Q865 535 850 531 Q828 544 802 549Z" fill="#fffbee" stroke="#97abb6" stroke-width="1.5"/>
+    <path d="M936 507 Q921 499 930 490 Q930 478 944 481 Q956 469 965 483 Q982 478 983 493 Q995 505 980 512" fill="none" stroke="#97abb6" stroke-width="1.5" stroke-dasharray="4 6"/>
+    <text x="728" y="584" class="label">4  Tail end sublimates away</text>
+    <path d="M872 630 Q922 607 972 593 Q958 606 941 606 Q915 622 872 630Z" fill="#fffbee" opacity=".8"/>
+    <g fill="#fffbee"><rect x="853" y="630" width="6" height="6"/><rect x="835" y="639" width="4" height="4"/><rect x="820" y="643" width="3" height="3"/></g>
+    <path d="M802 615 L852 600" class="motion"/>
+    <text x="728" y="690" class="note"><tspan x="728">The source fades; fibres linger.</tspan><tspan x="728" dy="27">Dry air erases the thin tail</tspan><tspan x="728" dy="27">from its far end inward.</tspan></text>
+    <text x="728" y="791" class="small">*For ice, &#8220;evaporation&#8221; is sublimation.</text>
+    <text x="728" y="818" class="small">A schematic sequence, not a fixed lifetime</text>
+  </g>
+  <!-- 4: Bright painted cirrus has no modeled dark shadow side. -->
+  <g>
+    <circle cx="1074" cy="154" r="15" fill="#fffbee"/><text x="1074" y="160" text-anchor="middle" font-size="17" font-weight="700">4</text>
+    <text x="1098" y="155" class="heading">Painted (Ghibli)</text>
+    <text x="1098" y="181" class="heading">simplification</text>
+    <text x="1064" y="212" class="small">Bright hooks and long, dissolving tails</text>
+    <text x="1070" y="266" class="label">small scalloped hook</text>
+    <path d="M1238 272 L1273 297" class="leader"/>
+    <path d="M1087 454 Q1178 405 1244 346 Q1264 327 1269 311 Q1257 318 1251 306 Q1244 295 1255 287 Q1260 272 1273 281 Q1286 270 1296 283 Q1311 282 1311 297 Q1321 308 1309 320 Q1285 340 1275 343 Q1197 410 1087 454Z" fill="#fffbee" stroke="#97abb6" stroke-width="1.7" stroke-linejoin="round"/>
+    <path d="M1102 454 Q1197 412 1264 348 M1122 448 Q1220 401 1280 341" fill="none" stroke="#dcecf1" stroke-width="3"/>
+    <path d="M1103 550 Q1187 506 1247 454 Q1275 430 1281 411 Q1268 419 1264 407 Q1257 395 1269 388 Q1275 374 1288 383 Q1301 375 1309 388 Q1323 387 1323 400 Q1332 412 1320 424 Q1301 442 1287 442 Q1209 515 1103 550Z" fill="#fffbee" stroke="#97abb6" stroke-width="1.7" stroke-linejoin="round"/>
+    <path d="M1118 549 Q1221 501 1285 443" fill="none" stroke="#dcecf1" stroke-width="3"/>
+    <g fill="#fffbee">
+      <rect x="1080" y="454" width="8" height="8"/><rect x="1069" y="467" width="5" height="5"/><rect x="1095" y="464" width="4" height="4"/>
+      <rect x="1094" y="551" width="8" height="8"/><rect x="1080" y="563" width="6" height="6"/><rect x="1068" y="575" width="4" height="4"/><rect x="1103" y="564" width="4" height="4"/>
+    </g>
+    <text x="1230" y="568" text-anchor="middle" class="label">bright; no shadow side</text>
+    <path d="M1240 546 L1267 486" class="leader"/>
+    <text x="1200" y="621" text-anchor="middle" class="label">edges dissolve to pixels</text>
+    <path d="M1115 605 L1088 575" class="leader"/>
+    <text x="1066" y="690" class="note"><tspan x="1066">Keep the hooks and long sweep.</tspan><tspan x="1066" dy="27">Paint light fibres, then break</tspan><tspan x="1066" dy="27">their ends into sparse pixels.</tspan></text>
+    <text x="1066" y="818" class="small">Mares&#8217; tails: a painting of falling ice</text>
+  </g>
+  <path d="M42 878 L66 878" class="motion"/><text x="77" y="883" font-size="13">wind / ice motion</text>
+  <text x="1367" y="883" text-anchor="end" font-size="13" fill="#657c89">Schematic cross-sections &#8226; cirrus uncinus and fibratus &#8226; cloud edges evolve continuously</text>
+</svg>

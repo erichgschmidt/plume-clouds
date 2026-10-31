@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title desc">
+  <title id="title">How a stratus cloud gets its shape</title>
+  <desc id="desc">Four schematic panels show stable moist air forming a stratus sheet, its shallow cross-section, changing thickness and edges, and a painted simplification. Orange arrows show gentle air motion; cream clouds have blue-grey shadows.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#ce6847" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <marker id="lightArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#b58d42" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <style>
+      text { font-family: 'Segoe UI', Arial, sans-serif; fill: #374750; }
+      .heading { font-size: 21px; font-weight: 650; }
+      .label { font-size: 16px; }
+      .small { font-size: 14px; }
+      .note { font-size: 17px; }
+      .outline { stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .motion { fill: none; stroke: #ce6847; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .leader { fill: none; stroke: #657c89; stroke-width: 1.4; stroke-linecap: round; }
+      .cloud { fill: #fffbee; stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <rect width="1400" height="900" fill="#f6f3ea"/>
+  <text x="40" y="58" font-size="34" font-weight="650">How a stratus cloud gets its shape</text>
+  <text x="42" y="88" font-size="17" fill="#657c89">Stable moist air cools into a low sheet. Its edges drift and fray; its shape stays broad and quiet.</text>
+  <g fill="#dcecf1" stroke="#bdced2" stroke-width="1.5">
+    <rect x="30" y="120" width="325" height="735" rx="18"/>
+    <rect x="368" y="120" width="325" height="735" rx="18"/>
+    <rect x="706" y="120" width="325" height="735" rx="18"/>
+    <rect x="1044" y="120" width="326" height="735" rx="18"/>
+  </g>
+  <!-- 1: Stable moist air condenses as a layer, without convective cells. -->
+  <g>
+    <circle cx="60" cy="154" r="15" fill="#fffbee"/><text x="60" y="160" text-anchor="middle" font-size="17" font-weight="700">1</text>
+    <text x="84" y="161" class="heading">Stable air cools</text>
+    <text x="50" y="197" class="small">Cooling from below makes a moist sheet</text>
+    <text x="192" y="260" text-anchor="middle" class="label">broad, stable layer</text>
+    <path d="M192 270 L192 322" class="leader"/>
+    <path d="M59 353 Q65 337 86 342 Q109 329 137 337 Q164 325 193 333 Q222 326 250 335 Q275 328 296 340 Q319 336 327 354 L326 391 Q313 399 298 392 Q285 405 269 395 Q250 403 232 396 Q214 407 195 398 Q177 406 157 396 Q139 405 121 397 Q104 406 88 395 Q70 402 59 391Z" class="cloud"/>
+    <path d="M60 364 Q105 357 147 364 T232 364 T326 364 L326 391 Q313 399 298 392 Q285 405 269 395 Q250 403 232 396 Q214 407 195 398 Q177 406 157 396 Q139 405 121 397 Q104 406 88 395 Q70 402 59 391Z" fill="#a5b6c3"/>
+    <path d="M91 493 L91 434 M192 493 L192 434 M293 493 L293 434" class="motion"/>
+    <text x="192" y="525" text-anchor="middle" class="label">gentle lift, spread over a wide area</text>
+    <path d="M51 584 Q118 579 187 584 T334 583 L334 619 L51 619Z" fill="#c9c7a8"/>
+    <path d="M51 584 Q118 579 187 584 T334 583" fill="none" stroke="#959b81" stroke-width="2"/>
+    <text x="192" y="609" text-anchor="middle" class="small">cool ground</text>
+    <text x="52" y="670" class="note"><tspan x="52">Moist air cools to saturation.</tspan><tspan x="52" dy="27">Fog may lift into a low sheet;</tspan><tspan x="52" dy="27">gentle large-scale lift can</tspan><tspan x="52" dy="27">also form the layer.</tspan></text>
+    <text x="52" y="818" class="small">No thermals; no convective cells</text>
+  </g>
+  <!-- 2: One continuous shallow layer, with no drawn internal cells. -->
+  <g>
+    <circle cx="398" cy="154" r="15" fill="#fffbee"/><text x="398" y="160" text-anchor="middle" font-size="17" font-weight="700">2</text>
+    <text x="422" y="161" class="heading">A shallow grey sheet</text>
+    <text x="388" y="197" class="small">A low layer, a few hundred metres thick</text>
+    <text x="531" y="276" text-anchor="middle" class="label">slowly undulating top</text>
+    <path d="M531 286 L531 351" class="leader"/>
+    <path d="M392 382 Q398 368 419 372 Q447 357 477 364 Q506 351 536 357 Q566 351 596 363 Q625 357 647 370 Q668 367 674 382 L673 449 Q659 459 648 450 L638 460 Q625 452 612 459 Q598 467 585 457 L576 465 Q559 454 545 461 Q529 469 514 458 L503 467 Q489 456 477 463 Q462 470 449 458 L437 466 Q424 454 412 460 Q397 463 392 451Z" class="cloud"/>
+    <path d="M393 389 Q435 383 478 388 Q528 379 576 386 Q625 383 673 391 L673 449 Q659 459 648 450 L638 460 Q625 452 612 459 Q598 467 585 457 L576 465 Q559 454 545 461 Q529 469 514 458 L503 467 Q489 456 477 463 Q462 470 449 458 L437 466 Q424 454 412 460 Q397 463 392 451Z" fill="#9bafbe"/>
+    <text x="531" y="528" text-anchor="middle" class="label">ragged, uneven base</text>
+    <path d="M531 507 L545 468" class="leader"/>
+    <text x="531" y="602" text-anchor="middle" class="small">One continuous body; no internal cells</text>
+    <text x="390" y="670" class="note"><tspan x="390">Width dominates the depth.</tspan><tspan x="390" dy="27">The top rises and falls gently;</tspan><tspan x="390" dy="27">small wisps hang below</tspan><tspan x="390" dy="27">the soft grey underside.</tspan></text>
+    <text x="390" y="818" class="small">Cross-section; depth exaggerated</text>
+  </g>
+  <!-- 3: Successive states of the same layer, not stacked cloud decks. -->
+  <g>
+    <circle cx="736" cy="154" r="15" fill="#fffbee"/><text x="736" y="160" text-anchor="middle" font-size="17" font-weight="700">3</text>
+    <text x="760" y="161" class="heading">A changing sheet</text>
+    <text x="726" y="197" class="small">The layer thickens, thins and breaks</text>
+    <text x="728" y="249" class="label">thin</text>
+    <path d="M741 284 Q752 271 774 277 Q806 265 840 274 Q877 267 912 276 Q948 269 981 280 Q995 278 1000 291 Q986 302 972 296 Q955 307 938 299 Q918 308 898 300 Q875 309 853 301 Q832 311 812 302 Q793 310 775 301 Q754 309 741 298Z" class="cloud"/>
+    <path d="M743 289 Q808 282 870 289 T999 290 Q986 302 972 296 Q955 307 938 299 Q918 308 898 300 Q875 309 853 301 Q832 311 812 302 Q793 310 775 301 Q754 309 741 298Z" fill="#b6c5cd"/>
+    <path d="M864 316 L864 345" class="motion"/>
+    <text x="728" y="374" class="label">thicker</text>
+    <path d="M741 404 Q749 389 774 395 Q802 383 833 391 Q867 382 900 391 Q930 385 958 395 Q983 391 997 405 L997 443 L985 449 L974 443 Q954 458 934 448 Q913 459 894 449 L883 457 Q864 446 845 454 Q826 460 808 449 L798 457 Q780 447 764 453 L750 445 L740 451 L744 435 L734 427Z" class="cloud"/>
+    <path d="M741 413 Q801 407 862 413 T997 413 L997 443 L985 449 L974 443 Q954 458 934 448 Q913 459 894 449 L883 457 Q864 446 845 454 Q826 460 808 449 L798 457 Q780 447 764 453 L750 445 L740 451 L744 435 L734 427Z" fill="#9bafbe"/>
+    <path d="M753 418 L733 418 M979 426 L1007 426" class="motion"/>
+    <text x="869" y="487" text-anchor="middle" class="small">edges fray and re-form</text>
+    <path d="M864 500 L864 529" class="motion"/>
+    <text x="728" y="555" class="label">thinning / clearing</text>
+    <path d="M741 583 Q752 571 772 577 Q795 568 819 578 L838 576 L829 587 L842 594 L825 599 Q805 593 790 601 Q770 593 753 601 L738 595Z" fill="#fffbee" stroke="#97abb6" stroke-width="2"/>
+    <path d="M902 585 L915 576 Q939 581 956 575 Q974 572 990 585 L1000 590 L989 598 Q965 592 946 600 Q928 593 913 598 L919 591Z" fill="#fffbee" stroke="#97abb6" stroke-width="2" opacity=".7"/>
+    <text x="728" y="670" class="note"><tspan x="728">Moisture builds the sheet;</tspan><tspan x="728" dy="27">warming can burn it off.</tspan><tspan x="728" dy="27">If it lifts and mixing grows,</tspan><tspan x="728" dy="27">stratocumulus may form.</tspan></text>
+    <text x="728" y="818" class="small">Successive moments, read downward</text>
+  </g>
+  <!-- 4: Restrained painted band; one lit rim and one shadow mass. -->
+  <g>
+    <circle cx="1074" cy="154" r="15" fill="#fffbee"/><text x="1074" y="160" text-anchor="middle" font-size="17" font-weight="700">4</text>
+    <text x="1098" y="155" class="heading">Painted (Ghibli)</text>
+    <text x="1098" y="181" class="heading">simplification</text>
+    <text x="1066" y="211" class="small">A soft band with almost no inner form</text>
+    <g stroke="#b58d42" stroke-width="2" stroke-linecap="round">
+      <circle cx="1092" cy="259" r="17" fill="#f7dda0"/>
+      <path d="M1092 232 V226 M1092 286 V292 M1065 259 H1059 M1119 259 H1125 M1073 240 L1068 235 M1111 240 L1116 235 M1073 278 L1068 283 M1111 278 L1116 283"/>
+      <path d="M1116 284 L1150 329" fill="none" marker-end="url(#lightArrow)"/>
+    </g>
+    <text x="1128" y="258" class="small">sunlight</text>
+    <text x="1236" y="344" text-anchor="middle" class="label">lit top edge only</text>
+    <path d="M1236 354 L1223 393" class="leader"/>
+    <path d="M1066 417 Q1075 403 1099 407 Q1127 395 1157 402 Q1187 390 1218 398 Q1246 393 1277 403 Q1308 396 1331 409 Q1344 406 1349 420 L1347 477 Q1334 487 1319 479 L1308 489 Q1289 482 1271 489 Q1253 494 1237 484 L1226 493 Q1207 482 1189 490 Q1170 496 1154 485 L1143 494 Q1127 484 1110 490 L1096 482 L1085 489 Q1073 481 1066 485Z" fill="#fff9e7" stroke="#7b94a2" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M1067 428 Q1095 416 1128 422 Q1158 412 1190 419 Q1224 411 1257 421 Q1290 415 1320 424 Q1335 420 1348 429 L1347 477 Q1334 487 1319 479 L1308 489 Q1289 482 1271 489 Q1253 494 1237 484 L1226 493 Q1207 482 1189 490 Q1170 496 1154 485 L1143 494 Q1127 484 1110 490 L1096 482 L1085 489 Q1073 481 1066 485Z" fill="#a4b7c6"/>
+    <text x="1205" y="550" text-anchor="middle" class="label">ragged underside</text>
+    <path d="M1205 530 L1190 495" class="leader"/>
+    <text x="1205" y="613" text-anchor="middle" class="label">one quiet shadow mass</text>
+    <path d="M1323 596 L1350 573 L1350 512 L1328 463" class="leader"/>
+    <text x="1066" y="670" class="note"><tspan x="1066">Keep the silhouette horizontal.</tspan><tspan x="1066" dy="27">Use one soft grey body</tspan><tspan x="1066" dy="27">and a narrow cream rim;</tspan><tspan x="1066" dy="27">let the base dissolve into wisps.</tspan></text>
+    <text x="1066" y="818" class="small">A painting study of the same structure</text>
+  </g>
+  <path d="M42 878 L66 878" class="motion"/><text x="77" y="883" font-size="13">air motion</text>
+  <text x="1367" y="883" text-anchor="end" font-size="13" fill="#657c89">Schematic cross-sections &#8226; cloud edges evolve continuously</text>
+</svg>

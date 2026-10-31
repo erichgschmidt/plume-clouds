@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title desc">
+  <title id="title">How a cumulonimbus cloud gets its shape</title>
+  <desc id="desc">Four panels show a rising thunderstorm tower, a downwind anvil with mamma and rain, its evolution into an orphan anvil, and a painted simplification. Orange arrows indicate air motion; time progresses downward in panel three.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#ce6847" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <marker id="lightArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#b58d42" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <style>
+      text { font-family: 'Segoe UI', Arial, sans-serif; fill: #374750; }
+      .heading { font-size: 21px; font-weight: 650; }
+      .label { font-size: 16px; }
+      .small { font-size: 14px; }
+      .note { font-size: 17px; }
+      .outline { stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .motion { fill: none; stroke: #ce6847; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .leader { fill: none; stroke: #657c89; stroke-width: 1.4; stroke-linecap: round; }
+      .cloud { fill: #fffbee; stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <rect width="1400" height="900" fill="#f6f3ea"/>
+  <text x="40" y="58" font-size="34" font-weight="650">How a cumulonimbus cloud gets its shape</text>
+  <text x="42" y="88" font-size="17" fill="#657c89">A tower rises, its crown freezes, and high winds spread the ice into an anvil.</text>
+  <g fill="#dcecf1" stroke="#bdced2" stroke-width="1.5">
+    <rect x="30" y="120" width="325" height="735" rx="18"/>
+    <rect x="368" y="120" width="325" height="735" rx="18"/>
+    <rect x="706" y="120" width="325" height="735" rx="18"/>
+    <rect x="1044" y="120" width="326" height="735" rx="18"/>
+  </g>
+  <!-- 1: A scalloped liquid-water tower meets a smooth, fibrous ice crown. -->
+  <g>
+    <circle cx="60" cy="154" r="15" fill="#fffbee"/><text x="60" y="160" text-anchor="middle" font-size="17" font-weight="700">1</text>
+    <text x="84" y="161" class="heading">Tower reaches the lid</text>
+    <text x="50" y="197" class="small">Congestus grows; the upper crown freezes</text>
+    <text x="51" y="246" class="label">tropopause</text>
+    <path d="M50 258 H335" stroke="#657c89" stroke-width="1.7" stroke-dasharray="8 6"/>
+    <path d="M88 571 C72 547 83 520 103 513 C89 489 102 464 125 465 C113 441 124 415 145 415 C132 394 142 370 160 369 C150 347 155 328 172 319 C165 298 174 278 195 274 C218 269 243 279 252 296 C266 311 263 331 254 344 C275 356 276 379 263 394 C282 409 282 433 269 449 C292 462 294 486 283 503 C309 520 310 549 296 571Z" class="cloud"/>
+    <path d="M89 536 Q115 554 137 532 Q164 550 181 522 Q204 539 223 513 Q246 525 269 505 Q307 519 296 571 H88Z" fill="#9bafbe"/>
+    <path d="M88 571 H296" stroke="#748c99" stroke-width="2"/>
+    <path d="M172 319 Q200 302 254 309 M178 304 Q212 291 250 299 M185 289 Q214 283 239 289" fill="none" stroke="#b6c5cd" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M200 535 L200 350" class="motion"/>
+    <text x="52" y="311" class="label"><tspan x="52">ice crown</tspan><tspan x="52" dy="22">smooth, fibrous</tspan></text>
+    <path d="M155 320 L176 303" class="leader"/>
+    <text x="54" y="604" class="label">crisp, rising liquid-water domes</text>
+    <path d="M111 584 L122 474" class="leader"/>
+    <text x="52" y="670" class="note"><tspan x="52">The updraft builds a tall tower.</tspan><tspan x="52" dy="27">Near the tropopause, ice blurs</tspan><tspan x="52" dy="27">the crown: fibrous streaks</tspan><tspan x="52" dy="27">replace cauliflower domes.</tspan></text>
+    <text x="52" y="818" class="small">The stable lid limits upward growth</text>
+  </g>
+  <!-- 2: Upper-level outflow extends ahead of the tower, to the right. -->
+  <g>
+    <circle cx="398" cy="154" r="15" fill="#fffbee"/><text x="398" y="160" text-anchor="middle" font-size="17" font-weight="700">2</text>
+    <text x="422" y="161" class="heading">Anvil carried downwind</text>
+    <text x="388" y="197" class="small">Wind shear carries the ice ahead of the tower</text>
+    <text x="397" y="241" class="label">stronger wind aloft</text>
+    <path d="M400 258 H658" class="motion"/>
+    <path d="M411 514 C398 494 407 472 422 467 C407 448 417 424 435 424 C424 405 433 387 449 382 C434 362 435 342 451 332 C433 317 434 297 454 289 Q478 278 505 288 Q556 296 611 291 L670 285 Q657 308 622 324 Q594 340 560 345 Q538 350 514 349 C526 369 520 391 509 402 C531 420 530 441 519 454 C541 469 542 493 531 514Z" class="cloud"/>
+    <path d="M451 332 Q479 322 514 330 Q572 332 622 314 L670 285 Q656 308 622 324 Q594 340 560 345 Q538 350 514 349 C526 369 520 391 509 402 C531 420 530 441 519 454 C541 469 542 493 531 514 H411 L412 485 Q441 503 461 476 Q486 491 496 465 L487 373Z" fill="#a5b6c3"/>
+    <path d="M535 346 Q534 372 546 373 Q559 371 558 346 M564 343 Q562 364 575 365 Q587 362 586 338 M592 335 Q592 353 603 351 Q613 348 615 327" fill="#a5b6c3" stroke="#748c99" stroke-width="1.6"/>
+    <path d="M412 489 Q441 504 466 490 Q500 505 536 486 L531 514 H411Z" fill="#637f94"/>
+    <path d="M416 520 L403 612 M435 520 L422 621 M455 520 L442 610 M475 520 L462 624 M495 520 L482 614 M515 520 L502 620 M529 520 L516 600" stroke="#7e98ac" stroke-width="2" opacity=".65"/>
+    <path d="M465 475 L465 359 Q469 310 518 309 L626 305" class="motion"/>
+    <text x="576" y="411" class="label">mamma</text><path d="M586 395 L575 369" class="leader"/>
+    <text x="555" y="492" class="label">dark base</text><path d="M550 498 L531 505" class="leader"/>
+    <text x="550" y="573" class="label">rain curtain</text><path d="M545 579 L512 583" class="leader"/>
+    <text x="390" y="670" class="note"><tspan x="390">The crown spreads sideways.</tspan><tspan x="390" dy="27">Ice streams far downwind;</tspan><tspan x="390" dy="27">mamma hang beneath the anvil.</tspan><tspan x="390" dy="27">Rain falls from the dark base.</tspan></text>
+    <text x="390" y="818" class="small">Cross-section ? downwind is to the right</text>
+  </g>
+  <!-- 3: Four successive silhouettes; read downward through time. -->
+  <g>
+    <circle cx="736" cy="154" r="15" fill="#fffbee"/><text x="736" y="160" text-anchor="middle" font-size="17" font-weight="700">3</text>
+    <text x="760" y="161" class="heading">From tower to remnant</text>
+    <text x="726" y="197" class="small">Read downward: the ice outlasts the updraft</text>
+    <text x="728" y="244" class="label">1 ? tower</text>
+    <path d="M849 293 Q838 279 850 268 Q841 254 856 247 Q850 231 865 226 Q871 211 883 224 Q901 221 902 239 Q919 246 910 260 Q927 272 920 293Z" class="cloud"/>
+    <path d="M849 280 Q864 291 878 280 Q899 294 920 279 V293 H849Z" fill="#9bafbe"/>
+    <text x="728" y="340" class="label">2 ? glaciation</text>
+    <path d="M849 394 Q839 378 853 365 Q844 350 858 340 Q846 326 860 318 Q883 306 909 320 Q920 334 907 345 Q922 359 912 371 Q930 382 921 394Z" class="cloud"/>
+    <path d="M859 329 Q883 318 910 329 M861 337 Q884 327 906 335" fill="none" stroke="#b6c5cd" stroke-width="1.6"/>
+    <path d="M850 381 Q869 392 883 381 Q905 393 921 381 V394 H849Z" fill="#9bafbe"/>
+    <text x="728" y="437" class="label">3 ? anvil</text>
+    <path d="M843 500 Q832 483 849 471 Q839 455 851 448 Q830 433 845 424 Q865 416 887 422 Q938 429 1009 419 Q985 444 906 449 Q900 463 911 472 Q926 489 915 500Z" class="cloud"/>
+    <path d="M846 433 Q917 445 1009 419 Q985 444 906 449 L899 469 Q911 471 915 480 V500 H843 L840 484 Q870 496 887 478 L877 447Z" fill="#a5b6c3"/>
+    <path d="M881 414 Q926 403 991 407" class="motion"/>
+    <text x="728" y="550" class="label">4 ? orphan anvil</text>
+    <path d="M864 576 Q854 561 877 557 Q915 560 943 559 L1009 550 Q994 572 947 580 Q899 586 864 576Z" class="cloud"/>
+    <path d="M864 572 Q935 579 1009 550 Q994 572 947 580 Q899 586 864 576Z" fill="#b6c5cd"/>
+    <path d="M843 620 Q835 609 850 603 Q847 590 863 592 Q876 580 888 595 Q903 592 907 605 Q922 610 915 620Z" fill="#b6c5cd" opacity=".55"/>
+    <text x="728" y="645" class="small">tower collapses; detached ice drifts on</text>
+    <text x="728" y="690" class="note"><tspan x="728">The tower feeds a broad anvil.</tspan><tspan x="728" dy="27">When the updraft fades,</tspan><tspan x="728" dy="27">the tower shrinks below it.</tspan><tspan x="728" dy="27">An orphan anvil remains.</tspan></text>
+    <text x="728" y="818" class="small">Successive stages ? not to scale</text>
+  </g>
+  <!-- 4: Crisp lit tower, smooth ice shelf, and grouped blue-grey shade. -->
+  <g>
+    <circle cx="1074" cy="154" r="15" fill="#fffbee"/><text x="1074" y="160" text-anchor="middle" font-size="17" font-weight="700">4</text>
+    <text x="1098" y="155" class="heading">Painted (Ghibli)</text><text x="1098" y="181" class="heading">simplification</text>
+    <text x="1066" y="213" class="small">A crisp tower beneath a smooth ice shelf</text>
+    <g stroke="#b58d42" stroke-width="2" stroke-linecap="round"><circle cx="1088" cy="255" r="17" fill="#f7dda0"/><path d="M1088 228 V222 M1088 282 V288 M1061 255 H1055 M1115 255 H1121 M1069 236 L1064 231 M1107 236 L1112 231"/><path d="M1110 278 L1138 312" fill="none" marker-end="url(#lightArrow)"/></g>
+    <text x="1198" y="255" class="label">flat, smooth anvil</text><path d="M1252 264 L1264 314" class="leader"/>
+    <path d="M1088 563 C1075 540 1083 519 1101 513 C1087 493 1095 470 1114 468 C1101 448 1110 425 1128 424 C1116 406 1125 385 1142 382 C1130 366 1139 349 1155 345 Q1128 332 1137 320 Q1147 307 1175 314 L1350 314 Q1340 334 1296 345 Q1257 355 1210 355 C1223 369 1223 387 1213 400 C1233 411 1238 430 1227 446 C1252 454 1261 479 1254 497 C1286 512 1297 539 1285 563Z" fill="#fff9e7" stroke="#7b94a2" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M1155 345 Q1221 342 1294 332 L1350 314 Q1340 334 1296 345 Q1257 355 1210 355 C1223 369 1223 387 1213 400 C1233 411 1238 430 1227 446 C1252 454 1261 479 1254 497 C1286 512 1297 539 1285 563 H1088 Q1077 544 1087 525 Q1115 539 1137 510 Q1153 487 1144 462 Q1176 472 1192 443 Q1205 419 1190 398 Q1204 371 1184 352Z" fill="#a4b7c6"/>
+    <path d="M1084 540 Q1112 552 1143 536 Q1181 555 1211 538 Q1250 556 1290 539 L1285 563 H1088Z" fill="#637f94"/>
+    <path d="M1100 513 Q1114 501 1126 509 M1114 468 Q1126 454 1139 462 M1129 424 Q1143 411 1155 420 M1143 382 Q1155 371 1166 380" fill="none" stroke="#e1cfaa" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="1266" y="394" text-anchor="middle" class="label">downwind</text><path d="M1240 368 H1334" class="motion"/>
+    <text x="1068" y="612" class="label">crisp tower</text><path d="M1111 592 L1115 477" class="leader"/>
+    <text x="1237" y="612" text-anchor="middle" class="label">darkest base</text><path d="M1237 591 L1237 568" class="leader"/>
+    <text x="1066" y="690" class="note"><tspan x="1066">Stack the tall, crisp domes.</tspan><tspan x="1066" dy="27">Lean the flat anvil downwind.</tspan><tspan x="1066" dy="27">Group the shadows and keep</tspan><tspan x="1066" dy="27">the deepest dark at the base.</tspan></text>
+    <text x="1066" y="818" class="small">A painting study of the same structure</text>
+  </g>
+  <path d="M42 878 L66 878" class="motion"/><text x="77" y="883" font-size="13">air motion</text>
+  <text x="1367" y="883" text-anchor="end" font-size="13" fill="#657c89">Schematic cross-sections ? cloud edges evolve continuously</text>
+</svg>

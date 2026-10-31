@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title desc">
+  <title id="title">How an altostratus cloud gets its shape</title>
+  <desc id="desc">Four schematic panels show warm air rising over a sloping warm front, a thick layered cloud with a dim sun and wind-drawn fibres, thickening from cirrostratus through altostratus to rainy nimbostratus, and a painted grey sheet with fine striations.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#ce6847" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <style>
+      text { font-family: 'Segoe UI', Arial, sans-serif; fill: #374750; }
+      .heading { font-size: 21px; font-weight: 650; }
+      .label { font-size: 16px; }
+      .small { font-size: 14px; }
+      .note { font-size: 17px; }
+      .outline { stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .motion { fill: none; stroke: #ce6847; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .leader { fill: none; stroke: #657c89; stroke-width: 1.4; stroke-linecap: round; }
+      .cloud { fill: #fffbee; stroke: #748c99; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+    <path id="sheet" d="M402 365 Q394 349 414 341 Q431 327 455 335 Q478 321 503 329 Q530 315 556 325 Q582 314 608 325 Q633 318 650 332 Q674 335 667 354 Q680 374 665 391 Q677 411 662 426 Q642 439 617 432 Q591 443 564 435 Q537 446 510 437 Q480 447 455 438 Q429 445 412 431 Q393 426 401 408 Q387 389 402 365Z"/>
+    <clipPath id="sheetClip"><use href="#sheet"/></clipPath>
+    <path id="paintSheet" d="M1071 347 Q1064 331 1085 326 Q1107 316 1131 323 Q1156 312 1181 319 Q1207 311 1234 319 Q1260 311 1284 321 Q1310 315 1328 329 Q1351 330 1344 351 Q1355 374 1345 398 Q1353 423 1344 449 Q1355 476 1342 500 Q1352 523 1333 536 Q1309 545 1283 538 Q1258 548 1230 541 Q1203 549 1176 542 Q1149 551 1122 541 Q1095 546 1076 535 Q1061 526 1069 506 Q1059 483 1068 460 Q1058 435 1067 411 Q1059 383 1071 347Z"/>
+    <clipPath id="paintClip"><use href="#paintSheet"/></clipPath>
+    <radialGradient id="softSun"><stop offset="0" stop-color="#fffbee" stop-opacity=".85"/><stop offset=".65" stop-color="#fffbee" stop-opacity=".65"/><stop offset="1" stop-color="#fffbee" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1400" height="900" fill="#f6f3ea"/>
+  <text x="40" y="58" font-size="34" font-weight="650">How an altostratus cloud gets its shape</text>
+  <text x="42" y="88" font-size="17" fill="#657c89">A whole air mass rises gently. Moisture spreads into a sheet. The veil thickens as a warm front approaches.</text>
+  <g fill="#dcecf1" stroke="#bdced2" stroke-width="1.5">
+    <rect x="30" y="120" width="325" height="735" rx="18"/><rect x="368" y="120" width="325" height="735" rx="18"/><rect x="706" y="120" width="325" height="735" rx="18"/><rect x="1044" y="120" width="326" height="735" rx="18"/>
+  </g>
+  <!-- 1: A greatly exaggerated frontal slope makes broad ascent visible. -->
+  <g>
+    <circle cx="60" cy="154" r="15" fill="#fffbee"/><text x="60" y="160" text-anchor="middle" font-size="17" font-weight="700">1</text>
+    <text x="84" y="161" class="heading">A whole air mass lifts</text>
+    <text x="50" y="197" class="small">Warm air glides over a cooler wedge</text>
+    <text x="72" y="277" class="label">warm, moist air</text>
+    <path d="M53 537 Q182 483 333 430 L333 586 L53 586Z" fill="#a5b6c3" fill-opacity=".6"/>
+    <path d="M53 537 Q182 483 333 430" fill="none" stroke="#748c99" stroke-width="2"/>
+    <path d="M62 476 Q184 424 319 382 M64 419 Q179 370 313 327" class="motion"/>
+    <path d="M94 379 Q82 369 99 360 Q117 347 139 351 Q158 335 179 339 Q200 324 223 327 Q246 312 268 316 Q290 302 312 307 Q332 305 333 321 Q318 333 295 333 Q274 348 251 347 Q230 363 208 361 Q187 377 166 374 Q146 389 125 386 Q106 395 94 379Z" class="cloud"/>
+    <path d="M94 379 Q111 379 128 374 Q149 378 167 363 Q188 367 209 350 Q232 352 252 337 Q275 339 295 324 Q317 326 333 321 Q318 333 295 333 Q274 348 251 347 Q230 363 208 361 Q187 377 166 374 Q146 389 125 386 Q106 395 94 379Z" fill="#b6c5cd"/>
+    <text x="211" y="549" text-anchor="middle" class="label">cooler, denser air</text>
+    <text x="74" y="605" class="label">sloping frontal surface</text>
+    <path d="M91 584 L91 535 L123 508" class="leader"/>
+    <text x="52" y="670" class="note"><tspan x="52">Gentle ascent cools the air</tspan><tspan x="52" dy="27">over hundreds of kilometres.</tspan><tspan x="52" dy="27">Condensation spreads into</tspan><tspan x="52" dy="27">a broad, continuous layer.</tspan></text>
+    <text x="52" y="818" class="small">Cross-section; slope exaggerated</text>
+  </g>
+  <!-- 2: Layer geometry in section; the sun is an appearance inset. -->
+  <g>
+    <circle cx="398" cy="154" r="15" fill="#fffbee"/><text x="398" y="160" text-anchor="middle" font-size="17" font-weight="700">2</text>
+    <text x="422" y="161" class="heading">A thick grey sheet</text>
+    <text x="388" y="197" class="small">Wind shear draws out fine fibres</text>
+    <text x="530" y="263" text-anchor="middle" class="label">winds differ with height</text>
+    <path d="M415 292 L643 292 M422 474 L554 474" class="motion"/>
+    <use href="#sheet" class="cloud"/>
+    <g clip-path="url(#sheetClip)">
+      <path d="M387 349 Q520 337 682 345 L682 451 L387 451Z" fill="#a5b6c3"/>
+      <path d="M400 414 Q529 423 672 405 L679 451 L395 451Z" fill="#9bafbe"/>
+      <g fill="none" stroke="#dcecf1" stroke-width="2" opacity=".65" stroke-linecap="round">
+        <path d="M414 370 Q498 351 576 359 M464 386 Q550 366 650 371 M408 402 Q493 383 552 389 M556 402 L646 390"/>
+      </g>
+    </g>
+    <text x="530" y="513" text-anchor="middle" class="label">broad layer, little relief</text>
+    <path d="M626 496 L647 482 L647 440" class="leader"/>
+    <circle cx="440" cy="581" r="33" fill="#a5b6c3"/>
+    <circle cx="440" cy="581" r="21" fill="url(#softSun)"/>
+    <circle cx="440" cy="581" r="12" fill="#fffbee" opacity=".45"/>
+    <text x="488" y="578" class="label">dim sun disc</text><text x="488" y="601" class="small">view from below</text>
+    <text x="390" y="670" class="note"><tspan x="390">The sheet looks featureless</tspan><tspan x="390" dy="27">from below, with faint fibres.</tspan><tspan x="390" dy="27">Thinner parts let the sun</tspan><tspan x="390" dy="27">show through as a dim disc.</tspan></text>
+    <text x="390" y="818" class="small">Layer cross-section + sky-view inset</text>
+  </g>
+  <!-- 3: Successive sky conditions at one location, read downward. -->
+  <g>
+    <circle cx="736" cy="154" r="15" fill="#fffbee"/><text x="736" y="160" text-anchor="middle" font-size="17" font-weight="700">3</text>
+    <text x="760" y="161" class="heading">The veil thickens</text>
+    <text x="726" y="197" class="small">Ahead of an approaching warm front</text>
+    <text x="741" y="257" class="label">Cirrostratus</text><text x="1000" y="257" text-anchor="end" class="small">thin, high veil</text>
+    <path d="M741 288 Q754 276 775 282 Q795 273 817 280 Q840 273 865 280 Q888 271 911 278 Q934 273 957 281 Q979 276 996 287 Q978 298 956 293 Q932 301 911 294 Q887 302 864 295 Q840 302 817 296 Q794 303 774 296 Q751 301 741 288Z" class="cloud"/>
+    <path d="M869 313 L869 345" class="motion"/>
+    <text x="741" y="377" class="label">Altostratus</text><text x="1000" y="377" text-anchor="end" class="small">thicker, grey</text>
+    <path d="M742 403 Q755 390 776 397 Q798 388 819 395 Q843 386 866 393 Q890 384 913 392 Q936 385 958 394 Q983 389 995 403 Q1007 417 995 433 Q977 445 955 439 Q931 447 910 440 Q887 448 864 442 Q840 449 817 441 Q793 449 774 440 Q750 446 741 433 Q732 419 742 403Z" class="cloud"/>
+    <path d="M742 410 Q867 401 995 409 L995 433 Q977 445 955 439 Q931 447 910 440 Q887 448 864 442 Q840 449 817 441 Q793 449 774 440 Q750 446 741 433Z" fill="#a5b6c3"/>
+    <path d="M869 461 L869 492" class="motion"/>
+    <text x="741" y="524" class="label">Nimbostratus</text><text x="1000" y="524" text-anchor="end" class="small">deep, rainy</text>
+    <path d="M742 551 Q755 536 777 543 Q797 533 819 540 Q843 530 866 538 Q891 529 914 537 Q937 532 959 541 Q982 535 996 550 Q1007 566 998 584 Q1007 604 994 616 Q974 629 954 622 Q931 631 908 624 Q886 632 864 625 Q839 632 817 624 Q793 633 771 624 Q748 631 740 614 Q730 598 740 583 Q731 565 742 551Z" fill="#9bafbe" stroke="#748c99" stroke-width="2"/>
+    <path d="M741 595 Q862 605 999 593 L994 616 Q974 629 954 622 Q931 631 908 624 Q886 632 864 625 Q839 632 817 624 Q793 633 771 624 Q748 631 740 614Z" fill="#7e98ac"/>
+    <path d="M769 637 L763 651 M798 641 L792 655 M827 638 L821 652 M856 641 L850 655 M885 638 L879 652 M914 641 L908 655 M943 638 L937 652 M972 637 L966 651" fill="none" stroke="#748c99" stroke-width="2" stroke-linecap="round"/>
+    <text x="728" y="690" class="note"><tspan x="728">The layer deepens and lowers.</tspan><tspan x="728" dy="27">The sun fades from view;</tspan><tspan x="728" dy="27">steady rain may follow.</tspan></text>
+    <text x="728" y="818" class="small">Typical sequence; read downward</text>
+  </g>
+  <!-- 4: Low-contrast grain over a single broad painted value. -->
+  <g>
+    <circle cx="1074" cy="154" r="15" fill="#fffbee"/><text x="1074" y="160" text-anchor="middle" font-size="17" font-weight="700">4</text>
+    <text x="1098" y="155" class="heading">Painted (Ghibli)</text><text x="1098" y="181" class="heading">simplification</text>
+    <text x="1064" y="215" class="small">One grey field, with a striated grain</text>
+    <text x="1206" y="280" text-anchor="middle" class="label">soft sun, muted edges</text>
+    <path d="M1197 289 L1177 358" class="leader"/>
+    <use href="#paintSheet" class="cloud"/>
+    <g clip-path="url(#paintClip)">
+      <path d="M1059 335 Q1194 326 1356 334 L1356 555 L1059 555Z" fill="#a5b6c3"/>
+      <g fill="none" stroke-linecap="round" stroke-width="2">
+        <path d="M1078 360 Q1168 344 1248 351 M1192 370 Q1274 353 1340 359 M1073 397 Q1130 382 1197 387 M1210 405 Q1274 390 1345 395 M1080 434 Q1198 411 1300 420 M1137 454 Q1243 435 1337 441 M1071 482 Q1167 462 1233 470 M1213 492 Q1286 477 1344 482 M1080 520 Q1190 497 1299 507" stroke="#dcecf1" opacity=".28"/>
+        <path d="M1085 374 L1143 366 M1258 380 L1332 372 M1085 418 Q1164 400 1226 407 M1147 440 L1209 431 M1247 463 L1332 451 M1080 498 L1166 486 M1191 529 L1318 512" stroke="#748c99" opacity=".2"/>
+      </g>
+      <circle cx="1172" cy="383" r="34" fill="url(#softSun)"/><circle cx="1172" cy="383" r="18" fill="#fffbee" opacity=".3"/>
+    </g>
+    <text x="1206" y="589" text-anchor="middle" class="label">fine, nearly parallel streaks</text>
+    <path d="M1286 567 L1304 544 L1304 489" class="leader"/>
+    <text x="1206" y="632" text-anchor="middle" class="label">no cells, no turrets</text>
+    <text x="1066" y="690" class="note"><tspan x="1066">Keep mostly one grey tone.</tspan><tspan x="1066" dy="27">Let a few soft fibres cross it;</tspan><tspan x="1066" dy="27">avoid separate puffy forms.</tspan></text>
+    <text x="1066" y="818" class="small">A painting study of the same structure</text>
+  </g>
+  <path d="M42 878 L66 878" class="motion"/><text x="77" y="883" font-size="13">air motion (panel 3: progression)</text>
+  <text x="1367" y="883" text-anchor="end" font-size="13" fill="#657c89">Schematic sections and sky views &#8226; vertical scale exaggerated</text>
+</svg>

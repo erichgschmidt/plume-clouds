@@ -26,8 +26,8 @@
 <div id="app">
   <div id="stage"><canvas id="canvas"></canvas><div id="hud"></div></div>
   <div id="panel">
-    <h3>Formation</h3>
-    <div class="seg" id="presets"></div>
+    <h3>Cloud type</h3>
+    <div class="row"><label>Type</label><select id="type" style="flex:1"></select></div>
     <div class="seg" id="looks" style="margin-top:4px"></div>
     <div class="row" style="margin-top:4px"><input id="lookName" placeholder="preset name" style="flex:1;min-width:0"><button class="btn" id="btnSave">Save</button><button class="btn" id="btnDel">Delete</button></div>
     <div class="row" style="margin-top:6px"><button class="btn" id="btnPlay">Pause</button><button class="btn" id="btnReset">Reset</button><label style="width:auto">Seed</label><input id="seed" type="number" value="1" style="width:56px"></div>
@@ -44,9 +44,11 @@
     <div id="light"></div>
   </div>
 </div>
-<script src="src/sim.js?v=100"></script>
-<script src="src/puffs.js?v=100"></script>
-<script src="src/motion.js?v=100"></script>
+<script src="src/sim.js?v=104"></script>
+<script src="src/puffs.js?v=104"></script>
+<script src="src/motion.js?v=104"></script>
+<script src="src/layer.js?v=104"></script>
+<script src="src/presets.js?v=104"></script>
 <script>
 (function () {
   'use strict';
@@ -56,21 +58,24 @@
   fit(); addEventListener('resize', fit);
   var renderer = new PuffRenderer(canvas);
   renderer.resize(240);
-  var sim = new ThermalSim({ seed: 1, preset: 'congestus', aspect: canvas.height / canvas.width });
+  var engine = 'thermal', typeName = 'congestus', extraSim = null, extraLook = null;
+  function makeSim(eng, preset, seed, shape) {
+    var asp = canvas.height / canvas.width;
+    if (eng === 'layer') return new LayerSim({ seed: seed, preset: preset, aspect: asp });
+    if (eng === 'veil') return new LayerSim({ seed: seed, preset: 'stratus', aspect: asp, params: {} });   // a dummy, emptied below
+    return new ThermalSim({ seed: seed, preset: preset, aspect: asp, shape: shape });
+  }
+  var sim = makeSim('thermal', 'congestus', 1, 'ring');
 
   var look = { children: 6, ratio: 0.62, levels: 3, life: 1, embed: 0.9, softness: 1.0, depth: 1, roll: 1,
     noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, flow: 0.04, smooth: 0.5, haze: 0.5, shear: 0, shearBias: 0, wind: 0, lean: 0, prim: 'sphere', primAmt: 1, panX: 0, panY: 0, dither: 0, anchor: 1, zoom: 1,
-    sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, depthFall: 0, atmos: 0, baseShade: 0.5, stackShade: 0.4, pixelated: true };
+    sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, depthFall: 0, atmos: 0, cirrus: 0, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, veil: 0, baseShade: 0.5, stackShade: 0.4, pixelated: true };
 
-  var FORCES = [
-    ['updraft', 'Updraft', 0, 0.5, 0.005], ['width', 'Width', 0.05, 0.5, 0.005], ['height', 'Height', 0.05, 0.6, 0.005],
-    ['rise', 'Rise', 0, 0.02, 0.0005], ['expand', 'Expand', 0, 0.01, 0.0002], ['settle', 'Settle', 0, 1, 0.01],
-    ['count', 'Parcels', 4, 63, 1], ['size', 'Size', 0.03, 0.2, 0.001], ['jitter', 'Jitter', 0, 0.5, 0.005], ['mixing', 'Mixing (s)', 1, 30, 0.5], ['pulse', 'Bubble (s)', 0, 40, 0.5], ['base', 'Base level', 0.2, 1, 0.01], ['rollGain', 'Roll gain', 0, 24, 0.1], ['formTime', 'Form (s)', 0, 300, 5], ['reservoir', 'Base share', 0, 0.6, 0.05], ['parallax', 'Parallax', 0, 0.08, 0.002], ['sway', 'Sway (s)', 5, 120, 1]
-  ];
+  var FORCES = CLOUD_FORCES.thermal;
   var SURFACE = [['children', 'Children', 0, 6, 1], ['ratio', 'Size ratio', 0.25, 0.7, 0.01], ['levels', 'Levels', 1, 3, 1], ['life', 'Life', 0, 3, 0.01], ['embed', 'Embed', 0.4, 1, 0.01], ['softness', 'Softness', 0.3, 4, 0.01], ['depth', 'Depth', 0, 2, 0.01],
     ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['shear', 'Shear', 0, 3, 0.05], ['shearBias', 'Shear bias', -1, 1, 0.01], ['wind', 'Wind (deg)', -90, 90, 1], ['lean', 'Lean', -1, 1, 0.01], ['primAmt', 'Primitive amt', 0, 1, 0.01]];
   var VIEW = [['zoom', 'Scale', 0.5, 2.5, 0.05], ['panX', 'Pan X', -1, 1, 0.01], ['panY', 'Pan Y', -1, 1, 0.01]];
-  var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['shadow', 'Shadow', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['depthFall', 'Depth falloff', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
+  var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['shadow', 'Shadow', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['depthFall', 'Depth falloff', 0, 1, 0.01], ['cirrus', 'Cirrus', 0, 1, 0.01], ['cirrusScale', 'Cirrus scale', 0.5, 6, 0.1], ['cirrusAngle', 'Cirrus angle', -45, 45, 1], ['veil', 'Veil', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
   var TIPS = {
     updraft: 'Strength of the thermal: how fast parcels rise up the axis and roll over at the top.',
     width: 'Ring width: how far the circulation spreads sideways.',
@@ -131,20 +136,43 @@
     var val = document.createElement('span'); val.className = 'val';
     row.appendChild(label); row.appendChild(range); row.appendChild(val); parent.appendChild(row);
     function show() { var v = target()[spec[0]]; range.value = v; val.textContent = spec[4] >= 1 ? String(v) : (+v).toFixed(spec[4] < 0.001 ? 4 : spec[4] < 0.01 ? 3 : 2); }
-    range.addEventListener('input', function () { var v = +range.value; target()[spec[0]] = v; if (spec[0] === 'width' || spec[0] === 'height' || spec[0] === 'base') sim.reseat(); show(); });
+    range.addEventListener('input', function () { var v = +range.value; target()[spec[0]] = v; if (spec[0] === 'width' || spec[0] === 'height' || spec[0] === 'base' || spec[0] === 'level' || spec[0] === 'thick' || spec[0] === 'size') sim.reseat(); show(); });
     sliders[spec[0]] = show; show();
   }
-  FORCES.forEach(function (s) { slider($('forces'), function () { return sim.params; }, s); });
+  function buildForces() {
+    for (var k in sliders) if (sliders[k].force) delete sliders[k];
+    $('forces').innerHTML = '';
+    FORCES = CLOUD_FORCES[engine] || [];
+    var keys = engine === 'layer' ? LAYER_MODE_KEYS[sim.params.mode] : null;
+    FORCES.forEach(function (s) { if (keys && keys.indexOf(s[0]) < 0) return; slider($('forces'), function () { return sim.params; }, s); sliders[s[0]].force = true; });
+  }
+  buildForces();
   SURFACE.forEach(function (s) { slider($('surface'), function () { return look; }, s); });
   LIGHT.forEach(function (s) { slider($('light'), function () { return look; }, s); });
   VIEW.forEach(function (s) { slider($('view'), function () { return look; }, s); });
   function refresh() { for (var k in sliders) sliders[k](); }
 
-  ThermalSim.PRESETS.forEach(function (p) {
-    var b = document.createElement('button'); b.className = 'btn' + (p === sim.preset ? ' on' : ''); b.textContent = p;
-    b.addEventListener('click', function () { sim.setPreset(p); refresh(); document.querySelectorAll('#presets .btn').forEach(function (x) { x.classList.toggle('on', x === b); }); });
-    $('presets').appendChild(b);
-  });
+  // cloud types (src/presets.js): engine + sim preset + layout + primitive + form
+  function applyType(name) {
+    var T = CLOUD_PRESETS[name]; if (!T) return;
+    typeName = name; engine = T.engine;
+    var seed = +$('seed').value | 0;
+    sim = makeSim(engine, T.preset, seed, T.shape || 'ring'); window.sim = sim;
+    if (engine === 'veil') { sim.params.count = 0; sim.parcels = []; sim._emit(); }
+    for (var k in T.forces) sim.params[k] = T.forces[k]; sim.reseat();
+    for (var j in T.look) look[j] = T.look[j];
+    look.prim = T.prim || 'sphere'; look.primAmt = T.primAmt === undefined ? 1 : T.primAmt;
+    $('prims').value = look.prim; $('shapes').value = sim.shape || 'ring'; $('shapes').disabled = engine !== 'thermal';
+    extraSim = null; extraLook = null;
+    if (T.extra) {
+      extraSim = makeSim(T.extra.engine, T.extra.preset, seed + 1, 'ring');
+      extraLook = Object.assign({}, look, T.extra.look || {});
+    }
+    buildForces(); refresh();
+  }
+  Object.keys(CLOUD_PRESETS).forEach(function (nm) { var o = document.createElement('option'); o.value = nm; o.textContent = CLOUD_PRESETS[nm].label || nm; $('type').appendChild(o); });
+  $('type').value = 'congestus';
+  $('type').addEventListener('change', function () { applyType(this.value); });
   // Page presets: forces + surface + light together (the sim preset row above only sets forces).
   var LOOKS = {
     lantern: { seed: 1, forces: { updraft: 0.04, width: 0.13, height: 0.18, rise: 0.0004, expand: 0.0002, settle: 0.61, count: 60, size: 0.03, jitter: 0.5, mixing: 20.5, pulse: 0, base: 0.21, rollGain: 8.4, formTime: 90, reservoir: 0.35, parallax: 0 },
@@ -154,7 +182,8 @@
   var STORE = 'plume-puffs-looks';
   function saved() { try { return JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (e) { return {}; } }
   function applyLook(L) {
-    $('seed').value = L.seed; sim.shape = L.shape || 'ring'; sim.reset(L.seed, sim.preset);
+    $('seed').value = L.seed; if (L.type && CLOUD_PRESETS[L.type]) { $('type').value = L.type; applyType(L.type); }
+    sim.shape = L.shape || 'ring'; sim.reset(L.seed, sim.preset);
     $('shapes').value = sim.shape;
     for (var k in L.forces) sim.params[k] = L.forces[k]; sim.reseat();
     for (var j in L.look) look[j] = L.look[j];
@@ -174,7 +203,7 @@
     var name = $('lookName').value.trim(); if (!name) return;
     var forces = {}; FORCES.forEach(function (s) { forces[s[0]] = sim.params[s[0]]; });
     var lk = {}; SURFACE.concat(LIGHT, VIEW).forEach(function (s) { lk[s[0]] = look[s[0]]; });
-    var all = saved(); all[name] = { seed: +$('seed').value | 0, shape: sim.shape, prim: look.prim, forces: forces, look: lk };
+    var all = saved(); all[name] = { seed: +$('seed').value | 0, type: typeName, engine: engine, simPreset: sim.preset, shape: sim.shape, prim: look.prim, forces: forces, look: lk };
     localStorage.setItem(STORE, JSON.stringify(all)); drawLooks();
   });
   $('btnDel').addEventListener('click', function () {
@@ -187,19 +216,21 @@
   $('prims').addEventListener('change', function () { look.prim = this.value; });
   var playing = true;
   $('btnPlay').addEventListener('click', function () { playing = !playing; this.textContent = playing ? 'Pause' : 'Play'; });
-  $('btnReset').addEventListener('click', function () { sim.reset(+$('seed').value | 0, sim.preset); refresh(); });
-  $('seed').addEventListener('change', function () { sim.reset(+this.value | 0, sim.preset); });
+  $('btnReset').addEventListener('click', function () { applyType(typeName); });
+  $('seed').addEventListener('change', function () { applyType(typeName); });
 
   window.sim = sim; window.look = look; window.renderer = renderer;
   var last = performance.now(), fpsT = 0, frames = 0, fps = 0;
   function loop(now) {
     var dt = Math.min(0.1, (now - last) / 1000); last = now;
     sim.aspect = canvas.height / canvas.width;
-    if (playing) sim.step(dt);
-    renderer.render(sim, look, sim.time);
+    if (playing) { sim.step(dt); if (extraSim) { extraSim.aspect = sim.aspect; extraSim.params.level = (sim.topY + (CLOUD_PRESETS[typeName].extra.dy || 0)) / sim.aspect; extraSim.params.wind = look.wind; extraSim.step(dt); } }
+    var list = [{ sim: sim, look: look }];
+    if (extraSim) { for (var ek in look) if (!(ek in CLOUD_PRESETS[typeName].extra.look)) extraLook[ek] = look[ek]; list.push({ sim: extraSim, look: extraLook }); }
+    renderer.render(list, sim.time, look);
     frames++; fpsT += dt;
     if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
-    hud.textContent = 'fps ' + fps + '   parcels ' + sim.blobCount + '   puffs ' + renderer.count + '   t ' + sim.time.toFixed(0) + 's';
+    hud.textContent = 'fps ' + fps + '   ' + typeName + '   parcels ' + sim.blobCount + (extraSim ? '+' + extraSim.blobCount : '') + '   puffs ' + renderer.count + '   t ' + sim.time.toFixed(0) + 's';
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
