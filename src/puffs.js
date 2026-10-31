@@ -38,7 +38,10 @@
   '  for(int i = 0; i < 2048; i++){\n' +
   '    if(i >= uCount) break;\n' +
   '    vec4 s = texelFetch(uSph, ivec2(i, 0), 0);\n' +
-  '    vec2 d = p - s.xy; float d2 = dot(d, d), r = s.z;\n' +
+  '    vec2 d = p - s.xy; float r = s.z;\n' +
+  '    vec4 sh = texelFetch(uSph, ivec2(i, 2), 0);   // shear: axis.xy, stretch (1 = round)\n' +
+  '    if(sh.z != 1.0){ float along = dot(d, sh.xy), across = d.x * sh.y - d.y * sh.x; d = vec2(along / sh.z, across * sqrt(sh.z)); }\n' +
+  '    float d2 = dot(d, d);\n' +
   '    if(d2 > r * r * 2.25) continue;\n' +
   '    float dist = sqrt(d2);\n' +
   '    float e = (r - dist) / T;\n' +
@@ -152,10 +155,11 @@
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT']);
     this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uTexel', 'uAspect', 'uLight', 'uShadow', 'uHighlight', 'uFill', 'uBands', 'uStack', 'uBand', 'uTopY', 'uBaseY', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uFlow', 'uTime', 'uSmooth', 'uRef', 'uPixelated', 'uHaze', 'uSkyColor']);
-    this._sphData = new Float32Array(MAX_SPH * 2 * 4);
+    this._sphData = new Float32Array(MAX_SPH * 3 * 4);
+    this._prev = {};   // last root positions by seed, for the flow direction of the shear
     this._sphTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, MAX_SPH, 2, 0, gl.RGBA, gl.FLOAT, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, MAX_SPH, 3, 0, gl.RGBA, gl.FLOAT, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     this._fieldTex = gl.createTexture(); this._auxTex = gl.createTexture(); this._fbo = gl.createFramebuffer();
     this._w = 0; this._h = 0;
@@ -182,20 +186,26 @@
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   };
 
-  // Build the puff tree from the sim's roots. Texture row 0: (x, y, r, z0); row 1: (stack, detail, 0, 0).
+  // Build the puff tree from the sim's roots. Texture row 0: (x, y, r, z0); row 1: (stack, detail, fresh, 0);
+  // row 2: (shear axis x, y, stretch, 0).
   PuffRenderer.prototype._tree = function (sim, look, time) {
-    var D = this._sphData, n = 0, ref = sim.refRadius || 0.08;
+    var zoom = clamp(num(look.zoom, 1), 0.25, 4), pivX = num(sim.cx, 0.5), pivY = num(sim.baseY, 0.5);
+    var D = this._sphData, n = 0, ref = (sim.refRadius || 0.08) * zoom;
+    var shear = Math.max(0, num(look.shear, 0)), P = sim.params || {}, prev = this._prev, seen = {};
+    var sw = 6.2832 / Math.max(5, P.sway || 57), st = num(sim.time, 0);
+    var swx = (P.parallax || 0) * Math.sin(st * sw), swy = (P.parallax || 0) * 0.35 * Math.sin(st * sw * 0.66 + 1.0);
     var B = sim.blobs, A = sim.aux, S = sim.spin, F = sim.detail, count = Math.min(sim.blobCount | 0, 64);
     var children = Math.max(0, Math.round(num(look.children, 4))), ratio = clamp(num(look.ratio, 0.42), 0.1, 0.8);
     var levels = clamp(Math.round(num(look.levels, 3)), 1, 3), life = Math.max(0, num(look.life, 1)), embed = clamp(num(look.embed, 0.78), 0.3, 1);
     var depthScale = num(look.depth, 1);
     var LEVEL_DETAIL = [0.25, 0.6, 1.0];
 
-    function put(x, y, r, z0, stack, detail, fresh) {
+    function put(x, y, r, z0, stack, detail, fresh, ex, ey, stretch) {
       if (n >= MAX_SPH || r <= 1e-4) return false;
-      var o = n * 4, o2 = (MAX_SPH + n) * 4;
+      var o = n * 4, o2 = (MAX_SPH + n) * 4, o3 = (MAX_SPH * 2 + n) * 4;
       D[o] = x; D[o + 1] = y; D[o + 2] = r; D[o + 3] = z0;
       D[o2] = stack; D[o2 + 1] = detail; D[o2 + 2] = fresh; D[o2 + 3] = 0;
+      D[o3] = ex; D[o3 + 1] = ey; D[o3 + 2] = stretch; D[o3 + 3] = 0;
       n++; return true;
     }
     // breadth first: every root, then every child, then grandchildren until the budget is spent,
@@ -212,9 +222,24 @@
       var fresh = F ? clamp(F[i], 0, 1) : 1;
       // depth from the sim (aux.y: 0 back .. 1 front); a parcel still linking in is buried behind
       var z0 = ((A[o + 1] - 0.5) * 2 * ref - (1 - link) * r * 1.5) * depthScale;
-      if (!put(B[o], B[o + 1], r, z0, 0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], fresh)) break;
-      queue.push({ x: B[o], y: B[o + 1], r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * num(look.roll, 1), fresh: fresh, stack: 0 });
+      // shear: an old or evaporating parcel stretches along its own flow (the sway is removed: that
+      // is the eye moving, not the air); the direction is smoothed over the last frames
+      var dp = (A[o + 1] - 0.5) / 0.4, px = B[o] - swx * dp, py = B[o + 1] - swy * dp, key = B[o + 3];
+      var pv = prev[key]; seen[key] = true;
+      var ex = 1, ey = 0;
+      if (pv) {
+        pv.vx = pv.vx * 0.9 + (px - pv.x); pv.vy = pv.vy * 0.9 + (py - pv.y);
+        var vl = Math.sqrt(pv.vx * pv.vx + pv.vy * pv.vy);
+        if (vl > 1e-7) { ex = pv.vx / vl; ey = pv.vy / vl; }
+        pv.x = px; pv.y = py;
+      } else prev[key] = { x: px, y: py, vx: 0, vy: 0 };
+      var stretch = 1 + shear * (1 - fresh * link);
+      var rx = pivX + (B[o] - pivX) * zoom, ry = pivY + (B[o + 1] - pivY) * zoom;
+      r *= zoom;
+      if (!put(rx, ry, r, z0, 0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], fresh, ex, ey, stretch)) break;
+      queue.push({ x: rx, y: ry, r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * num(look.roll, 1), fresh: fresh, stack: 0, ex: ex, ey: ey, st: stretch });
     }
+    for (var k2 in prev) if (!seen[k2]) delete prev[k2];
     for (var level = 0; level < levels - 1 && queue.length; level++) {
       next = [];
       for (var k = 0; k < queue.length && n < MAX_SPH; k++) {
@@ -241,12 +266,15 @@
           var cr = q.r * ratio * (0.8 + 0.4 * hash(cs + 5.1 + j * 23.0)) * env;
           if (cr <= 1e-4) continue;
           var shell = q.r * embed * (0.7 + 0.3 * env);
-          var x = q.x + ux * shell, y = q.y + uy * shell, z = q.z + uz * shell * depthScale;
+          // the child sits on the (sheared) shell: its offset is stretched like the parent
+          var ox = ux * shell, oy = uy * shell;
+          if (q.st !== 1) { var al2 = ox * q.ex + oy * q.ey, ac2 = ox * q.ey - oy * q.ex, sa = al2 * q.st, sc = ac2 / Math.sqrt(q.st); ox = q.ex * sa + q.ey * sc; oy = q.ey * sa - q.ex * sc; }
+          var x = q.x + ox, y = q.y + oy, z = q.z + uz * shell * depthScale;
           // stacked shade: the own gradient is in the shader; the inherited part is the parent's
           // gradient at the birth point (uy > 0 is the parent's underside)
           var stack = q.stack * 0.6 + 0.5 * smoothstep(-0.6, 0.9, uy);
-          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[Math.min(level + 1, 2)], q.fresh);
-          next.push({ x: x, y: y, r: cr, z: z, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, stack: stack });
+          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[Math.min(level + 1, 2)], q.fresh, q.ex, q.ey, q.st);
+          next.push({ x: x, y: y, r: cr, z: z, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, stack: stack, ex: q.ex, ey: q.ey, st: q.st });
         }
       }
       queue = next;
@@ -254,11 +282,12 @@
     this.count = n;
     var gl = this.gl;
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, MAX_SPH, 2, gl.RGBA, gl.FLOAT, D, 0);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, MAX_SPH, 3, gl.RGBA, gl.FLOAT, D, 0);
   };
 
   PuffRenderer.prototype.render = function (sim, look, time) {
-    var gl = this.gl, c = this.canvas, asp = c.height / c.width, ref = sim.refRadius || 0.08;
+    var zoom = clamp(num(look.zoom, 1), 0.25, 4);
+    var gl = this.gl, c = this.canvas, asp = c.height / c.width, ref = (sim.refRadius || 0.08) * zoom;
     this.resize(this._w);
     this._tree(sim, look, time);
     // field
@@ -280,7 +309,7 @@
     gl.uniform1f(su.uShadow, clamp(num(look.shadow, 0.64), 0, 1)); gl.uniform1f(su.uHighlight, clamp(num(look.highlight, 0.68), 0, 1));
     gl.uniform1f(su.uFill, num(look.fill, 0.2)); gl.uniform1f(su.uBands, num(look.bands, 5));
     gl.uniform1f(su.uStack, clamp(num(look.stackShade, 0.4), 0, 1)); gl.uniform1f(su.uBand, clamp(num(look.baseShade, 0.5), 0, 1));
-    gl.uniform1f(su.uTopY, num(sim.topY, 0)); gl.uniform1f(su.uBaseY, num(sim.baseY, asp));
+    var bY = num(sim.baseY, asp); gl.uniform1f(su.uTopY, bY + (num(sim.topY, 0) - bY) * zoom); gl.uniform1f(su.uBaseY, bY);
     gl.uniform1f(su.uNoise, num(look.noise, 0.3)); gl.uniform1f(su.uNoiseScale, num(look.noiseScale, 1)); gl.uniform1f(su.uFlow, num(look.flow, 0.01));
     gl.uniform1f(su.uNoise2, num(look.noise2, 0)); gl.uniform1f(su.uNoise2Scale, num(look.noise2Scale, 4)); gl.uniform1f(su.uNoiseBias, clamp(num(look.noiseBias, 0), -1, 1)); gl.uniform1f(su.uHaze, clamp(num(look.haze, 0.5), 0, 1));
     gl.uniform1f(su.uTime, time); gl.uniform1f(su.uSmooth, clamp(num(look.smooth, 0.5), 0, 1)); gl.uniform1f(su.uRef, ref);

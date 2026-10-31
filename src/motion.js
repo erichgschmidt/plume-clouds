@@ -211,6 +211,7 @@
       if (this.surge) uz += 0.35 * U * Math.exp(-rr / 0.12 - (z - this.surge.zb) * (z - this.surge.zb) / 0.08);
       // one winner per crown: the leader rises 1.6x and grows faster, rival summits slow to 0.7x
       if (p === this.leader) uz *= 1.6; else if (p.lead) uz *= 1.15; else if (z > 0.3 && uz > 0) uz *= 0.7;
+      p.lw = (p.lw || 0) + ((p === this.leader ? 1 : 0) - (p.lw || 0)) * Math.min(1, dt / 3);
       // settle: weak drag near the base so the lowest ring lingers a little
       var low = clamp((baseZ + 0.25 - z) / 0.3, 0, 1);
       var drag = 1 - P.settle * low * low;
@@ -258,7 +259,8 @@
       B[o] = this.cx + p.r * c * W + swx * s;
       B[o + 1] = this.cy - p.z * H + swy * s;
       // a young parcel grows toward 1.3x its birth radius over 4 s; an old one erodes up to 20 %
-      var grow = 1 + (p === this.leader ? 0.55 : 0.3) * (1 - Math.exp(-p.age / 4));
+      // the leader's extra growth eases in and out over ~3 s (a handover used to jump the radius)
+      var grow = 1 + (0.3 + 0.25 * (p.lw || 0)) * (1 - Math.exp(-p.age / 4));
       var erode = 1 - 0.2 * (1 - p.fresh);
       // domes before texture: a crown parcel is ~1.7x a flank parcel
       // domes before texture: a crown parcel is ~2.5x a flank parcel
