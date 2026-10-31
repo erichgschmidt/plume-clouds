@@ -147,7 +147,7 @@
   '  int ci = clamp(int(bx.b + 0.5), 0, 31); vec4 sA = uStyleA[ci], sB = uStyleB[ci];\n' +
   '  float dis = sA.w * ax.g;   // dispersing puffs dissolve into the pixel grid\n' +
   '  float th = dis > 0.001 ? mix(0.5, (bayer(floor(vUv / uTexel) + 7.0) + 0.5) * 0.9 + 0.05, dis) : 0.5;\n' +
-  '  if(f.a < th){ fragColor = vec4(sky(uv), 1.0); return; }\n' +
+  '  if(f.a * (1.0 - 0.7 * dis) < th){ fragColor = vec4(sky(uv), 1.0); return; }   // a strongly dispersing puff also loses interior pixels (wisps dissolve)\n' +
   '  // depth weight: 1 near .. 0 far. Far volumes: softer normal, weaker shadow, less noise, bluer\n' +
   '  float dw = clamp(bx.g, 0.0, 1.0), far = uDepthFall * (1.0 - dw);\n' +
   '  float s = 1.0 + sB.w * 2.0 + far * 3.0;   // normal footprint in texels\n' +

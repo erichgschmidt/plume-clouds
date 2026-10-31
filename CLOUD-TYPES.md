@@ -189,5 +189,11 @@ Fixed at the same time: the renderer's root loop stopped at the first parcel too
 (a guard meant for the full budget), which hid every later parcel of that cloud for a frame or
 two whenever one spawned or re-entered: the popping of whole trails, heads and sheet patches.
 
+Sheets retuned: `ragged` now does something in sheet mode (the lower a parcel, the staler it
+reads, and some parcels are wisps hanging under the band, small and stale); a strongly dispersing
+puff also loses interior pixels to the dither, so wisps dissolve into dots rather than keeping a
+hard disc. Stratus: lit top rim, grey lower mass (base shade 0.7), wisps below. Altostratus: more,
+smaller, strongly striated parcels (striate 2.8) over a thicker band, one grey tone with grain.
+
 Not built: a halo for cirrostratus; the sun as a disc through altostratus; mamma under the
 anvil; rain curtains.

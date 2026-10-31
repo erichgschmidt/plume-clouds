@@ -27,8 +27,8 @@
 
   // level: layer height as a fraction of the canvas height (0 top .. 1 bottom); width/thick in canvas widths
   var PRESETS = {
-    stratus:       { mode: 'sheet', count: 48, size: 0.08, width: 1.1, thick: 0.07, level: 0.62, cover: 1.6, undulate: 0.012, wave: 3.0, life: 60, breathe: 25, jitter: 0.3, drift: 0.004, wind: 0, fresh: 0.35, parallax: 0.01, sway: 57, ragged: 0.5 },
-    altostratus:   { mode: 'sheet', count: 48, size: 0.08, width: 1.2, thick: 0.09, level: 0.45, cover: 1.8, undulate: 0.008, wave: 2.0, life: 90, breathe: 40, jitter: 0.25, drift: 0.006, wind: 0, fresh: 0.3, parallax: 0.008, sway: 57, ragged: 0.3, striate: 1.6 },
+    stratus:       { mode: 'sheet', count: 64, size: 0.07, width: 1.1, thick: 0.08, level: 0.62, cover: 1.5, undulate: 0.01, wave: 2.0, life: 60, breathe: 25, jitter: 0.3, drift: 0.004, wind: 0, fresh: 0.5, parallax: 0.01, sway: 57, ragged: 0.8 },
+    altostratus:   { mode: 'sheet', count: 90, size: 0.045, width: 1.25, thick: 0.14, level: 0.45, cover: 1.6, undulate: 0.006, wave: 1.5, life: 90, breathe: 40, jitter: 0.25, drift: 0.006, wind: 0, fresh: 0.4, parallax: 0.008, sway: 57, ragged: 0.4, striate: 2.8 },
     anvil:         { mode: 'sheet', count: 30, size: 0.085, width: 0.75, thick: 0.05, level: 0.3, cover: 1.5, undulate: 0.004, wave: 2.0, life: 80, breathe: 30, jitter: 0.2, drift: 0.01, wind: 0, fresh: 0.5, parallax: 0.015, sway: 57, ragged: 0.6, striate: 1.4, lead: 0.4, taper: 0.75, offset: 0.18 },
     lenticular:    { mode: 'sheet', count: 30, size: 0.06, width: 0.5, thick: 0.02, level: 0.45, cover: 1.4, undulate: 0.0, wave: 1.0, life: 40, breathe: 30, jitter: 0.1, drift: 0.02, wind: 0, fresh: 0.9, parallax: 0.01, sway: 57, ragged: 0.0, fixed: 1, taper: 0.8 },
     stratocumulus: { mode: 'cells', count: 80, size: 0.07, width: 1.25, thick: 0.13, level: 0.6, cell: 0.1, rows: 4, gap: 0.15, streets: 0.3, jitter: 0.25, breathe: 18, life: 70, drift: 0.006, wind: 0, fresh: 0.75, parallax: 0.012, sway: 57 },
@@ -96,6 +96,9 @@
     } else if (P.mode === 'sheet') {
       p.x = (rng() - 0.5) * W; p.y = (rng() - 0.5) * P.thick;
       p.size *= P.cover;
+      // ragged: some parcels are wisps hanging under the sheet (small, stale, dithered away)
+      p.wisp = rng() < (P.ragged || 0) * 0.45;
+      if (p.wisp) { p.y = P.thick * 0.5 + P.size * (0.2 + 0.5 * rng()); p.size *= 0.4 + 0.2 * rng(); }
     } else {
       // streak head
       p.x = P.source === 'line' ? this.plane : (rng() - 0.5) * W; p.y = (rng() - 0.5) * P.thick;
@@ -175,7 +178,9 @@
         var lead = (P.lead || 0) * (p.x / (P.width * 0.5));   // an anvil thins toward its downwind edge
         var u = Math.abs(p.x) / (P.width * 0.5), taper = 1 - (P.taper || 0) * u * u;   // a lens: thick in the middle, thin at the ends
         var sx = p.x + (P.offset || 0) * P.width;   // the sheet sits off-centre (an anvil ahead of its tower)
-        put(this.cx + sx * wx - (p.y + und) * wy, this.cy + sx * wy + (p.y + und) * wx, size * p.size * breathe * taper * (1 - 0.35 * Math.max(0, lead)), p.seed, 0.5 + 0.35 * (p.depth - 0.5), p.link * ex, p.roll, fresh * (1 - 0.6 * Math.max(0, lead)), P.striate || 1);
+        // ragged underside: the lower the parcel, the staler it reads (haze and dither dissolve the base); wisps most of all
+        var under = smoothstep(-0.3, 0.7, p.y / Math.max(1e-3, P.thick * 0.5)), rag = (P.ragged || 0) * (p.wisp ? 0.85 : 0.6 * under);
+        put(this.cx + sx * wx - (p.y + und) * wy, this.cy + sx * wy + (p.y + und) * wx, size * p.size * breathe * taper * (1 - 0.35 * Math.max(0, lead)), p.seed, 0.5 + 0.35 * (p.depth - 0.5), p.link * ex, p.roll, fresh * (1 - 0.6 * Math.max(0, lead)) * (1 - rag), (P.striate || 1) * (p.wisp ? 1.4 : 1));
       } else {
         // streak: the head, then the trail laid along a curve that lags upwind and sags with fall time
         var grow = smoothstep(0, 0.35, ageF), fade = 1 - smoothstep(0.6, 1, ageF);
