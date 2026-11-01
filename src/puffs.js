@@ -72,8 +72,11 @@
   '    // a puff\'s height ramps on past its radius; another cloud\'s ramp must not cross a cloud this pixel is\n' +
   '    // inside, or an occluding cloud draws a steep strip (a dark line) over the cloud behind it\n' +
   '    float ci = floor(wd.w); bool inside = d2 < r * r;\n' +
-  '    if(!inside && insC >= 0.0 && ci != insC) continue;\n' +
-  '    if(inside && insC < 0.0){ insC = ci; if(acc > 0.0 && cIdx != ci){ m = -1e9; acc = 0.0; m2 = -1e9; acc2 = 0.0; dSum = 0.0; sSum = 0.0; fSum = 0.0; xSum = 0.0; bSum = 0.0; wSum = 0.0; rSum = 0.0; anc = vec2(0.0); } }\n' +
+  '    // where any puff contains the pixel only containing puffs make the surface: a skirt lives only in the\n' +
+  '    // fringe outside every footprint, so silhouette and surface agree (a front puff\'s skirt used to be the\n' +
+  '    // surface over a rear puff\'s footprint and was cut off at that rear puff\'s edge)\n' +
+  '    if(!inside && insC >= 0.0) continue;\n' +
+  '    if(inside && insC < 0.0){ insC = ci; if(acc > 0.0){ m = -1e9; acc = 0.0; m2 = -1e9; acc2 = 0.0; dSum = 0.0; sSum = 0.0; fSum = 0.0; xSum = 0.0; bSum = 0.0; wSum = 0.0; rSum = 0.0; anc = vec2(0.0); } }\n' +
   '    vec4 a = texelFetch(uSph, ivec2(i, 1), 0);\n' +
   '    // profile, continuous in height AND slope from the centre out through the skirt (a slope step at\n' +
   '    // the radius drew a thin dark arc with a lighter strip outside it): the sphere is kept to 0.9 r\n' +
@@ -160,7 +163,7 @@
   'vec2 hAt(vec2 uv, vec2 uv0, float bias, float namp){\n' +
   '  vec4 f = texture(uField, uv);\n' +
   '  // a sample outside the silhouette, or on another cloud (an occluding edge is a rim too, not a slope)\n' +
-  '  float ins = (f.a < 0.5 || abs(texture(uAux2, uv).b - texture(uAux2, uv0).b) > 0.5) ? 0.0 : 1.0;\n' +
+  '  float ins = (f.a < 0.5 || abs(texture(uAux2, uv).b - texture(uAux2, uv0).b) > 0.5 || abs(f.r - texture(uField, uv0).r) > uRef * 0.25) ? 0.0 : 1.0;   // outside, another cloud, or across a height step: an occluding edge\n' +
   '  if(ins < 0.5) f = texture(uField, uv0);   // never read height outside the silhouette (the rim)\n' +
   '  vec2 w0 = (vec2(uv.x, (1.0 - uv.y) * uAspect) - uAnchor * texture(uAux, uv0).ba) / uRef;   // noise rides with the parcel\n' +
   '  float t = uTime * uFlow;\n' +
