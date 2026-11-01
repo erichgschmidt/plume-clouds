@@ -34,7 +34,7 @@
   // sphere texture rows: 0 (x, y, r, z0); 1 (stack, detail, fresh, dispersal);
   // 2 (anchor x, anchor y, stretch, prim id + amt/2); 3 (wind x, wind y, band, depth weight: cloud dw + puff dw / 4 packed as floor + fract)
   var FIELD_FS = '#version 300 es\nprecision highp float; precision highp sampler2D;\n' +
-  'uniform sampler2D uSph; uniform int uCount; uniform float uAspect; uniform float uT, uCap;\n' +
+  'uniform sampler2D uSph; uniform int uCount; uniform float uAspect; uniform float uT, uCap, uOwn;\n' +
   'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3; layout(location = 3) out vec4 o4;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
@@ -118,6 +118,12 @@
   '  float HI = acc > 0.0 ? m + T * log(acc) : -1e9, HO = accO > 0.0 ? mO + T * log(accO) : -1e9;\n' +
   '  float HO0 = HO;\n' +
   '  if(HI > -1e8 && HO > -1e8) HO -= ins * max(0.0, HO - (HI - 2.0 * T));\n' +
+  '  // Own (step 1 of the ownership refactor, docs/core-audit.md): inside a footprint the skirt set is also\n' +
+  '  // weighted by g = 1 - ins, so a fully containing puff owns its pixels outright: no skirt height, no skirt\n' +
+  '  // slope (the clamp seam and the join groove the lab measured are both skirt slope inside a footprint).\n' +
+  '  // Across the footprint ramp the weight falls with the same ins the clamp uses. Outside every footprint,\n' +
+  '  // where the outlines merge, nothing changes\n' +
+  '  if(uOwn > 0.5 && HO > -1e8){ HO = g > 1e-4 ? HO + T * log(g) : -1e9; if(g <= 1e-4) accO = 0.0; }\n' +
   '  float Hm = max(HI, HO);\n' +
   '  float H = Hm > -1e8 ? Hm + T * log(exp((HI - Hm) / T) + exp((HO - Hm) / T)) : -1.0;\n' +
   '  if(acc <= 0.0) cIdx = cIdxO;\n' +
@@ -390,7 +396,7 @@
     this._float32 = !!gl.getExtension('OES_texture_float_linear');   // the height target is 32-bit when it can be filtered
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
-    this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT', 'uCap']);
+    this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT', 'uCap', 'uOwn']);
     this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain', 'uDiag']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 4);
     this._sphTex = gl.createTexture();
@@ -627,7 +633,7 @@
     gl.useProgram(this._field);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
     gl.uniform1i(this._fu.uSph, 0); gl.uniform1i(this._fu.uCount, this.count); gl.uniform1f(this._fu.uAspect, asp);
-    gl.uniform1f(this._fu.uT, Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4))); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0), 0, 1));
+    gl.uniform1f(this._fu.uT, Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4))); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0), 0, 1)); gl.uniform1f(this._fu.uOwn, num(sky.own, 0));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // shade
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);
