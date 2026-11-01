@@ -44,11 +44,11 @@
     <div id="light"></div>
   </div>
 </div>
-<script src="src/sim.js?v=146"></script>
-<script src="src/puffs.js?v=146"></script>
-<script src="src/motion.js?v=146"></script>
-<script src="src/layer.js?v=146"></script>
-<script src="src/presets.js?v=146"></script>
+<script src="src/sim.js?v=147"></script>
+<script src="src/puffs.js?v=147"></script>
+<script src="src/motion.js?v=147"></script>
+<script src="src/layer.js?v=147"></script>
+<script src="src/presets.js?v=147"></script>
 <script>
 (function () {
   'use strict';
@@ -179,6 +179,9 @@
   $('type').addEventListener('change', function () { applyType(this.value); });
   // Page presets: forces + surface + light together (the sim preset row above only sets forces).
   var LOOKS = {
+    // a few big still puffs, no noise, full bands, Depth 2: every artifact of the field and the normal is bare
+    probe: { seed: 3, forces: { updraft: 0, width: 0.2, height: 0.2, rise: 0, expand: 0, settle: 0, count: 5, size: 0.05, jitter: 0, mixing: 1, pulse: 0, base: 0.2, rollGain: 0, formTime: 0, reservoir: 0, parallax: 0 },
+      look: { children: 3, ratio: 0.6, levels: 2, life: 0, embed: 0.8, softness: 1, depth: 2, noise: 0, noise2: 0, flow: 0, smooth: 0, haze: 0, sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, baseShade: 0, stackShade: 0, bands: 5, rim: 0, cap: 0, puffRim: 0, contact: 0, cavity: 0, dither: 0, dissolve: 0, grain: 0, pixel: 1, zoom: 1.4 } },
     lantern: { seed: 1, forces: { updraft: 0.04, width: 0.13, height: 0.18, rise: 0.0004, expand: 0.0002, settle: 0.61, count: 60, size: 0.03, jitter: 0.5, mixing: 20.5, pulse: 0, base: 0.21, rollGain: 8.4, formTime: 90, reservoir: 0.35, parallax: 0 },
       look: { children: 5, ratio: 0.7, levels: 3, life: 0.11, embed: 0.67, softness: 4, depth: 2, noise: 0.11, noiseScale: 4, noise2: 0, noiseBias: 0, flow: 0.034, smooth: 0, haze: 0, sun: 81, elevation: -40, shadow: 0.64, baseShade: 0.59, stackShade: 1, bands: 5 } }
   };
@@ -187,9 +190,8 @@
   function saved() { try { return JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (e) { return {}; } }
   function applyLook(L) {
     $('seed').value = L.seed; $('type').value = L.type && CLOUD_PRESETS[L.type] ? L.type : 'congestus'; applyType($('type').value);
-    sim.shape = L.shape || 'ring'; sim.reset(L.seed, sim.preset);
-    $('shapes').value = sim.shape;
-    for (var k in L.forces) sim.params[k] = L.forces[k]; sim.reseat();
+    sim.shape = L.shape || 'ring'; sim.reset(L.seed, sim.preset, L.forces);   // the forces go in before the parcels spawn, so Parcels is the population
+    $('shapes').value = sim.shape; sim.reseat();
     for (var j in L.look) look[j] = L.look[j];
     look.prim = L.prim || 'sphere'; $('prims').value = look.prim;
     refresh();

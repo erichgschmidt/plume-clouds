@@ -35,7 +35,7 @@
   // 2 (anchor x, anchor y, stretch, prim id + amt/2); 3 (wind x, wind y, band, depth weight: cloud dw + puff dw / 4 packed as floor + fract)
   var FIELD_FS = '#version 300 es\nprecision highp float; precision highp sampler2D;\n' +
   'uniform sampler2D uSph; uniform int uCount; uniform float uAspect; uniform float uT, uCap;\n' +
-  'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3;\n' +
+  'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3; layout(location = 3) out vec4 o4;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
   '  // two sets: puffs that contain the pixel (I) and skirts of puffs that do not (O). The skirt set is\n' +
@@ -48,6 +48,7 @@
   '  float m2 = -1e9, acc2 = 0.0, dSum = 0.0, sSum = 0.0, fSum = 0.0, xSum = 0.0, bSum = 0.0, wSum = 0.0, rSum = 0.0; vec2 anc = vec2(0.0);\n' +
   '  float m2O = -1e9, acc2O = 0.0, dSumO = 0.0, sSumO = 0.0, fSumO = 0.0, xSumO = 0.0, bSumO = 0.0, wSumO = 0.0, rSumO = 0.0; vec2 ancO = vec2(0.0);\n' +
   '  float sm = -1e9, sacc = 0.0;                            // silhouette (soft union of r - dist)\n' +
+  '  vec2 GI = vec2(0.0), GO = vec2(0.0);                   // gradient sums of the two sets, weighted like acc / accO\n' +
   '  float T = uT, T2 = uT * 4.0;\n' +
   '  for(int i = 0; i < 4096; i++){\n' +
   '    if(i >= uCount) break;\n' +
@@ -83,13 +84,21 @@
   '    float sph = u < 0.9 ? sqrt(1.0 - u * u) : 0.43589 - (u - 0.9) * 2.0647;\n' +
   '    float par = u < 1.0 ? 1.0 - u * u : -2.0 * (u - 1.0);\n' +
   '    float h = s.w + r * mix(sph, par, uCap) - pen;\n' +
+  '    // the puff\'s own slope, analytic: d h / d dist along d, mapped back through the stretch (the other\n' +
+  '    // primitive distortions are left as the identity, a small error in direction only)\n' +
+  '    float dsph = u < 0.9 ? -u / sqrt(max(1e-6, 1.0 - u * u)) : -2.0647;\n' +
+  '    float dpar = u < 1.0 ? -2.0 * u : -2.0;\n' +
+  '    float dpen = (tt > 0.0 && tt < 0.995) ? 2.0 * (2.0 * tt - tt * tt) / ((1.0 - tt) * (1.0 - tt)) : 0.0;\n' +
+  '    vec2 gd = (mix(dsph, dpar, uCap) - dpen) * d / max(dist, 1e-6);\n' +
+  '    if(prim == 1) gd.y *= 1.0 + 1.5 * pa;\n' +
+  '    if(sh.z != 1.0) gd = gd.x * wd.xy / sh.z + gd.y * vec2(wd.y, -wd.x) * sqrt(sh.z);\n' +
   '    float w, rim = 1.0 - smoothstep(0.0, 0.3, 1.0 - dist / r);   // this puff\'s own rim: 1 at the edge, 0 a third of a radius in\n' +
   '    if(inside){\n' +
-  '      if(h > m){ acc = acc * exp((m - h) / T) + 1.0; cIdx = floor(wd.w); m = h; } else acc += exp((h - m) / T);\n' +
+  '      if(h > m){ float wq = exp((m - h) / T); acc = acc * wq + 1.0; GI = GI * wq + gd; cIdx = floor(wd.w); m = h; } else { float wq = exp((h - m) / T); acc += wq; GI += wq * gd; }\n' +
   '      if(h > m2){ w = exp((m2 - h) / T2); acc2 = acc2 * w + 1.0; dSum = dSum * w + a.y; sSum = sSum * w + a.x; fSum = fSum * w + a.z; xSum = xSum * w + a.w; anc = anc * w + sh.xy; bSum = bSum * w + wd.z; wSum = wSum * w + fract(wd.w) * 4.0; rSum = rSum * w + rim; m2 = h; }\n' +
   '      else { w = exp((h - m2) / T2); acc2 += w; dSum += w * a.y; sSum += w * a.x; fSum += w * a.z; xSum += w * a.w; anc += w * sh.xy; bSum += w * wd.z; wSum += w * fract(wd.w) * 4.0; rSum += w * rim; }\n' +
   '    } else {\n' +
-  '      if(h > mO){ accO = accO * exp((mO - h) / T) + 1.0; cIdxO = floor(wd.w); mO = h; } else accO += exp((h - mO) / T);\n' +
+  '      if(h > mO){ float wq = exp((mO - h) / T); accO = accO * wq + 1.0; GO = GO * wq + gd; cIdxO = floor(wd.w); mO = h; } else { float wq = exp((h - mO) / T); accO += wq; GO += wq * gd; }\n' +
   '      if(h > m2O){ w = exp((m2O - h) / T2); acc2O = acc2O * w + 1.0; dSumO = dSumO * w + a.y; sSumO = sSumO * w + a.x; fSumO = fSumO * w + a.z; xSumO = xSumO * w + a.w; ancO = ancO * w + sh.xy; bSumO = bSumO * w + wd.z; wSumO = wSumO * w + fract(wd.w) * 4.0; rSumO = rSumO * w + rim; m2O = h; }\n' +
   '      else { w = exp((h - m2O) / T2); acc2O += w; dSumO += w * a.y; sSumO += w * a.x; fSumO += w * a.z; xSumO += w * a.w; ancO += w * sh.xy; bSumO += w * wd.z; wSumO += w * fract(wd.w) * 4.0; rSumO += w * rim; }\n' +
   '    }\n' +
@@ -108,6 +117,11 @@
   '  float Hm = max(HI, HO);\n' +
   '  float H = Hm > -1e8 ? Hm + T * log(exp((HI - Hm) / T) + exp((HO - Hm) / T)) : -1.0;\n' +
   '  if(acc <= 0.0) cIdx = cIdxO;\n' +
+  '  // the union\'s gradient: each set\'s mean slope by its share of the union (the skirt clamp is a shift, its\n' +
+  '  // own slope left out, so a clamped skirt keeps the slope of the surface it came from)\n' +
+  '  vec2 G = vec2(0.0);\n' +
+  '  if(acc > 0.0) G += GI / acc * exp(max(-40.0, (HI - H) / T));\n' +
+  '  if(accO > 0.0) G += GO / accO * exp(max(-40.0, (HO - H) / T));\n' +
   '  if(acc2O > 0.0 && g > 1e-4){\n' +
   '    float wO = acc2 > 0.0 ? g * exp(clamp((m2O - m2) / T2, -30.0, 30.0)) : 1.0;\n' +
   '    if(acc2 <= 0.0){ m2 = m2O; }\n' +
@@ -123,10 +137,11 @@
   '  o = vec4(H, dSum * ia, sSum * ia, mask + 10.0 * max(0.0, sil - 0.5 * T));\n' +
   '  o2 = vec4(acc2 > 0.0 ? fSum * ia : 1.0, xSum * ia, anc * ia);\n' +
   '  o3 = vec4(bSum * ia, acc2 > 0.0 ? wSum * ia : 1.0, cIdx, rSum * ia);\n' +
+  '  o4 = vec4(G, 0.0, 0.0);\n' +
   '}';
 
   var SHADE_FS = '#version 300 es\nprecision highp float;\n' +
-  'uniform sampler2D uField; uniform sampler2D uAux; uniform sampler2D uAux2; uniform vec2 uTexel; uniform float uAspect; uniform vec3 uLight;\n' +
+  'uniform sampler2D uField; uniform sampler2D uAux; uniform sampler2D uAux2; uniform sampler2D uAux3; uniform vec2 uTexel; uniform float uAspect; uniform vec3 uLight;\n' +
   'uniform float uHighlight, uFill, uBands, uNoise, uNoiseScale, uNoise2, uNoise2Scale, uNoiseBias, uNoiseBias2, uFlow, uTime, uRef, uPixelated, uAnchor;\n' +
   '// per-cloud style, indexed by the cloud of the highest puff: A = (depth weight, haze, stack shade, dither), B = (shadow, base shade, noise scale, normal smooth)\n' +
   'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
@@ -204,27 +219,32 @@
   '  float n2 = snoise(w0 * uNoise2Scale + vec2(-t * 0.6, t * 0.8) + 11.0) + 0.5 * snoise(w0 * uNoise2Scale * 2.1 + vec2(t * 0.3, -t * 0.5) + 23.0);\n' +
   '  return vec2(f.r + uRef * 0.5 * f.g * namp * (uNoise * n1 * bias + uNoise2 * n2 * bias2), ins);   // each noise has its own bias\n' +
   '}\n' +
-  '// a sample outside the silhouette is extrapolated through the centre from its opposite (a one-sided\n' +
-  '// slope), not flattened: flattening gave every edge a band one footprint wide with its own normal\n' +
-  '// regime, which read as a second outline\n' +
-  'float pairL(vec2 a, vec2 b, float hc){ return a.y > 0.5 ? a.x : (b.y > 0.5 ? 2.0 * hc - b.x : hc); }\n' +
+  '// the noise displacement alone at a uv (amplitude from the centre pixel, so it never steps)\n' +
+  'float dispAt(vec2 uv, vec2 uv0, float bias, float bias2, float namp){\n' +
+  '  vec2 w0 = (vec2(uv.x, (1.0 - uv.y) * uAspect) - uAnchor * texture(uAux, uv0).ba) / uRef;\n' +
+  '  float t = uTime * uFlow;\n' +
+  '  float n1 = fbm(w0 * uNoiseScale + vec2(t, t * 0.37));\n' +
+  '  float n2 = snoise(w0 * uNoise2Scale + vec2(-t * 0.6, t * 0.8) + 11.0) + 0.5 * snoise(w0 * uNoise2Scale * 2.1 + vec2(t * 0.3, -t * 0.5) + 23.0);\n' +
+  '  return uRef * 0.5 * texture(uField, uv0).g * namp * (uNoise * n1 * bias + uNoise2 * n2 * bias2);\n' +
+  '}\n' +
+  '// the normal. The surface slope is the field union\'s own gradient, analytic, stored by the field pass: no\n' +
+  '// height is differenced across an occlusion step any more, so there is no step test, no footprint shrink and\n' +
+  '// no fallback that could face a strip toward the viewer. A far footprint (Depth falloff) averages the\n' +
+  '// gradient over same-surface neighbours. The noise displacement is smooth, so it is differenced plainly.\n' +
   'vec3 normalAt(vec2 uv, vec2 dx, vec2 dy, float wx, float wy, float bias, float bias2, float namp, out float edge){\n' +
-  '  // near the rim the footprint shrinks (halved while a sample falls outside, down to one texel) so\n' +
-  '  // the ring inside the silhouette keeps the rim\'s own steep slope instead of a softened one\n' +
-  '  vec2 L, R, U, D; float k = 1.0;\n' +
-  '  for(int i = 0; i < 3; i++){\n' +
-  '    L = hAt(uv - dx * k, uv, bias, bias2, namp); R = hAt(uv + dx * k, uv, bias, bias2, namp); U = hAt(uv - dy * k, uv, bias, bias2, namp); D = hAt(uv + dy * k, uv, bias, bias2, namp);\n' +
-  '    if(i == 2 || L.y + R.y + U.y + D.y > 3.5 || dx.x * k <= uTexel.x * 1.01) break;   // k stays the one these samples used\n' +
-  '    k = max(k * 0.5, uTexel.x / dx.x);\n' +
+  '  edge = 1.0 - smoothstep(0.0, 2.0 * dx.x, max(0.0, texture(uField, uv).a - 1.0) * 0.1);   // rim weight: distance from the outline\n' +
+  '  vec2 G = texture(uAux3, uv).xy;\n' +
+  '  if(dx.x > uTexel.x * 1.5){\n' +
+  '    float gn = 1.0;\n' +
+  '    for(int k = 0; k < 4; k++){\n' +
+  '      vec2 q = uv + (k == 0 ? dx : k == 1 ? -dx : k == 2 ? dy : -dy);\n' +
+  '      if(hAt(q, uv, bias, bias2, namp).y > 0.5){ G += texture(uAux3, q).xy; gn += 1.0; }\n' +
+  '    }\n' +
+  '    G /= gn;\n' +
   '  }\n' +
-  '  wx *= k; wy *= k;\n' +
-  '  // rim weight: a smooth distance from the outline, 1 at the silhouette fading to 0 two footprints in. The\n' +
-  '  // footprint shrink above only protects the normal; it is no longer part of the weight (a same-cloud step\n' +
-  '  // shrinks it too, which used to switch half the rim treatment on inside the cloud)\n' +
-  '  edge = 1.0 - smoothstep(0.0, 2.0 * dx.x, max(0.0, texture(uField, uv).a - 1.0) * 0.1);\n' +
-  '  float hc = hAt(uv, uv, bias, bias2, namp).x;\n' +
-  '  float hL = pairL(L, R, hc), hR = pairL(R, L, hc), hU = pairL(U, D, hc), hD = pairL(D, U, hc);\n' +
-  '  return normalize(vec3(-(hR - hL) / wx, (hD - hU) / wy, 1.0));   // world y is down; uv y is up\n' +
+  '  float nL = dispAt(uv - dx, uv, bias, bias2, namp), nR = dispAt(uv + dx, uv, bias, bias2, namp), nU = dispAt(uv - dy, uv, bias, bias2, namp), nD = dispAt(uv + dy, uv, bias, bias2, namp);\n' +
+  '  // field y is down, uv y is up: the stored gradient is in field units, the noise difference in uv\n' +
+  '  return normalize(vec3(-G.x - (nR - nL) / wx, -G.y + (nD - nU) / wy, 1.0));\n' +
   '}\n' +
   'void main(){\n' +
   '  vec2 uv = (uPixelated > 0.5) ? (floor(vUv / uTexel) + 0.5) * uTexel : vUv;\n' +
@@ -350,13 +370,13 @@
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT', 'uCap']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 4);
     this._sphTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, MAX_SPH, 4, 0, gl.RGBA, gl.FLOAT, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    this._fieldTex = gl.createTexture(); this._auxTex = gl.createTexture(); this._aux2Tex = gl.createTexture(); this._fbo = gl.createFramebuffer();
+    this._fieldTex = gl.createTexture(); this._auxTex = gl.createTexture(); this._aux2Tex = gl.createTexture(); this._aux3Tex = gl.createTexture(); this._fbo = gl.createFramebuffer();
     this._w = 0; this._h = 0;
     this.resize(240);
     this.count = 0;
@@ -370,7 +390,7 @@
     if (w === this._w && h === this._h) return;
     this._w = w; this._h = h;
     var f32 = this._float32;
-    [this._fieldTex, this._auxTex, this._aux2Tex].forEach(function (tex, ti) {
+    [this._fieldTex, this._auxTex, this._aux2Tex, this._aux3Tex].forEach(function (tex, ti) {
       gl.bindTexture(gl.TEXTURE_2D, tex);
       if (ti === 0 && f32) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, null);
       else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
@@ -381,7 +401,8 @@
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this._fieldTex, 0);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, this._auxTex, 0);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT2, gl.TEXTURE_2D, this._aux2Tex, 0);
-    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2]);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT3, gl.TEXTURE_2D, this._aux3Tex, 0);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2, gl.COLOR_ATTACHMENT3]);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   };
 
@@ -594,8 +615,9 @@
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this._fieldTex);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this._auxTex);
     gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this._aux2Tex);
+    gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this._aux3Tex);
     var su = this._su;
-    gl.uniform1i(su.uField, 1); gl.uniform1i(su.uAux, 2); gl.uniform1i(su.uAux2, 3); gl.uniform2f(su.uTexel, 1 / this._w, 1 / this._h); gl.uniform1f(su.uAspect, asp);
+    gl.uniform1i(su.uField, 1); gl.uniform1i(su.uAux, 2); gl.uniform1i(su.uAux2, 3); gl.uniform1i(su.uAux3, 4); gl.uniform2f(su.uTexel, 1 / this._w, 1 / this._h); gl.uniform1f(su.uAspect, asp);
     var sunA = num(sky.sun, 60) * Math.PI / 180, el = num(sky.elevation, 40) * Math.PI / 180;
     gl.uniform3f(su.uLight, Math.cos(sunA) * Math.cos(el), -Math.sin(sunA) * Math.cos(el), Math.sin(el));
     gl.uniform1f(su.uHighlight, clamp(num(sky.highlight, 0.68), 0, 1));
@@ -613,7 +635,8 @@
       var L = ci < clouds.length ? (clouds[ci].look || {}) : {}, o4 = ci * 4;
       var pick = function (k, d) { return L[k] !== undefined ? num(L[k], d) : num(sky[k], d); };
       SA[o4] = clamp(num(L.far, 1), 0, 1); SA[o4 + 1] = clamp(pick('haze', 0.5), 0, 1); SA[o4 + 2] = clamp(pick('stackShade', 0.4), 0, 1); SA[o4 + 3] = clamp(pick('dither', 0), 0, 1);
-      SB[o4] = clamp(pick('shadow', 0.64), 0, 1); SB[o4 + 1] = clamp(pick('baseShade', 0.5), 0, 1); SB[o4 + 2] = (L.noise !== undefined && num(sky.noise, 0.3) >= 0.02) ? num(L.noise, 0.3) / num(sky.noise, 0.3) : 1;   // with the sky's noise at zero the ratio is meaningless (it silenced noise 2 too) SB[o4 + 3] = clamp(pick('smooth', 0.5), 0, 1);
+      SB[o4] = clamp(pick('shadow', 0.64), 0, 1); SB[o4 + 1] = clamp(pick('baseShade', 0.5), 0, 1); SB[o4 + 2] = (L.noise !== undefined && num(sky.noise, 0.3) >= 0.02) ? num(L.noise, 0.3) / num(sky.noise, 0.3) : 1;   // with the sky's noise at zero the ratio is meaningless (it silenced noise 2 too)
+      SB[o4 + 3] = clamp(pick('smooth', 0.5), 0, 1);
     }
     gl.uniform4fv(su.uStyleA, SA); gl.uniform4fv(su.uStyleB, SB);
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);

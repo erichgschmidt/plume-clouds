@@ -75,11 +75,12 @@
   ThermalSim.PRESET_DEFAULTS = PRESETS;
   ThermalSim.MAX_BLOBS = MAX;
 
-  ThermalSim.prototype.reset = function (seed, preset) {
+  ThermalSim.prototype.reset = function (seed, preset, forces) {
     this.seed = seed | 0;
     this.rng = mulberry32(this.seed ^ 0x9E3779B1);
     var def = PRESETS[preset] || PRESETS.congestus;
     for (var k in def) this.params[k] = def[k];
+    if (forces) for (var fk in forces) this.params[fk] = forces[fk];   // a saved look's forces, in before the population spawns
     this.params.parallax = 0.02; this.params.sway = 57;
     this.preset = preset;
     this.time = 0;

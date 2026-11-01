@@ -58,11 +58,12 @@
   LayerSim.PRESET_DEFAULTS = PRESETS;
   LayerSim.MAX_BLOBS = MAX;
 
-  LayerSim.prototype.reset = function (seed, preset) {
+  LayerSim.prototype.reset = function (seed, preset, forces) {
     var def = PRESETS[preset] || PRESETS.stratus;
     this.seed = seed; this.preset = preset;
     this.rng = mulberry((seed | 0) * 2654435761 + 97);
     this.params = {}; for (var k in def) this.params[k] = def[k];
+    if (forces) for (var fk in forces) this.params[fk] = forces[fk];
     this.time = 0;
     this.cx = 0.5;
     this.parcels = [];
