@@ -74,7 +74,6 @@
   '    float e = (r - dist - pen) / T;\n' +
   '    if(e > sm){ sacc = sacc * exp(sm - e) + 1.0; sm = e; } else sacc += exp(e - sm);\n' +
   '    bool inside = d2 < r * r;\n' +
-  '    if(inside) ins = max(ins, smoothstep(0.0, T, r - dist));\n' +
   '    vec4 a = texelFetch(uSph, ivec2(i, 1), 0);\n' +
   '    // profile, continuous in height AND slope from the centre out through the skirt (a slope step at\n' +
   '    // the radius drew a thin dark arc with a lighter strip outside it): the sphere is kept to 0.9 r\n' +
@@ -89,9 +88,11 @@
   '    float dsph = u < 0.9 ? -u / sqrt(max(1e-6, 1.0 - u * u)) : -2.0647;\n' +
   '    float dpar = u < 1.0 ? -2.0 * u : -2.0;\n' +
   '    float dpen = (tt > 0.0 && tt < 0.995) ? 2.0 * (2.0 * tt - tt * tt) / ((1.0 - tt) * (1.0 - tt)) : 0.0;\n' +
-  '    vec2 gd = (mix(dsph, dpar, uCap) - dpen) * d / max(dist, 1e-6);\n' +
-  '    if(prim == 1) gd.y *= 1.0 + 1.5 * pa;\n' +
-  '    if(sh.z != 1.0) gd = gd.x * wd.xy / sh.z + gd.y * vec2(wd.y, -wd.x) * sqrt(sh.z);\n' +
+  '    vec2 dirp = d / max(dist, 1e-6);   // the outward direction, mapped back to the field plane\n' +
+  '    if(prim == 1) dirp.y *= 1.0 + 1.5 * pa;\n' +
+  '    if(sh.z != 1.0) dirp = dirp.x * wd.xy / sh.z + dirp.y * vec2(wd.y, -wd.x) * sqrt(sh.z);\n' +
+  '    vec2 gd = (mix(dsph, dpar, uCap) - dpen) * dirp;\n' +
+  '    if(inside) ins = max(ins, smoothstep(0.0, T, r - dist));\n' +
   '    float w, rim = 1.0 - smoothstep(0.0, 0.3, 1.0 - dist / r);   // this puff\'s own rim: 1 at the edge, 0 a third of a radius in\n' +
   '    if(inside){\n' +
   '      if(h > m){ float wq = exp((m - h) / T); acc = acc * wq + 1.0; GI = GI * wq + gd; cIdx = floor(wd.w); m = h; } else { float wq = exp((h - m) / T); acc += wq; GI += wq * gd; }\n' +
@@ -113,15 +114,22 @@
   '  // its normal on its own side of the step\n' +
   '  float g = 1.0 - ins;\n' +
   '  float HI = acc > 0.0 ? m + T * log(acc) : -1e9, HO = accO > 0.0 ? mO + T * log(accO) : -1e9;\n' +
+  '  float HO0 = HO;\n' +
   '  if(HI > -1e8 && HO > -1e8) HO -= ins * max(0.0, HO - (HI - 2.0 * T));\n' +
   '  float Hm = max(HI, HO);\n' +
   '  float H = Hm > -1e8 ? Hm + T * log(exp((HI - Hm) / T) + exp((HO - Hm) / T)) : -1.0;\n' +
   '  if(acc <= 0.0) cIdx = cIdxO;\n' +
   '  // the union\'s gradient: each set\'s mean slope by its share of the union (the skirt clamp is a shift, its\n' +
   '  // own slope left out, so a clamped skirt keeps the slope of the surface it came from)\n' +
+  '  vec2 gI = acc > 0.0 ? GI / acc : vec2(0.0), gO = accO > 0.0 ? GO / accO : vec2(0.0);\n' +
+  '  // a clamped skirt takes the slope of the surface it was clamped to (a shifted height with the cone\'s old\n' +
+  '  // slope lit a ring round every puff where the surface was flat). The ramp of the clamp itself, one T wide at\n' +
+  '  // a footprint edge where a neighbour\'s skirt is cut off, is left without a slope: it is an occluding\n' +
+  '  // edge, as the old slope test treated it, not a wall to light (lit, it drew a thin arc along the outline)\n' +
+  '  if(HI > -1e8 && HO0 > -1e8 && HO0 > HI - 2.0 * T) gO = mix(gO, gI, ins);\n' +
   '  vec2 G = vec2(0.0);\n' +
-  '  if(acc > 0.0) G += GI / acc * exp(max(-40.0, (HI - H) / T));\n' +
-  '  if(accO > 0.0) G += GO / accO * exp(max(-40.0, (HO - H) / T));\n' +
+  '  if(acc > 0.0) G += gI * exp(max(-40.0, (HI - H) / T));\n' +
+  '  if(accO > 0.0) G += gO * exp(max(-40.0, (HO - H) / T));\n' +
   '  if(acc2O > 0.0 && g > 1e-4){\n' +
   '    float wO = acc2 > 0.0 ? g * exp(clamp((m2O - m2) / T2, -30.0, 30.0)) : 1.0;\n' +
   '    if(acc2 <= 0.0){ m2 = m2O; }\n' +
