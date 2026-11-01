@@ -94,9 +94,17 @@
   '      else { w = exp((h - m2O) / T2); acc2O += w; dSumO += w * a.y; sSumO += w * a.x; fSumO += w * a.z; xSumO += w * a.w; ancO += w * sh.xy; bSumO += w * wd.z; wSumO += w * fract(wd.w) * 4.0; rSumO += w * rim; }\n' +
   '    }\n' +
   '  }\n' +
-  '  // combine: the skirt set enters with weight g (a shift of T log g in the height union, g in the attribute mix)\n' +
+  '  // combine. Over a surface that contains the pixel (ins > 0) a skirt may only fill in BELOW that surface: a\n' +
+  '  // join, blended by the union. It may not stand above it, since a skirt above the surface behind is a\n' +
+  '  // cone drawn round the front puff (the circles). So the skirt union is clamped to the inside union\n' +
+  '  // (two T under it, so the join adds almost nothing where they meet) by the amount ins, instead of\n' +
+  '  // the old shift T log(1 - ins), which fell to minus infinity: a cliff one T wide at every footprint\n' +
+  '  // edge, and a skirt discarded while it still carried the height. A front puff crossing its own radius\n' +
+  '  // over the surface behind it still steps down onto it: that is an occlusion, and the shade pass keeps\n' +
+  '  // its normal on its own side of the step\n' +
   '  float g = 1.0 - ins;\n' +
-  '  float HI = acc > 0.0 ? m + T * log(acc) : -1e9, HO = (accO > 0.0 && g > 1e-4) ? mO + T * log(accO) + T * log(g) : -1e9;\n' +
+  '  float HI = acc > 0.0 ? m + T * log(acc) : -1e9, HO = accO > 0.0 ? mO + T * log(accO) : -1e9;\n' +
+  '  if(HI > -1e8 && HO > -1e8) HO -= ins * max(0.0, HO - (HI - 2.0 * T));\n' +
   '  float Hm = max(HI, HO);\n' +
   '  float H = Hm > -1e8 ? Hm + T * log(exp((HI - Hm) / T) + exp((HO - Hm) / T)) : -1.0;\n' +
   '  if(acc <= 0.0) cIdx = cIdxO;\n' +
@@ -105,7 +113,9 @@
   '    if(acc2 <= 0.0){ m2 = m2O; }\n' +
   '    acc2 += wO * acc2O; dSum += wO * dSumO; sSum += wO * sSumO; fSum += wO * fSumO; xSum += wO * xSumO; anc += wO * ancO; bSum += wO * bSumO; wSum += wO * wSumO; rSum += wO * rSumO;\n' +
   '  }\n' +
-  '  float sil = (sacc > 0.0) ? (sm + log(sacc)) * T : -1.0;\n' +
+  '  // the silhouette union gains at most T log 2 over the nearest puff (a pair blends as before; a pile of\n' +
+  '  // overlapping skirts no longer pushes the outline T log n beyond the domes that are shaded)\n' +
+  '  float sil = (sacc > 0.0) ? (sm + log(min(sacc, 2.0))) * T : -1.0;\n' +
   '  float mask = smoothstep(-0.5 * T, 0.5 * T, sil);\n' +
   '  float ia = acc2 > 0.0 ? 1.0 / acc2 : 0.0;\n' +
   '  // alpha: the mask (0..1), plus ten times the distance inside the silhouette past the mask ramp, so the\n' +
