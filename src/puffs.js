@@ -38,13 +38,16 @@
   'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
-  '  float m = -1e9, acc = 0.0, cIdx = 0.0;                 // online log-sum-exp of the heights; cIdx: the cloud of the highest puff\n' +
+  '  // two sets: puffs that contain the pixel (I) and skirts of puffs that do not (O). The skirt set is\n' +
+  '  // weighted by g = 1 - ins, ins = how far inside any footprint the pixel is (0 at an edge .. 1 one T in),\n' +
+  '  // so a front puff\'s skirt fades out over a rear puff\'s footprint continuously: nothing switches at an edge\n' +
+  '  float m = -1e9, acc = 0.0, cIdx = 0.0, mO = -1e9, accO = 0.0, cIdxO = 0.0, ins = 0.0;\n' +
   '  // the per-puff attributes blend over a band four times wider than the height union: where one dome\n' +
   '  // crosses another the shape stays crisp, but stack, band, freshness and depth weight no longer jump\n' +
   '  // along the crease (that jump drew a ring round every puff)\n' +
   '  float m2 = -1e9, acc2 = 0.0, dSum = 0.0, sSum = 0.0, fSum = 0.0, xSum = 0.0, bSum = 0.0, wSum = 0.0, rSum = 0.0; vec2 anc = vec2(0.0);\n' +
+  '  float m2O = -1e9, acc2O = 0.0, dSumO = 0.0, sSumO = 0.0, fSumO = 0.0, xSumO = 0.0, bSumO = 0.0, wSumO = 0.0, rSumO = 0.0; vec2 ancO = vec2(0.0);\n' +
   '  float sm = -1e9, sacc = 0.0;                            // silhouette (soft union of r - dist)\n' +
-  '  float insC = -1.0;                                      // the cloud of the first puff that contains this pixel\n' +
   '  float T = uT, T2 = uT * 4.0;\n' +
   '  for(int i = 0; i < 4096; i++){\n' +
   '    if(i >= uCount) break;\n' +
@@ -69,14 +72,8 @@
   '    float tt = clamp((dist - r) / (0.5 * r), 0.0, 0.995), pen = r * tt * tt / (1.0 - tt);\n' +
   '    float e = (r - dist - pen) / T;\n' +
   '    if(e > sm){ sacc = sacc * exp(sm - e) + 1.0; sm = e; } else sacc += exp(e - sm);\n' +
-  '    // a puff\'s height ramps on past its radius; another cloud\'s ramp must not cross a cloud this pixel is\n' +
-  '    // inside, or an occluding cloud draws a steep strip (a dark line) over the cloud behind it\n' +
-  '    float ci = floor(wd.w); bool inside = d2 < r * r;\n' +
-  '    // where any puff contains the pixel only containing puffs make the surface: a skirt lives only in the\n' +
-  '    // fringe outside every footprint, so silhouette and surface agree (a front puff\'s skirt used to be the\n' +
-  '    // surface over a rear puff\'s footprint and was cut off at that rear puff\'s edge)\n' +
-  '    if(!inside && insC >= 0.0) continue;\n' +
-  '    if(inside && insC < 0.0){ insC = ci; if(acc > 0.0){ m = -1e9; acc = 0.0; m2 = -1e9; acc2 = 0.0; dSum = 0.0; sSum = 0.0; fSum = 0.0; xSum = 0.0; bSum = 0.0; wSum = 0.0; rSum = 0.0; anc = vec2(0.0); } }\n' +
+  '    bool inside = d2 < r * r;\n' +
+  '    if(inside) ins = max(ins, smoothstep(0.0, T, r - dist));\n' +
   '    vec4 a = texelFetch(uSph, ivec2(i, 1), 0);\n' +
   '    // profile, continuous in height AND slope from the centre out through the skirt (a slope step at\n' +
   '    // the radius drew a thin dark arc with a lighter strip outside it): the sphere is kept to 0.9 r\n' +
@@ -87,17 +84,33 @@
   '    float par = u < 1.0 ? 1.0 - u * u : -2.0 * (u - 1.0);\n' +
   '    float h = s.w + r * mix(sph, par, uCap) - pen;\n' +
   '    float w, rim = 1.0 - smoothstep(0.0, 0.3, 1.0 - dist / r);   // this puff\'s own rim: 1 at the edge, 0 a third of a radius in\n' +
-  '    if(h > m){ acc = acc * exp((m - h) / T) + 1.0; cIdx = floor(wd.w); m = h; } else acc += exp((h - m) / T);\n' +
-  '    if(h > m2){ w = exp((m2 - h) / T2); acc2 = acc2 * w + 1.0; dSum = dSum * w + a.y; sSum = sSum * w + a.x; fSum = fSum * w + a.z; xSum = xSum * w + a.w; anc = anc * w + sh.xy; bSum = bSum * w + wd.z; wSum = wSum * w + fract(wd.w) * 4.0; rSum = rSum * w + rim; m2 = h; }\n' +
-  '    else { w = exp((h - m2) / T2); acc2 += w; dSum += w * a.y; sSum += w * a.x; fSum += w * a.z; xSum += w * a.w; anc += w * sh.xy; bSum += w * wd.z; wSum += w * fract(wd.w) * 4.0; rSum += w * rim; }\n' +
+  '    if(inside){\n' +
+  '      if(h > m){ acc = acc * exp((m - h) / T) + 1.0; cIdx = floor(wd.w); m = h; } else acc += exp((h - m) / T);\n' +
+  '      if(h > m2){ w = exp((m2 - h) / T2); acc2 = acc2 * w + 1.0; dSum = dSum * w + a.y; sSum = sSum * w + a.x; fSum = fSum * w + a.z; xSum = xSum * w + a.w; anc = anc * w + sh.xy; bSum = bSum * w + wd.z; wSum = wSum * w + fract(wd.w) * 4.0; rSum = rSum * w + rim; m2 = h; }\n' +
+  '      else { w = exp((h - m2) / T2); acc2 += w; dSum += w * a.y; sSum += w * a.x; fSum += w * a.z; xSum += w * a.w; anc += w * sh.xy; bSum += w * wd.z; wSum += w * fract(wd.w) * 4.0; rSum += w * rim; }\n' +
+  '    } else {\n' +
+  '      if(h > mO){ accO = accO * exp((mO - h) / T) + 1.0; cIdxO = floor(wd.w); mO = h; } else accO += exp((h - mO) / T);\n' +
+  '      if(h > m2O){ w = exp((m2O - h) / T2); acc2O = acc2O * w + 1.0; dSumO = dSumO * w + a.y; sSumO = sSumO * w + a.x; fSumO = fSumO * w + a.z; xSumO = xSumO * w + a.w; ancO = ancO * w + sh.xy; bSumO = bSumO * w + wd.z; wSumO = wSumO * w + fract(wd.w) * 4.0; rSumO = rSumO * w + rim; m2O = h; }\n' +
+  '      else { w = exp((h - m2O) / T2); acc2O += w; dSumO += w * a.y; sSumO += w * a.x; fSumO += w * a.z; xSumO += w * a.w; ancO += w * sh.xy; bSumO += w * wd.z; wSumO += w * fract(wd.w) * 4.0; rSumO += w * rim; }\n' +
+  '    }\n' +
   '  }\n' +
-  '  float H = (acc > 0.0) ? m + T * log(acc) : -1.0;\n' +
+  '  // combine: the skirt set enters with weight g (a shift of T log g in the height union, g in the attribute mix)\n' +
+  '  float g = 1.0 - ins;\n' +
+  '  float HI = acc > 0.0 ? m + T * log(acc) : -1e9, HO = (accO > 0.0 && g > 1e-4) ? mO + T * log(accO) + T * log(g) : -1e9;\n' +
+  '  float Hm = max(HI, HO);\n' +
+  '  float H = Hm > -1e8 ? Hm + T * log(exp((HI - Hm) / T) + exp((HO - Hm) / T)) : -1.0;\n' +
+  '  if(acc <= 0.0) cIdx = cIdxO;\n' +
+  '  if(acc2O > 0.0 && g > 1e-4){\n' +
+  '    float wO = acc2 > 0.0 ? g * exp(clamp((m2O - m2) / T2, -30.0, 30.0)) : 1.0;\n' +
+  '    if(acc2 <= 0.0){ m2 = m2O; }\n' +
+  '    acc2 += wO * acc2O; dSum += wO * dSumO; sSum += wO * sSumO; fSum += wO * fSumO; xSum += wO * xSumO; anc += wO * ancO; bSum += wO * bSumO; wSum += wO * wSumO; rSum += wO * rSumO;\n' +
+  '  }\n' +
   '  float sil = (sacc > 0.0) ? (sm + log(sacc)) * T : -1.0;\n' +
   '  float mask = smoothstep(-0.5 * T, 0.5 * T, sil);\n' +
   '  float ia = acc2 > 0.0 ? 1.0 / acc2 : 0.0;\n' +
   '  o = vec4(H, dSum * ia, sSum * ia, mask);\n' +
-  '  o2 = vec4(acc > 0.0 ? fSum * ia : 1.0, xSum * ia, anc * ia);\n' +
-  '  o3 = vec4(bSum * ia, acc > 0.0 ? wSum * ia : 1.0, cIdx, rSum * ia);\n' +
+  '  o2 = vec4(acc2 > 0.0 ? fSum * ia : 1.0, xSum * ia, anc * ia);\n' +
+  '  o3 = vec4(bSum * ia, acc2 > 0.0 ? wSum * ia : 1.0, cIdx, rSum * ia);\n' +
   '}';
 
   var SHADE_FS = '#version 300 es\nprecision highp float;\n' +
@@ -105,9 +118,9 @@
   'uniform float uHighlight, uFill, uBands, uNoise, uNoiseScale, uNoise2, uNoise2Scale, uNoiseBias, uNoiseBias2, uFlow, uTime, uRef, uPixelated, uAnchor;\n' +
   '// per-cloud style, indexed by the cloud of the highest puff: A = (depth weight, haze, stack shade, dither), B = (shadow, base shade, noise scale, normal smooth)\n' +
   'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
-  'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow, uDissolve, uDotSize;\n' +
+  'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow, uDissolve, uDotSize, uVeil;\n' +
   'uniform vec3 uSkyColor;\n' +
-  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach;\n' +
+  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach, uGrain;\n' +
   'uniform vec4 uCam;   // camera x, camera z, horizon (field y), cirrus altitude; w <= 0: no camera (the flat veil)\n' +
   'in vec2 vUv; out vec4 fragColor;\n' +
   // simplex-ish 2D noise (Ashima-style, compact)
@@ -141,21 +154,25 @@
   // noise, thresholded into the two palest palette tones)
   'vec3 sky(vec2 uv){\n' +
   '  vec3 col = uSkyColor;\n' +
-  '  if(uCirrus > 0.001){\n' +
+  '  if(uCirrus > 0.001 || uVeil > 0.001){\n' +
   '    vec2 w = vec2(uv.x, (1.0 - uv.y) * uAspect);\n' +
   '    float near = 1.0;\n' +
   '    if(uCam.w > 0.0){\n' +
   '      float dy = uCam.z - w.y; if(dy <= 0.004) return col;   // below the horizon\n' +
   '      float z = uCam.w / dy;\n' +
   '      w = vec2((w.x - 0.5) * z + uCam.x, z + uCam.y) * 0.5;\n' +
-  '      near = smoothstep(0.0, 0.12, dy) * (1.0 - 0.5 * uAtmos * smoothstep(0.25, 0.02, dy));   // thins into the horizon haze\n' +
+  '      near = smoothstep(0.0, 0.12, dy) * (1.0 - 0.5 * uAtmos * (1.0 - smoothstep(0.02, 0.25, dy)));   // thins into the horizon haze\n' +
   '    }\n' +
+  '    // veil: a cirrostratus sheet lifts the sky toward the palest tone, with a faint grain\n' +
+  '    if(uVeil > 0.001) col = mix(col, palette(0.8), uVeil * 0.55 * near * (0.85 + 0.15 * bayer(floor(vUv / uTexel) + 5.0)));\n' +
+  '    if(uCirrus > 0.001){\n' +
   '    float ca = cos(uCirrusAngle), sa = sin(uCirrusAngle);\n' +
   '    vec2 q = vec2(w.x * ca - w.y * sa, w.x * sa + w.y * ca) * uCirrusScale;\n' +
   '    float t = uTime * uCirrusFlow;\n' +
   '    float n = fbm(vec2(q.x * 0.18 + t, q.y * 2.6 + t * 0.1)) * 0.5 + 0.15 * snoise(vec2(q.x * 0.7 - t * 0.7, q.y * 7.0));\n' +
   '    float thin = smoothstep(0.55 - 0.5 * uCirrus, 1.05 - 0.3 * uCirrus, n + bayer(floor(vUv / uTexel) + 3.0) * 0.08);\n' +
   '    col = mix(col, palette(0.72), thin * 0.7 * near);\n' +
+  '    }\n' +
   '  }\n' +
   '  return col;\n' +
   '}\n' +
@@ -164,10 +181,10 @@
   '  vec4 f = texture(uField, uv);\n' +
   '  // a sample outside the silhouette, or on another cloud (an occluding edge is a rim too, not a slope)\n' +
   '  // outside, on another cloud, or across a step: no dome profile is steeper than about 2 (the sphere is\n' +
-  '  // continued at 2.06, the skirt falls at 2), so a height change steeper than 4 over the sample distance\n' +
+  '  // continued at 2.06, a flattened disc reaches about 5), so a height change steeper than 10 over the sample distance\n' +
   '  // is a front puff\'s edge over the surface behind it, an occluding edge like the silhouette\n' +
   '  vec2 dd = vec2(uv.x - uv0.x, (uv.y - uv0.y) * uAspect);\n' +
-  '  float ins = (f.a < 0.5 || abs(texture(uAux2, uv).b - texture(uAux2, uv0).b) > 0.5 || abs(f.r - texture(uField, uv0).r) > 4.0 * length(dd) + 1e-6) ? 0.0 : 1.0;\n' +
+  '  float ins = (f.a < 0.5 || abs(texture(uAux2, uv).b - texture(uAux2, uv0).b) > 0.5 || abs(f.r - texture(uField, uv0).r) > 10.0 * length(dd) + 1e-6) ? 0.0 : 1.0;\n' +
   '  if(ins < 0.5) f = texture(uField, uv0);   // never read height outside the silhouette (the rim)\n' +
   '  vec2 w0 = (vec2(uv.x, (1.0 - uv.y) * uAspect) - uAnchor * texture(uAux, uv0).ba) / uRef;   // noise rides with the parcel\n' +
   '  float t = uTime * uFlow;\n' +
@@ -185,7 +202,7 @@
   '  vec2 L, R, U, D; float k = 1.0;\n' +
   '  for(int i = 0; i < 3; i++){\n' +
   '    L = hAt(uv - dx * k, uv, bias, bias2, namp); R = hAt(uv + dx * k, uv, bias, bias2, namp); U = hAt(uv - dy * k, uv, bias, bias2, namp); D = hAt(uv + dy * k, uv, bias, bias2, namp);\n' +
-  '    if(L.y + R.y + U.y + D.y > 3.5 || dx.x * k <= uTexel.x * 1.01) break;\n' +
+  '    if(i == 2 || L.y + R.y + U.y + D.y > 3.5 || dx.x * k <= uTexel.x * 1.01) break;   // k stays the one these samples used\n' +
   '    k = max(k * 0.5, uTexel.x / dx.x);\n' +
   '  }\n' +
   '  wx *= k; wy *= k;\n' +
@@ -223,8 +240,8 @@
   '    Lv = vec3(uLight.x, -(up * cp + tz * sp), tz * cp - up * sp);\n' +
   '  }\n' +
   '  float l0 = dot(n0, Lv);\n' +
-  '  float bias = uNoiseBias > 0.0 ? mix(1.0, smoothstep(-0.2, 0.5, l0), uNoiseBias) : mix(1.0, smoothstep(0.5, -0.2, l0), -uNoiseBias);\n' +
-  '  float bias2 = uNoiseBias2 > 0.0 ? mix(1.0, smoothstep(-0.2, 0.5, l0), uNoiseBias2) : mix(1.0, smoothstep(0.5, -0.2, l0), -uNoiseBias2);\n' +
+  '  float bias = uNoiseBias > 0.0 ? mix(1.0, smoothstep(-0.2, 0.5, l0), uNoiseBias) : mix(1.0, 1.0 - smoothstep(-0.2, 0.5, l0), -uNoiseBias);\n' +
+  '  float bias2 = uNoiseBias2 > 0.0 ? mix(1.0, smoothstep(-0.2, 0.5, l0), uNoiseBias2) : mix(1.0, 1.0 - smoothstep(-0.2, 0.5, l0), -uNoiseBias2);\n' +
   '  vec3 n = normalAt(uv, dx, dy, wx, wy, bias, bias2, namp, edge);\n' +
   '  // Normal smooth: average the normals of four neighbours (reach up to 3 texels) with this one, skipping\n' +
   '  // any neighbour that is outside, on another cloud or across a step, so the smoothing never crosses an edge\n' +
@@ -286,12 +303,15 @@
   '  float direct = 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - 0.7 * band) * (1.0 - 0.5 * stack);\n' +
   '  float ambient = (0.18 + uFill * bounce) * (1.0 - band) * (1.0 - 0.8 * stack);\n' +
   '  direct *= (1.0 - contact) * (1.0 - 0.6 * cavity); ambient *= (1.0 - 0.5 * contact) * (1.0 - 0.7 * cavity);\n' +
-  '  float light = ambient + direct * (1.0 - sB.x * (1.0 - 0.6 * far) * smoothstep(0.1, -0.2, lambert));\n' +
+  '  // shadow: faces turning away from the light lose ambient too (the old term scaled only the direct light,\n' +
+  '  // which is already zero where the face turns away, so the slider did nothing)\n' +
+  '  float sh = sB.x * (1.0 - 0.6 * far) * (1.0 - smoothstep(-0.25, 0.25, lambert));\n' +
+  '  float light = ambient * (1.0 - 0.7 * sh) + direct;\n' +
   '  light = mix(light, 0.45, 0.5 * haze);\n' +
-  '  light += bayer(floor(vUv / uTexel)) * 0.012;\n' +
+  '  light += bayer(floor(vUv / uTexel)) * 0.012 * uGrain;   // palette grain: a faint ordered dither before the bands\n' +
   '  vec3 cloud = palette(light);\n' +
   '  cloud = mix(cloud, uSkyColor, uAtmos * (1.0 - clamp(sA.x, 0.0, 1.0)));   // atmospheric perspective between clouds\n' +
-  '  float soft = dis > 0.001 ? 1.0 : smoothstep(0.5, 0.5 + 0.45 * haze, f.a);   // a hazy parcel loses its hard edge\n' +
+  '  float soft = dis > 0.001 ? 1.0 : smoothstep(0.5, 0.5 + max(0.001, 0.45 * haze), f.a);   // a hazy parcel loses its hard edge\n' +
   '  fragColor = vec4(mix(sky(uv), cloud, soft), 1.0);\n' +
   '}';
 
@@ -311,10 +331,11 @@
     var gl = this.gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
     if (!gl) throw new Error('WebGL2 required');
     gl.getExtension('EXT_color_buffer_float');
+    this._float32 = !!gl.getExtension('OES_texture_float_linear');   // the height target is 32-bit when it can be filtered
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT', 'uCap']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 4);
     this._sphTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
@@ -333,9 +354,11 @@
     var w = Math.max(32, width | 0), h = Math.max(32, height ? height | 0 : Math.round(w * asp));
     if (w === this._w && h === this._h) return;
     this._w = w; this._h = h;
-    [this._fieldTex, this._auxTex, this._aux2Tex].forEach(function (tex) {
+    var f32 = this._float32;
+    [this._fieldTex, this._auxTex, this._aux2Tex].forEach(function (tex, ti) {
       gl.bindTexture(gl.TEXTURE_2D, tex);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+      if (ti === 0 && f32) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, null);
+      else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     });
@@ -492,7 +515,7 @@
           var x = q.x + ox, y = q.y + oy, z = q.z + uz * shell * F.depthScale;
           // parallax by the child's own depth: the sim swayed the root by its depth; the child sits uz * shell
           // nearer or farther, so it sways by that much more (otherwise children slide with their root as a group)
-          var pz = uz * shell / F.ref; x += (F.sim.swx || 0) * F.zoom * pz; y += (F.sim.swy || 0) * F.zoom * pz;
+          var pz = uz * shell * F.depthScale / F.ref; x += (F.sim.swx || 0) * F.zoom * pz; y += (F.sim.swy || 0) * F.zoom * pz;
           if (F.cam && q.zp > 0) {   // under the camera: the sway re-projected at the child's depth, less the parent's share
             var Cc = F.cam, scP = Cc.f / Math.max(0.05, q.zp - (q.z - F.zOff) * Cc.z / Cc.f), scC = Cc.f / Math.max(0.05, q.zp - (z - F.zOff) * Cc.z / Cc.f);
             x += -Cc.sx * (scC - scP); y += Cc.sy * (scC - scP);
@@ -524,7 +547,15 @@
     var gl = this.gl, c = this.canvas, asp = c.height / c.width;
     // the style reference radius: the nearest (largest-scale) cloud's
     var ref = 0.08;
-    if (clouds.length) { ref = 0; for (var i = 0; i < clouds.length; i++) { var Fi = form(clouds[i], i); ref = Math.max(ref, Fi.cam ? Fi.ref * Math.min(1, 1.2 / Fi.zoom) : Fi.ref); } }
+    if (clouds.length) {   // from clouds in or near the frame only: an off-screen cloud must not change a visible one's blend
+      ref = 0;
+      for (var i = 0; i < clouds.length; i++) {
+        var Fi = form(clouds[i], i), Ci = Fi.cam;
+        if (Ci) { var scI = Ci.f / Math.max(0.05, Ci.z), cxI = 0.5 + Ci.x * scI, cyI = Ci.hor - Ci.h * scI; if (cxI < -0.4 || cxI > 1.4 || cyI < -0.4 || cyI > 1.4) continue; }
+        ref = Math.max(ref, Ci ? Fi.ref * Math.min(1, 1.2 / Fi.zoom) : Fi.ref);
+      }
+      if (ref <= 0) ref = 0.08;
+    }
     // pixel grid: with sky.pixel set, the field is exactly canvas / pixel texels and the shade pass
     // fills exactly field * pixel canvas pixels (centred; the margin is sky), so every texel is
     // one pixel-by-pixel square: the picture is what the game would show
@@ -555,7 +586,7 @@
     gl.uniform1f(su.uHighlight, clamp(num(sky.highlight, 0.68), 0, 1));
     gl.uniform1f(su.uFill, num(sky.fill, 0.2)); gl.uniform1f(su.uBands, num(sky.bands, 5));
     gl.uniform1f(su.uNoise, num(sky.noise, 0.3)); gl.uniform1f(su.uNoiseScale, num(sky.noiseScale, 1)); gl.uniform1f(su.uFlow, num(sky.flow, 0.01));
-    gl.uniform1f(su.uNoise2, num(sky.noise2, 0)); gl.uniform1f(su.uNoise2Scale, num(sky.noise2Scale, 4)); gl.uniform1f(su.uNoiseBias, clamp(num(sky.noiseBias, 0), -1, 1)); gl.uniform1f(su.uNoiseBias2, clamp(num(sky.noiseBias2, num(sky.noiseBias, 0)), -1, 1));   // noise 2 follows noise 1's bias when it has none of its own (older presets) gl.uniform1f(su.uAnchor, clamp(num(sky.anchor, 1), 0, 1));
+    gl.uniform1f(su.uNoise2, num(sky.noise2, 0)); gl.uniform1f(su.uNoise2Scale, num(sky.noise2Scale, 4)); gl.uniform1f(su.uNoiseBias, clamp(num(sky.noiseBias, 0), -1, 1)); gl.uniform1f(su.uNoiseBias2, clamp(num(sky.noiseBias2, num(sky.noiseBias, 0)), -1, 1)); gl.uniform1f(su.uAnchor, clamp(num(sky.anchor, 1), 0, 1));   // (noise 2 follows noise 1's bias when it has none of its own: older presets)
     gl.uniform1f(su.uAtmos, clamp(num(sky.atmos, 0), 0, 1)); gl.uniform1f(su.uDepthFall, clamp(num(sky.depthFall, 0), 0, 1));
     gl.uniform1f(su.uCirrus, clamp(num(sky.cirrus, 0), 0, 1)); gl.uniform1f(su.uCirrusScale, num(sky.cirrusScale, 2)); gl.uniform1f(su.uCirrusAngle, num(sky.cirrusAngle, -12) * Math.PI / 180); gl.uniform1f(su.uCirrusFlow, num(sky.cirrusFlow, 0.01)); gl.uniform1f(su.uVeil, clamp(num(sky.veil, 0), 0, 1));
     gl.uniform1f(su.uDissolve, clamp(num(sky.dissolve, 0.7), 0, 1)); gl.uniform1f(su.uDotSize, Math.max(1, Math.round(num(sky.dotSize, 1))));
@@ -567,12 +598,12 @@
       var L = ci < clouds.length ? (clouds[ci].look || {}) : {}, o4 = ci * 4;
       var pick = function (k, d) { return L[k] !== undefined ? num(L[k], d) : num(sky[k], d); };
       SA[o4] = clamp(num(L.far, 1), 0, 1); SA[o4 + 1] = clamp(pick('haze', 0.5), 0, 1); SA[o4 + 2] = clamp(pick('stackShade', 0.4), 0, 1); SA[o4 + 3] = clamp(pick('dither', 0), 0, 1);
-      SB[o4] = clamp(pick('shadow', 0.64), 0, 1); SB[o4 + 1] = clamp(pick('baseShade', 0.5), 0, 1); SB[o4 + 2] = L.noise !== undefined ? num(L.noise, 0.3) / Math.max(0.01, num(sky.noise, 0.3)) : 1; SB[o4 + 3] = clamp(pick('smooth', 0.5), 0, 1);
+      SB[o4] = clamp(pick('shadow', 0.64), 0, 1); SB[o4 + 1] = clamp(pick('baseShade', 0.5), 0, 1); SB[o4 + 2] = (L.noise !== undefined && num(sky.noise, 0.3) >= 0.02) ? num(L.noise, 0.3) / num(sky.noise, 0.3) : 1;   // with the sky's noise at zero the ratio is meaningless (it silenced noise 2 too) SB[o4 + 3] = clamp(pick('smooth', 0.5), 0, 1);
     }
     gl.uniform4fv(su.uStyleA, SA); gl.uniform4fv(su.uStyleB, SB);
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);
     gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);
-    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8)));
+    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1)));
     var cam = sky.cam; gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   };
