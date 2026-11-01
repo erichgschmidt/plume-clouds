@@ -205,7 +205,8 @@
   '  if(f.a * (1.0 - uDissolve * dis) < th){ fragColor = vec4(sky(uv), 1.0); return; }   // a strongly dispersing puff also loses interior pixels (wisps dissolve)\n' +
   '  // depth weight: 1 near .. 0 far. Far volumes: softer normal, weaker shadow, less noise, bluer\n' +
   '  float dw = clamp(bx.g, 0.0, 1.0), far = uDepthFall * (1.0 - dw);\n' +
-  '  float s = 1.0 + sB.w * 2.0 + far * 3.0;   // normal footprint in texels\n' +
+  '  float s = 1.0 + far * 3.0;   // normal footprint in texels (Normal smooth no longer widens it: a wide\n' +
+  '                               // footprint straddles a step and reads it as a slope, a band as wide as itself)\n' +
   '  vec2 dx = vec2(uTexel.x * s, 0.0), dy = vec2(0.0, uTexel.y * s);\n' +
   '  float wx = 2.0 * uTexel.x * s, wy = 2.0 * uTexel.y * s * uAspect;   // world units\n' +
   '  float namp = (1.0 - 0.6 * far) * sB.z;\n' +
@@ -225,6 +226,17 @@
   '  float bias = uNoiseBias > 0.0 ? mix(1.0, smoothstep(-0.2, 0.5, l0), uNoiseBias) : mix(1.0, smoothstep(0.5, -0.2, l0), -uNoiseBias);\n' +
   '  float bias2 = uNoiseBias2 > 0.0 ? mix(1.0, smoothstep(-0.2, 0.5, l0), uNoiseBias2) : mix(1.0, smoothstep(0.5, -0.2, l0), -uNoiseBias2);\n' +
   '  vec3 n = normalAt(uv, dx, dy, wx, wy, bias, bias2, namp, edge);\n' +
+  '  // Normal smooth: average the normals of four neighbours (reach up to 3 texels) with this one, skipping\n' +
+  '  // any neighbour that is outside, on another cloud or across a step, so the smoothing never crosses an edge\n' +
+  '  if(sB.w > 0.0){\n' +
+  '    float ss = sB.w * 3.0; vec2 ox = vec2(uTexel.x * ss, 0.0), oy = vec2(0.0, uTexel.y * ss);\n' +
+  '    vec3 nacc = n; float e2;\n' +
+  '    for(int k = 0; k < 4; k++){\n' +
+  '      vec2 p = uv + (k == 0 ? ox : k == 1 ? -ox : k == 2 ? oy : -oy);\n' +
+  '      if(hAt(p, uv, bias, bias2, namp).y > 0.5) nacc += normalAt(p, dx, dy, wx, wy, bias, bias2, namp, e2) * sB.w;\n' +
+  '    }\n' +
+  '    n = normalize(nacc);\n' +
+  '  }\n' +
   '  // the rim turns toward the viewer: the dome edge is otherwise a dark ring that reads as an outline;\n' +
   '  // the same at a puff\'s own rim inside the cloud, where one dome falls steeply over the puff behind it\n' +
   '  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), max(uRim * edge, uPuffRim * bx.a)));\n' +
@@ -243,11 +255,13 @@
   '      for(int k = 1; k <= 8; k++){\n' +
   '        float dW = stepW * float(k);\n' +
   '        vec4 fk = texture(uField, uv + vec2(ld.x, ld.y / uAspect) * dW);\n' +
-  '        if(fk.a > 0.5) occ = max(occ, (fk.r - f.r) / dW - slope);\n' +
+  '        // penumbra: a blocker close by casts a full shadow, one at the end of the march a faint one, so the\n' +
+  '        // shadow falls off away from the occluding puff instead of being one flat band\n' +
+  '        if(fk.a > 0.5) occ = max(occ, smoothstep(0.0, 1.5, (fk.r - f.r) / dW - slope) * (1.0 - 0.85 * float(k - 1) / 7.0));\n' +
   '      }\n' +
   '    }\n' +
   '  }\n' +
-  '  float contact = uContact * smoothstep(0.0, 1.5, occ);\n' +
+  '  float contact = uContact * occ;\n' +
   '  // cavity: the surface below the mean of its surroundings a few texels out is a valley between puffs;\n' +
   '  // its cancelling slopes face the viewer and would catch full light, so less reaches it\n' +
   '  float cav = 0.0;\n' +
