@@ -40,6 +40,7 @@
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
   '  float m = -1e9, acc = 0.0, dSum = 0.0, sSum = 0.0, fSum = 0.0, xSum = 0.0, bSum = 0.0, wSum = 0.0, cIdx = 0.0; vec2 anc = vec2(0.0);   // online log-sum-exp; cIdx: the cloud of the highest puff\n' +
   '  float sm = -1e9, sacc = 0.0;                            // silhouette (soft union of r - dist)\n' +
+  '  float insC = -1.0;                                      // the cloud of the first puff that contains this pixel\n' +
   '  float T = uT;\n' +
   '  for(int i = 0; i < 4096; i++){\n' +
   '    if(i >= uCount) break;\n' +
@@ -60,6 +61,11 @@
   '    float dist = sqrt(d2);\n' +
   '    float e = (r - dist) / T;\n' +
   '    if(e > sm){ sacc = sacc * exp(sm - e) + 1.0; sm = e; } else sacc += exp(e - sm);\n' +
+  '    // a puff\'s height ramps on past its radius; another cloud\'s ramp must not cross a cloud this pixel is\n' +
+  '    // inside, or an occluding cloud draws a steep strip (a dark line) over the cloud behind it\n' +
+  '    float ci = floor(wd.w); bool inside = d2 < r * r;\n' +
+  '    if(!inside && insC >= 0.0 && ci != insC) continue;\n' +
+  '    if(inside && insC < 0.0){ insC = ci; if(acc > 0.0 && cIdx != ci){ m = -1e9; acc = 0.0; dSum = 0.0; sSum = 0.0; fSum = 0.0; xSum = 0.0; bSum = 0.0; wSum = 0.0; anc = vec2(0.0); } }\n' +
   '    vec4 a = texelFetch(uSph, ivec2(i, 1), 0);\n' +
   '    float h = (d2 < r * r) ? s.w + sqrt(r * r - d2) : s.w - (dist - r) * 2.0;\n' +
   '    float w;\n' +
