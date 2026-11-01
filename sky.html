@@ -38,7 +38,7 @@
     <div id="cirrus"></div>
   </div>
 </div>
-<script src="src/sim.js?v=134"></script>
+<script src="src/sim.js?v=135"></script>
 <script src="src/puffs.js?v=125"></script>
 <script src="src/motion.js?v=125"></script>
 <script src="src/layer.js?v=125"></script>
@@ -201,7 +201,7 @@
         e = c.sims[j];
         var h = c.h - camY, flat = c.flat, span = c.span;
         if (e.atTop) { h += (main.sim.baseY - e.sim.baseY) * c.s; flat = 1; span = c.s * 0.9; }   // the anvil spreads flat at the tower top
-        e.look.cam = { x: c.x - camX, z: c.z, h: h, s: c.s, f: 1, hor: hor, flat: flat, span: span };
+        e.look.cam = { x: c.x - camX, z: c.z, h: h, s: c.s, f: 1, hor: hor, flat: flat, span: span, sx: camX, sy: camY };   // sx/sy: the sway, re-projected per puff by its depth
         e.look.far = c.far;
       }
     }
