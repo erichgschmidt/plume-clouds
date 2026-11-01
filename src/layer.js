@@ -150,6 +150,7 @@
     var wa = (P.wind || 0) * Math.PI / 180, wx = Math.cos(wa), wy = -Math.sin(wa);
     var sw = 6.2832 / Math.max(5, P.sway || 57);
     var swx = (P.parallax || 0) * Math.sin(this.time * sw), swy = (P.parallax || 0) * 0.35 * Math.sin(this.time * sw * 0.66 + 1.0);
+    this.swx = swx; this.swy = swy;   // per unit depth, for the renderer's child puffs
     var cols = Math.max(1, Math.round(P.width / (P.cell || 0.1))), rows = Math.max(1, P.rows | 0);
     var put = function (x, y, r, seed, depth, link, roll, fresh, stretch) {
       if (n >= MAX || r <= 1e-4 || link <= 1e-4) return;

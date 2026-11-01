@@ -263,6 +263,7 @@
     // the forms keep their shape)
     var sw = 6.2832 / Math.max(5, P.sway || 57);
     var swx = (P.parallax || 0) * Math.sin(this.time * sw), swy = (P.parallax || 0) * 0.35 * Math.sin(this.time * sw * 0.66 + 1.0);
+    this.swx = swx; this.swy = swy;   // the eye's sway this frame per unit depth (the renderer shifts child puffs by their own depth)
     B[0] = this.cx; B[1] = this.cy; B[2] = size * 0.8; B[3] = 7.7;
     A[0] = 0; A[1] = 0.5; A[2] = -1; A[3] = 1;
     S[0] = 0; S[1] = 0; S[2] = 1; S[3] = 1e-6; D[0] = 1;

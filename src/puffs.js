@@ -459,6 +459,9 @@
           else if (prim === 4) { var l1n = Math.abs(ox) + Math.abs(oy) || 1e-6, l2n = Math.sqrt(ox * ox + oy * oy), kd = 1 + pa * (l2n / l1n - 1); ox *= kd; oy *= kd; }
           if (q.st !== 1) { var al2 = ox * F.wx + oy * F.wy, ac2 = ox * F.wy - oy * F.wx, sa = al2 * q.st, sc = ac2 / Math.sqrt(q.st); ox = F.wx * sa + F.wy * sc; oy = F.wy * sa - F.wx * sc; }
           var x = q.x + ox, y = q.y + oy, z = q.z + uz * shell * F.depthScale;
+          // parallax by the child's own depth: the sim swayed the root by its depth; the child sits uz * shell
+          // nearer or farther, so it sways by that much more (otherwise children slide with their root as a group)
+          var pz = uz * shell / F.ref; x += (F.sim.swx || 0) * F.zoom * pz; y += (F.sim.swy || 0) * F.zoom * pz;
           // stacked shade: the own gradient is in the shader; the inherited part is the parent's
           // gradient at the birth point (uy > 0 is the parent's underside)
           var stack = q.stack * 0.6 + 0.5 * smoothstep(-0.6, 0.9, uy);
