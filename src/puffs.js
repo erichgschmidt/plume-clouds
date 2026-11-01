@@ -233,9 +233,9 @@
   }
 
   // field resolution: `width` texels across, height by the canvas aspect
-  PuffRenderer.prototype.resize = function (width) {
+  PuffRenderer.prototype.resize = function (width, height) {
     var gl = this.gl, c = this.canvas, asp = c.height / c.width;
-    var w = Math.max(32, width | 0), h = Math.max(32, Math.round(w * asp));
+    var w = Math.max(32, width | 0), h = Math.max(32, height ? height | 0 : Math.round(w * asp));
     if (w === this._w && h === this._h) return;
     this._w = w; this._h = h;
     [this._fieldTex, this._auxTex, this._aux2Tex].forEach(function (tex) {
@@ -412,7 +412,14 @@
     // the style reference radius: the nearest (largest-scale) cloud's
     var ref = 0.08;
     if (clouds.length) { ref = 0; for (var i = 0; i < clouds.length; i++) { var Fi = form(clouds[i], i); ref = Math.max(ref, Fi.cam ? Fi.ref * Math.min(1, 1.2 / Fi.zoom) : Fi.ref); } }
-    this.resize(this._w);
+    // pixel grid: with sky.pixel set, the field is exactly canvas / pixel texels and the shade pass
+    // fills exactly field * pixel canvas pixels (centred; the margin is sky), so every texel is
+    // one pixel-by-pixel square: the picture is what the game would show
+    var px = Math.max(0, Math.round(num(sky.pixel, 0))), vx = 0, vy = 0, vw = c.width, vh = c.height;
+    if (px > 0) {
+      var fw = Math.max(32, Math.floor(c.width / px)), fh = Math.max(32, Math.floor(c.height / px));
+      this.resize(fw, fh); vw = fw * px; vh = fh * px; vx = (c.width - vw) >> 1; vy = (c.height - vh) >> 1; asp = fh / fw;
+    } else this.resize(this._w);
     this._tree(clouds, time);
     // field
     gl.bindFramebuffer(gl.FRAMEBUFFER, this._fbo); gl.viewport(0, 0, this._w, this._h);
@@ -423,6 +430,7 @@
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // shade
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);
+    if (px > 0) { gl.clearColor(0.075, 0.4525, 0.575, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.viewport(vx, vy, vw, vh); }
     gl.useProgram(this._shade);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this._fieldTex);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this._auxTex);
