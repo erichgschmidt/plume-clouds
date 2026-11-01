@@ -137,7 +137,8 @@
   // displaced height at a uv (the one surface term)
   'vec2 hAt(vec2 uv, vec2 uv0, float bias, float namp){\n' +
   '  vec4 f = texture(uField, uv);\n' +
-  '  float ins = f.a < 0.5 ? 0.0 : 1.0;\n' +
+  '  // a sample outside the silhouette, or on another cloud (an occluding edge is a rim too, not a slope)\n' +
+  '  float ins = (f.a < 0.5 || abs(texture(uAux2, uv).b - texture(uAux2, uv0).b) > 0.5) ? 0.0 : 1.0;\n' +
   '  if(ins < 0.5) f = texture(uField, uv0);   // never read height outside the silhouette (the rim)\n' +
   '  vec2 w0 = (vec2(uv.x, (1.0 - uv.y) * uAspect) - uAnchor * texture(uAux, uv0).ba) / uRef;   // noise rides with the parcel\n' +
   '  float t = uTime * uFlow;\n' +
