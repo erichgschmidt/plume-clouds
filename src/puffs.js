@@ -87,7 +87,9 @@
   '    // primitive distortions are left as the identity, a small error in direction only)\n' +
   '    float dsph = u < 0.9 ? -u / sqrt(max(1e-6, 1.0 - u * u)) : -2.0647;\n' +
   '    float dpar = u < 1.0 ? -2.0 * u : -2.0;\n' +
-  '    float dpen = (tt > 0.0 && tt < 0.995) ? 2.0 * (2.0 * tt - tt * tt) / ((1.0 - tt) * (1.0 - tt)) : 0.0;\n' +
+  '    // the penalty\'s slope is bounded: it diverges at the cutoff (80000 at tt 0.995, past the largest half float,\n' +
+  '    // and the gradient target is RGBA16F, linearly filtered), while anything past 20 lights as a wall anyway\n' +
+  '    float dpen = (tt > 0.0 && tt < 0.995) ? min(20.0, 2.0 * (2.0 * tt - tt * tt) / ((1.0 - tt) * (1.0 - tt))) : (tt > 0.0 ? 20.0 : 0.0);\n' +
   '    vec2 dirp = d / max(dist, 1e-6);   // the outward direction, mapped back to the field plane\n' +
   '    if(prim == 1) dirp.y *= 1.0 + 1.5 * pa;\n' +
   '    if(sh.z != 1.0) dirp = dirp.x * wd.xy / sh.z + dirp.y * vec2(wd.y, -wd.x) * sqrt(sh.z);\n' +
@@ -155,7 +157,7 @@
   'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
   'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow, uDissolve, uDotSize, uVeil;\n' +
   'uniform vec3 uSkyColor;\n' +
-  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach, uGrain;\n' +
+  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach, uGrain, uDiag;\n' +
   'uniform vec4 uCam;   // camera x, camera z, horizon (field y), cirrus altitude; w <= 0: no camera (the flat veil)\n' +
   'in vec2 vUv; out vec4 fragColor;\n' +
   // simplex-ish 2D noise (Ashima-style, compact)
@@ -297,6 +299,13 @@
   '    }\n' +
   '    n = normalize(nacc);\n' +
   '  }\n' +
+  '  // diagnostic views (Diag): 1 continuous grey lighting of the final normal, 2 height, 3 the normal as RGB\n' +
+  '  if(uDiag > 0.5){\n' +
+  '    if(uDiag < 1.5) fragColor = vec4(vec3(0.2 + 0.8 * max(dot(n, Lv), 0.0)), 1.0);\n' +
+  '    else if(uDiag < 2.5) fragColor = vec4(vec3(fract(f.r / uRef * 2.0)), 1.0);\n' +
+  '    else fragColor = vec4(n * 0.5 + 0.5, 1.0);\n' +
+  '    return;\n' +
+  '  }\n' +
   '  // the rim turns toward the viewer: the dome edge is otherwise a dark ring that reads as an outline;\n' +
   '  // the same at a puff\'s own rim inside the cloud, where one dome falls steeply over the puff behind it\n' +
   '  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), max(uRim * edge, uPuffRim * bx.a)));\n' +
@@ -378,7 +387,7 @@
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT', 'uCap']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain', 'uDiag']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 4);
     this._sphTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
@@ -649,7 +658,7 @@
     gl.uniform4fv(su.uStyleA, SA); gl.uniform4fv(su.uStyleB, SB);
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);
     gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);
-    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1)));
+    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0));
     var cam = sky.cam; gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   };

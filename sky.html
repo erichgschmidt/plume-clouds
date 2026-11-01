@@ -38,11 +38,11 @@
     <div id="cirrus"></div>
   </div>
 </div>
-<script src="src/sim.js?v=149"></script>
-<script src="src/puffs.js?v=149"></script>
-<script src="src/motion.js?v=149"></script>
-<script src="src/layer.js?v=149"></script>
-<script src="src/presets.js?v=149"></script>
+<script src="src/sim.js?v=152"></script>
+<script src="src/puffs.js?v=152"></script>
+<script src="src/motion.js?v=152"></script>
+<script src="src/layer.js?v=152"></script>
+<script src="src/presets.js?v=152"></script>
 <script>
 (function () {
   'use strict';
@@ -58,6 +58,8 @@
     atmos: 0.35, depthFall: 0.6, sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, baseShade: 0.5, stackShade: 0.4,
     cirrus: 0.35, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, pixelated: true, pixel: 2, overhead: 0.7, rim: 0.5, puffRim: 0, cap: 0, contact: 0, cavity: 0, cavityReach: 8, baseFall: 0.7 };
   // the sky's own parameters
+  // the eye: dragged in the canvas (an unlocked parallax, on top of the sway); double-click recentres
+  var eye = { x: 0, y: 0 }, drag = null;
   var P = { clouds: 12, drift: 0.004, travel: 0.012, parallax: 0.03, sway: 57, near: 0.6, horizon: 0.86, simSpeed: 0.5 };
   var Z_NEAR = 0.5, Z_FAR = 3.0;   // world distances: a cloud nearer than Z_NEAR has passed overhead and re-forms at Z_FAR
   // altitude by type, as a fraction of the frame height at distance 1 (low cloud at the bottom of the scale, cirrus at the top)
@@ -164,6 +166,10 @@
 
   var playing = true;
   $('btnPlay').addEventListener('click', function () { playing = !playing; this.textContent = playing ? 'Pause' : 'Play'; });
+  canvas.addEventListener('pointerdown', function (e) { drag = { x: e.clientX, y: e.clientY, ex: eye.x, ey: eye.y }; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener('pointermove', function (e) { if (!drag) return; var k = 0.12 / canvas.clientWidth; eye.x = drag.ex + (e.clientX - drag.x) * k; eye.y = drag.ey + (e.clientY - drag.y) * k; });
+  canvas.addEventListener('pointerup', function () { drag = null; });
+  canvas.addEventListener('dblclick', function () { eye.x = 0; eye.y = 0; });
   $('btnNew').addEventListener('click', function () { $('seed').value = (+$('seed').value | 0) + 1; build(); });
   $('seed').addEventListener('change', build);
   build();
@@ -196,7 +202,7 @@
       }
     }
     // projection: camera sway in world units, the horizon line, each sim's world frame
-    var sw = 6.2832 / Math.max(5, P.sway), camX = P.parallax * Math.sin(t * sw), camY = P.parallax * 0.35 * Math.sin(t * sw * 0.66 + 1), hor = P.horizon * aspect;
+    var sw = 6.2832 / Math.max(5, P.sway), camX = P.parallax * Math.sin(t * sw) + eye.x, camY = P.parallax * 0.35 * Math.sin(t * sw * 0.66 + 1) + eye.y, hor = P.horizon * aspect;
     for (i = 0; i < clouds.length; i++) {
       c = clouds[i]; main = c.sims[0]; c.far = farOf(c.z);
       for (j = 0; j < c.sims.length; j++) {

@@ -263,7 +263,9 @@
     // parallax: a slow sideways sway of the eye; every parcel shifts by its depth (pure translation,
     // the forms keep their shape)
     var sw = 6.2832 / Math.max(5, P.sway || 57);
-    var swx = (P.parallax || 0) * Math.sin(this.time * sw), swy = (P.parallax || 0) * 0.35 * Math.sin(this.time * sw * 0.66 + 1.0);
+    // the eye: the sway, plus where a drag in the editor put it (eyeX / eyeY, an unlocked parallax; the
+    // renderer shifts child puffs by the same amount per unit depth)
+    var swx = (P.parallax || 0) * Math.sin(this.time * sw) + (this.eyeX || 0), swy = (P.parallax || 0) * 0.35 * Math.sin(this.time * sw * 0.66 + 1.0) + (this.eyeY || 0);
     this.swx = swx; this.swy = swy;   // the eye's sway this frame per unit depth (the renderer shifts child puffs by their own depth)
     B[0] = this.cx; B[1] = this.cy; B[2] = size * 0.8; B[3] = 7.7;
     A[0] = 0; A[1] = 0.5; A[2] = -1; A[3] = 1;
