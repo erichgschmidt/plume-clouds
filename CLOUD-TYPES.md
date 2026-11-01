@@ -207,5 +207,13 @@ Sheets lie flat: a layer sim's rows are depth, not height, so a stratocumulus de
 the horizon and its far rows converge. Altitude per type (ALT in sky.html): low cloud low, cirrus
 high. A cloud past the camera or out of the frustum re-forms far away as a new one.
 
+Broken sheets: sheet mode has `patch` (holes across the width) and `hole` (how much they take);
+parcels in a hole shrink away and the holes drift slowly. Two presets use it: Stratus fractus
+(small ragged patches, bridging between other clouds) and Altostratus undulatus (a wavy sheet with
+gaps); altostratus itself is smaller (scale 0.9) with two faint gaps. In the sky the cell types
+(altocumulus, cirrocumulus) spawn as small patches rather than one wide deck, and the cumulonimbus
+anvil only grows in once the tower has formed (60% of its form time). The rim of every cloud turns
+toward the viewer (Rim soften) so the dome edge is not a dark ring.
+
 Not built: a halo for cirrostratus; the sun as a disc through altostratus; mamma under the
 anvil; rain curtains.

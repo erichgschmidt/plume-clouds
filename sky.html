@@ -38,11 +38,11 @@
     <div id="cirrus"></div>
   </div>
 </div>
-<script src="src/sim.js?v=116"></script>
-<script src="src/puffs.js?v=116"></script>
-<script src="src/motion.js?v=116"></script>
-<script src="src/layer.js?v=116"></script>
-<script src="src/presets.js?v=116"></script>
+<script src="src/sim.js?v=118"></script>
+<script src="src/puffs.js?v=118"></script>
+<script src="src/motion.js?v=118"></script>
+<script src="src/layer.js?v=118"></script>
+<script src="src/presets.js?v=118"></script>
 <script>
 (function () {
   'use strict';
@@ -56,12 +56,12 @@
   // the style of the whole sky (the shade pass): one look for every cloud
   var sky = { softness: 1.0, noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, flow: 0.04, anchor: 1, smooth: 0.5, haze: 0.4, dither: 0.3, dissolve: 0.7, dotSize: 1,
     atmos: 0.35, depthFall: 0.6, sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, baseShade: 0.5, stackShade: 0.4,
-    cirrus: 0.35, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, pixelated: true, pixel: 2, overhead: 0.7 };
+    cirrus: 0.35, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, pixelated: true, pixel: 2, overhead: 0.7, rim: 0.5 };
   // the sky's own parameters
   var P = { clouds: 12, drift: 0.004, travel: 0.012, parallax: 0.03, sway: 57, near: 0.6, horizon: 0.86, simSpeed: 0.5 };
   var Z_NEAR = 0.5, Z_FAR = 3.0;   // world distances: a cloud nearer than Z_NEAR has passed overhead and re-forms at Z_FAR
   // altitude by type, as a fraction of the frame height at distance 1 (low cloud at the bottom of the scale, cirrus at the top)
-  var ALT = { humilis: 0.45, congestus: 0.45, cumulonimbus: 0.4, stratocumulus: 0.42, stratus: 0.36, altocumulus: 0.62, lenticular: 0.58, altostratus: 0.6, cirrocumulus: 0.8, cirrus: 0.82, contrail: 0.84 };
+  var ALT = { humilis: 0.45, congestus: 0.45, cumulonimbus: 0.4, stratocumulus: 0.42, stratus: 0.36, altocumulus: 0.62, lenticular: 0.58, altostratus: 0.6, fractus: 0.36, undulatus: 0.56, cirrocumulus: 0.8, cirrus: 0.82, contrail: 0.84 };
   function farOf(z) { return Math.max(0, Math.min(1, (1 / z - 0.3) / 0.7)); }   // the renderer's depth weight (1 near .. 0 far) from distance
 
   // species: the cloud types from src/presets.js (engine, sim preset, layout, primitive, form,
@@ -85,7 +85,7 @@
   var clouds = [];
   function pick(rng, far) {
     var names = Object.keys(SPECIES), total = 0, w = [];
-    names.forEach(function (nm) { var d = SPECIES[nm].depth || [0, 1], v = (far >= d[0] - 0.1 && far <= d[1] + 0.1) ? 1 : 0.05; w.push(v); total += v; });
+    names.forEach(function (nm) { var d = SPECIES[nm].depth || [0, 1], v = (far >= d[0] - 0.1 && far <= d[1] + 0.1) ? 1 : 0.05; if (nm === 'altocumulus' || nm === 'cirrocumulus') v *= 1.8; w.push(v); total += v; });   // the speckled patches are small, so more of them
     var r = rng() * total;
     for (var i = 0; i < names.length; i++) { r -= w[i]; if (r <= 0) return names[i]; }
     return names[names.length - 1];
@@ -100,6 +100,10 @@
     var sim = makeSim(sp.engine, sp.preset, seed, sp.shape);
     if (sp.forces) for (var k in sp.forces) sim.params[k] = sp.forces[k];
     sim.params.parallax = 0;   // the camera sways, not the cloud
+    if (sim.params.mode === 'cells') {   // a small patch between the big clouds, not one wide deck
+      sim.params.width *= 0.45; sim.params.count = Math.round(sim.params.count * 0.35); sim.params.rows = Math.max(2, (sim.params.rows | 0) - 2);
+      sim.parcels.length = 0; for (var pi = 0; pi < sim.params.count; pi++) sim.parcels.push(sim._spawn(true, pi));
+    }
     sim.reseat();
     var look = { prim: sp.prim, primAmt: sp.primAmt === undefined ? 1 : sp.primAmt, far: far };
     FORM_KEYS.forEach(function (fk) { if (sp.look && sp.look[fk] !== undefined) look[fk] = sp.look[fk]; });
@@ -108,6 +112,7 @@
     if (sp.extra) {
       var ex = makeSim(sp.extra.engine, sp.extra.preset, seed + 1, 'ring');
       ex.params.parallax = 0;
+      ex.parcels.forEach(function (q) { q.link = 0; q.age = 0; }); ex._emit();   // the anvil grows in once the tower is up
       sims.push({ sim: ex, look: Object.assign({}, look, sp.extra.look || {}), dy: sp.extra.dy || 0, atTop: true });
     }
     // world placement: within the frustum at this distance (half width z / 2 on screen), at the
@@ -128,11 +133,11 @@
   }
 
   var SKYP = [['clouds', 'Clouds', 1, 14, 1], ['near', 'Near size', 0.3, 1.4, 0.01], ['travel', 'Travel', 0, 0.05, 0.001], ['drift', 'Drift', -0.02, 0.02, 0.001], ['parallax', 'Parallax', 0, 0.08, 0.002], ['sway', 'Sway (s)', 5, 120, 1], ['horizon', 'Horizon', 0.5, 1, 0.01], ['simSpeed', 'Sim speed', 0.1, 1.5, 0.01]];
-  var STYLE = [['pixel', 'Pixel size', 1, 6, 1], ['softness', 'Softness', 0.3, 4, 0.01], ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['dissolve', 'Dissolve', 0, 1, 0.01], ['dotSize', 'Dot size', 1, 4, 1], ['atmos', 'Atmosphere', 0, 1, 0.01], ['depthFall', 'Depth falloff', 0, 1, 0.01]];
+  var STYLE = [['pixel', 'Pixel size', 1, 6, 1], ['softness', 'Softness', 0.3, 4, 0.01], ['rim', 'Rim soften', 0, 1, 0.01], ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['dissolve', 'Dissolve', 0, 1, 0.01], ['dotSize', 'Dot size', 1, 4, 1], ['atmos', 'Atmosphere', 0, 1, 0.01], ['depthFall', 'Depth falloff', 0, 1, 0.01]];
   var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['overhead', 'Overhead', 0, 1, 0.01], ['shadow', 'Shadow', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
   var CIRRUS = [['cirrus', 'Cirrus', 0, 1, 0.01], ['cirrusScale', 'Scale', 0.5, 6, 0.1], ['cirrusAngle', 'Angle (deg)', -45, 45, 1], ['cirrusFlow', 'Flow', 0, 0.1, 0.001]];
   var TIPS = { clouds: 'How many clouds the sky holds (regenerates).', near: 'Size of a cloud at distance 1 (regenerates).', travel: 'Forward glide of the camera; a cloud that passes overhead re-forms far away.', drift: 'Sideways wind in world units; near clouds cross faster.',
-    parallax: 'Sway of the camera; near clouds sway more.', horizon: 'Where the horizon line sits (fraction of the height); far clouds converge on it.', simSpeed: 'How fast every cloud evolves (1: the editor speed).', overhead: 'How much the sun turns with the view: clouds high in the frame are seen from below, lit from beyond.', pixel: 'Size of one drawn pixel in canvas pixels; the whole picture sits on that grid.', sway: 'Period of the sway in seconds.', atmos: 'How much far clouds take on the sky colour.', depthFall: 'How much far clouds lose shadow, noise and crispness.',
+    parallax: 'Sway of the camera; near clouds sway more.', horizon: 'Where the horizon line sits (fraction of the height); far clouds converge on it.', simSpeed: 'How fast every cloud evolves (1: the editor speed).', rim: 'Turns the normal toward the viewer at the silhouette, so the dome edge is not a dark ring.', overhead: 'How much the sun turns with the view: clouds high in the frame are seen from below, lit from beyond.', pixel: 'Size of one drawn pixel in canvas pixels; the whole picture sits on that grid.', sway: 'Period of the sway in seconds.', atmos: 'How much far clouds take on the sky colour.', depthFall: 'How much far clouds lose shadow, noise and crispness.',
     cirrus: 'Amount of high streak cloud behind everything.', cirrusScale: 'Size of the cirrus streaks.', cirrusAngle: 'Direction of the streaks.', cirrusFlow: 'Scroll speed of the streaks.' };
   var sliders = {};
   function slider(parent, target, spec, onChange) {
@@ -160,7 +165,7 @@
   window.sky = sky; window.P = P; window.renderer = renderer; window.SPECIES = SPECIES;
 
   var last = performance.now(), fpsT = 0, frames = 0, fps = 0, t = 0, camZ = 0, camWind = 0;   // where the camera has got to (the cirrus plane scrolls with it)
-  function loop(now) {
+  function loop(now) { try {
     var dt = Math.min(0.1, (now - last) / 1000); last = now;
     var aspect = canvas.height / canvas.width;
     if (playing) {
@@ -170,8 +175,8 @@
         for (var j = 0; j < c.sims.length; j++) {
           var e = c.sims[j];
           e.sim.aspect = aspect;
-          if (e.atTop) { e.sim.params.level = (main.sim.topY + e.dy) / main.sim.aspect; e.sim.params.wind = main.look.wind || 0; }
-          e.sim.step(dt * P.simSpeed);
+          if (e.atTop) { e.sim.params.level = (main.sim.topY + e.dy) / main.sim.aspect; e.sim.params.wind = main.look.wind || 0; if (main.sim.time < 0.6 * (main.sim.params.formTime || 0)) continue; }
+          e.sim.step(dt * P.simSpeed * Math.min(1, Math.max(0.35, c.z / 1.5)));   // a big near cloud evolves slowly
         }
         // the camera glides forward and the wind carries the cloud sideways; past the camera (or
         // out of the frustum) it re-forms far away as a new cloud
@@ -204,6 +209,7 @@
     if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
     hud.textContent = 'fps ' + fps + '   clouds ' + clouds.length + '   puffs ' + renderer.count + (renderer.degrade < 1 ? '  (deepest level at ' + Math.round(renderer.degrade * 100) + '%)' : '') + '   t ' + t.toFixed(0) + 's';
     requestAnimationFrame(loop);
+    } catch (err) { hud.textContent = 'ERR ' + err.stack; }
   }
   requestAnimationFrame(loop);
 })();

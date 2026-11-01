@@ -28,7 +28,10 @@
   // level: layer height as a fraction of the canvas height (0 top .. 1 bottom); width/thick in canvas widths
   var PRESETS = {
     stratus:       { mode: 'sheet', count: 64, size: 0.07, width: 1.1, thick: 0.08, level: 0.62, cover: 1.5, undulate: 0.01, wave: 2.0, life: 60, breathe: 25, jitter: 0.3, drift: 0.004, wind: 0, fresh: 0.5, parallax: 0.01, sway: 57, ragged: 0.8 },
-    altostratus:   { mode: 'sheet', count: 90, size: 0.045, width: 1.25, thick: 0.14, level: 0.45, cover: 1.6, undulate: 0.006, wave: 1.5, life: 90, breathe: 40, jitter: 0.25, drift: 0.006, wind: 0, fresh: 0.4, parallax: 0.008, sway: 57, ragged: 0.4, striate: 2.8 },
+    altostratus:   { mode: 'sheet', count: 90, size: 0.045, width: 1.25, thick: 0.14, level: 0.45, cover: 1.6, undulate: 0.006, wave: 1.5, life: 90, breathe: 40, jitter: 0.25, drift: 0.006, wind: 0, fresh: 0.4, parallax: 0.008, sway: 57, ragged: 0.4, striate: 2.8, patch: 2, hole: 0.2 },
+    // broken sheets: patch = holes across the width, hole = how much of the sheet they take (parcels in a hole shrink away)
+    fractus:       { mode: 'sheet', count: 48, size: 0.05, width: 0.9, thick: 0.1, level: 0.55, cover: 1.4, undulate: 0.01, wave: 2.0, life: 50, breathe: 20, jitter: 0.35, drift: 0.006, wind: 0, fresh: 0.4, parallax: 0.01, sway: 57, ragged: 1.0, striate: 1.6, patch: 3, hole: 0.45 },
+    undulatus:     { mode: 'sheet', count: 80, size: 0.04, width: 1.2, thick: 0.12, level: 0.45, cover: 1.5, undulate: 0.02, wave: 3.0, life: 80, breathe: 35, jitter: 0.25, drift: 0.006, wind: 0, fresh: 0.4, parallax: 0.008, sway: 57, ragged: 0.3, striate: 2.2, patch: 5, hole: 0.35 },
     anvil:         { mode: 'sheet', count: 30, size: 0.085, width: 0.75, thick: 0.05, level: 0.3, cover: 1.5, undulate: 0.004, wave: 2.0, life: 80, breathe: 30, jitter: 0.2, drift: 0.01, wind: 0, fresh: 0.5, parallax: 0.015, sway: 57, ragged: 0.6, striate: 1.4, lead: 0.4, taper: 0.75, offset: 0.18 },
     lenticular:    { mode: 'sheet', count: 30, size: 0.06, width: 0.5, thick: 0.02, level: 0.45, cover: 1.4, undulate: 0.0, wave: 1.0, life: 40, breathe: 30, jitter: 0.1, drift: 0.02, wind: 0, fresh: 0.9, parallax: 0.01, sway: 57, ragged: 0.0, fixed: 1, taper: 0.8 },
     stratocumulus: { mode: 'cells', count: 80, size: 0.07, width: 1.25, thick: 0.13, level: 0.6, cell: 0.1, rows: 4, gap: 0.15, streets: 0.3, jitter: 0.25, breathe: 18, life: 70, drift: 0.006, wind: 0, fresh: 0.75, parallax: 0.012, sway: 57 },
@@ -175,6 +178,7 @@
       } else if (P.mode === 'sheet') {
         var und = (P.undulate || 0) * Math.sin(p.x * 6.2832 * (P.wave || 2) + this.time * 0.15 + p.ph * 0.2);
         var ex = smoothstep(0, 0.1, P.width * 0.5 + 0.05 - Math.abs(p.x));
+        if (P.patch) ex *= smoothstep(0, 0.35, 0.5 + 0.5 * Math.sin(p.x * 6.2832 * P.patch + p.i * 0.9 + this.time * 0.01) - (P.hole || 0.4));   // a broken sheet: holes across it, drifting slowly
         var lead = (P.lead || 0) * (p.x / (P.width * 0.5));   // an anvil thins toward its downwind edge
         var u = Math.abs(p.x) / (P.width * 0.5), taper = 1 - (P.taper || 0) * u * u;   // a lens: thick in the middle, thin at the ends
         var sx = p.x + (P.offset || 0) * P.width;   // the sheet sits off-centre (an anvil ahead of its tower)
