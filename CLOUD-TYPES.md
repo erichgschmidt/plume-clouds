@@ -217,3 +217,5 @@ toward the viewer (Rim soften) so the dome edge is not a dark ring.
 
 Not built: a halo for cirrostratus; the sun as a disc through altostratus; mamma under the
 anvil; rain curtains.
+
+Status (puff rim): the field pass also emits how close each pixel is to the dominant puff's own rim (1 at the edge, 0 a third of a radius in); the Puff rim control flattens the normal there the way Rim soften does at the silhouette, so a front dome falling over the puff behind it no longer draws a crescent line. The silhouette is untouched (same sky pixel count at 0 and 1). An occluding cloud's outside falloff is dropped where the pixel is inside another cloud.
