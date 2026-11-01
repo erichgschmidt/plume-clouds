@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plume Clouds — Artifact Lab</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1b1f22; color: #d8e2e6; font: 12px/1.4 system-ui, sans-serif; overflow: hidden; }
+  #app { display: flex; height: 100%; }
+  #stage { flex: 1; position: relative; overflow: auto; background: #10303c; }
+  canvas { display: block; image-rendering: pixelated; }
+  #panel { user-select: none; width: 280px; background: #23282c; border-left: 1px solid #000; overflow-y: auto; padding: 8px; box-sizing: border-box; }
+  h3 { margin: 10px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #9fb0b8; }
+  .btn { background: #343b40; color: #d8e2e6; border: 1px solid #000; border-radius: 3px; padding: 3px 8px; font: inherit; cursor: pointer; }
+  .btn.on { background: #4a7a94; }
+  .seg { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 4px; }
+  #hud { position: absolute; left: 10px; top: 10px; background: rgba(0,0,0,.55); padding: 6px 10px; border-radius: 4px; white-space: pre; font-family: ui-monospace, monospace; }
+  p.hint { color: #8d9ca4; margin: 4px 0 8px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage"><canvas id="canvas" width="1024" height="768"></canvas><div id="hud"></div></div>
+  <div id="panel">
+    <h3>Fixture</h3>
+    <div class="seg" id="fixtures"></div>
+    <div class="seg"><button class="btn" id="btnSwap">Swap depths</button><button class="btn" id="btnShift">Shift x +1/4 px</button></div>
+    <div class="seg"><button class="btn" id="btnPlay">Play</button><button class="btn" id="btnReset">Reset</button></div>
+    <h3>View (diag)</h3>
+    <div class="seg" id="views"></div>
+    <p class="hint">0 production, 1 grey lighting, 2 height contours, 3 normal RGB, 4 coverage mask, 5 accepted normal neighbours (red = none)</p>
+    <h3>Magnify</h3>
+    <div class="seg" id="mag"></div>
+    <h3>Depth multiplier</h3>
+    <div class="seg" id="depth"></div>
+    <h3>Softness</h3>
+    <div class="seg" id="softness"></div>
+    <h3>Rim soften</h3>
+    <div class="seg" id="rim"></div>
+    <h3>Normal smooth</h3>
+    <div class="seg" id="smooth"></div>
+    <h3>Shadow</h3>
+    <div class="seg" id="shadow"></div>
+    <p class="hint">Geometry is fixed sphere records fed straight to PuffRenderer (no ThermalSim, no children, no noise). Coordinates are final renderer units: x and y over the width, y down, positive z0 nearer.</p>
+  </div>
+</div>
+<script src="src/puffs.js?v=lab1"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var W = 1024, H = 768, canvas = $('canvas'), hud = $('hud');
+  var renderer = new PuffRenderer(canvas);
+  var REF = 0.10;
+
+  // fixtures: [x, y, r, z0] in final renderer units
+  var FIXTURES = {
+    'A Single': [[0.50, 0.375, 0.14, 0.00]],
+    'B Equal-depth overlap': [[0.44, 0.375, 0.10, 0], [0.56, 0.375, 0.10, 0]],
+    'C Depth overlap': [[0.44, 0.375, 0.10, 0.075], [0.56, 0.375, 0.10, -0.075]],
+    'D Small foreground lobe': [[0.48, 0.39, 0.16, -0.03], [0.59, 0.35, 0.07, 0.10]],
+    'E Three-way junction': [[0.44, 0.40, 0.10, 0], [0.56, 0.40, 0.10, 0.06], [0.50, 0.296, 0.10, -0.06]]
+  };
+  var DEFAULT_FIXTURE = 'C Depth overlap';
+
+  // baseline look: everything that could shade or displace is off; diag 1 is the grey lighting view
+  var LOOK0 = Object.freeze({ prim: 'sphere', primAmt: 1, zoom: 1, panX: 0, panY: 0, depth: 1, softness: 0.30, cap: 0, children: 0, levels: 1, ratio: 0.42, life: 0, embed: 0.78, roll: 1,
+    rim: 0, puffRim: 0, smooth: 0, depthFall: 0, noise: 0, noiseScale: 1, noise2: 0, noise2Scale: 4, noiseBias: 0, noiseBias2: 0, flow: 0, anchor: 1, shear: 0, shearBias: 0, wind: 0, lean: 0,
+    haze: 0, atmos: 0, contact: 0, cavity: 0, cavityReach: 8, baseShade: 0, stackShade: 0, dissolve: 0, dither: 0, grain: 0, cirrus: 0, veil: 0, far: 1,
+    sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, pixelated: true, pixel: 1, diag: 1 });
+  var look = {};
+
+  // the adapter: the fields PuffRenderer._tree / form() read from a sim, with fixed sphere records.
+  // Root record i: x = blobs[4i], y = blobs[4i+1], r = blobs[4i+2]; z0 = (aux[4i+1] - 0.5) * 2 * ref * look.depth
+  // (zoom 1, far 1, link 1, so nothing else rescales); aux[4i+3] is the link (1 = fully present).
+  function makeSim(records) {
+    var n = records.length, B = new Float32Array(n * 4), A = new Float32Array(n * 4), S = new Float32Array(n * 4), Dt = new Float32Array(n);
+    for (var i = 0; i < n; i++) {
+      var o = i * 4, rec = records[i];
+      B[o] = rec[0]; B[o + 1] = rec[1]; B[o + 2] = rec[2]; B[o + 3] = i + 1;   // x, y, r, seed
+      A[o] = 0; A[o + 1] = 0.5 + rec[3] / (2 * REF); A[o + 2] = 0; A[o + 3] = 1;   // -, depth 0..1, -, link
+      S[o] = 0; S[o + 1] = 0; S[o + 2] = 1; S[o + 3] = 0;   // spin axis z, angle 0
+      Dt[i] = 1;   // fresh: never dispersing
+    }
+    return { blobs: B, aux: A, spin: S, detail: Dt, stretch: null, blobCount: n, baseStart: n, baseY: 0.75, topY: 0, cx: 0.5, refRadius: REF, swx: 0, swy: 0, time: 0 };
+  }
+
+  var state = {};
+  function reset() {
+    state = { fixture: DEFAULT_FIXTURE, swap: false, shift: false, mag: 1, time: 0, playing: false };
+    look = Object.assign({}, LOOK0); window.look = look;
+    $('btnPlay').textContent = 'Play';
+    sync(); draw();
+  }
+  function records() {
+    var sh = state.shift ? 0.25 / W : 0, sg = state.swap ? -1 : 1;
+    return FIXTURES[state.fixture].map(function (r) { return [r[0] + sh, r[1], r[2], r[3] * sg]; });
+  }
+
+  // controls: segmented buttons, one variable each; geometry is not regenerated, only the records re-read
+  var segs = [];
+  function seg(host, values, labels, get, set) {
+    var bs = values.map(function (v, i) {
+      var b = document.createElement('button'); b.className = 'btn'; b.textContent = labels ? labels[i] : String(v);
+      b.addEventListener('click', function () { set(v); sync(); draw(); });
+      $(host).appendChild(b); return b;
+    });
+    segs.push(function () { bs.forEach(function (b, i) { b.classList.toggle('on', get() === values[i]); }); });
+  }
+  seg('fixtures', Object.keys(FIXTURES), null, function () { return state.fixture; }, function (v) { state.fixture = v; });
+  seg('views', [0, 1, 2, 3, 4, 5], null, function () { return look.diag; }, function (v) { look.diag = v; });
+  seg('mag', [1, 2, 4], ['1x', '2x', '4x'], function () { return state.mag; }, function (v) { state.mag = v; });
+  seg('depth', [0, 0.5, 1, 2], null, function () { return look.depth; }, function (v) { look.depth = v; });
+  seg('softness', [0.3, 1, 4], null, function () { return look.softness; }, function (v) { look.softness = v; });
+  seg('rim', [0, 0.5, 1], null, function () { return look.rim; }, function (v) { look.rim = v; });
+  seg('smooth', [0, 0.5, 1], null, function () { return look.smooth; }, function (v) { look.smooth = v; });
+  seg('shadow', [0, 0.64, 1], null, function () { return look.shadow; }, function (v) { look.shadow = v; });
+  function sync() {
+    segs.forEach(function (f) { f(); });
+    $('btnSwap').classList.toggle('on', state.swap); $('btnShift').classList.toggle('on', state.shift); $('btnPlay').classList.toggle('on', state.playing);
+    canvas.style.width = (W * state.mag) + 'px'; canvas.style.height = (H * state.mag) + 'px';
+  }
+  $('btnSwap').addEventListener('click', function () { state.swap = !state.swap; sync(); draw(); });
+  $('btnShift').addEventListener('click', function () { state.shift = !state.shift; sync(); draw(); });
+  $('btnPlay').addEventListener('click', function () { state.playing = !state.playing; this.textContent = state.playing ? 'Pause' : 'Play'; sync(); draw(); });
+  $('btnReset').addEventListener('click', reset);
+
+  // the uploaded records must be the fixture: count and (x, y, r, z0 * depth) to float precision
+  function assertRecords(recs) {
+    var D = renderer._sphData, ok = renderer.count === recs.length, i;
+    for (i = 0; i < recs.length && ok; i++) {
+      var o = i * 4, want = [recs[i][0], recs[i][1], recs[i][2], recs[i][3] * look.depth];
+      for (var k = 0; k < 4; k++) if (Math.abs(D[o + k] - want[k]) > 1e-6) ok = false;
+    }
+    console.assert(ok, 'sphere records differ from the fixture', { count: renderer.count, uploaded: Array.prototype.slice.call(D, 0, recs.length * 4), fixture: recs });
+    return ok;
+  }
+  // FNV-1a over the frame, read back right after the draw
+  var pix = new Uint8Array(W * H * 4);
+  function frameHash() {
+    var gl = renderer.gl; gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, pix);
+    var h = 0x811c9dc5 | 0;
+    for (var i = 0; i < pix.length; i++) { h ^= pix[i]; h = Math.imul(h, 16777619); }
+    return ('00000000' + (h >>> 0).toString(16)).slice(-8);
+  }
+
+  // one synchronous draw per change (paused, the frame is a pure function of the controls); Play advances time
+  function draw() {
+      var recs = records(), sim = makeSim(recs);
+      renderer.render(sim, look, state.time);
+      var ok = assertRecords(recs), hash = frameHash();
+      var ref = REF * look.zoom, T = Math.max(0.002, ref * 0.08 * look.softness);
+      hud.textContent = state.fixture + (state.swap ? ' (depths swapped)' : '') + (state.shift ? ' (x +0.25 px)' : '') + '\n' +
+        'puffs ' + renderer.count + '   field ' + renderer._w + 'x' + renderer._h + '   height ' + (renderer._float32 ? 'RGBA32F' : 'RGBA16F') + '\n' +
+        'T ' + T.toFixed(4) + ' (' + (T * W).toFixed(1) + ' px)   softness ' + look.softness + '   depth x' + look.depth + '   diag ' + look.diag + '\n' +
+        'records ' + (ok ? 'OK' : 'MISMATCH') + '   t ' + state.time.toFixed(2) + 's   hash ' + hash;
+      window.labHash = hash;
+  }
+  var last = performance.now();
+  function frame(now) {
+    var dt = Math.min(0.1, (now - last) / 1000); last = now;
+    if (state.playing) { state.time += dt; draw(); }
+    requestAnimationFrame(frame);
+  }
+  reset();
+  window.renderer = renderer; window.labState = state;
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

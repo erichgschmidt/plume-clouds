@@ -265,6 +265,8 @@
   '  float dis = sA.w * ax.g;   // dispersing puffs dissolve into the pixel grid\n' +
   '  float th = dis > 0.001 ? mix(0.5, (bayer(floor(vUv / (uTexel * uDotSize)) + 7.0) + 0.5) * 0.9 + 0.05, dis) : 0.5;\n' +
   '  if(min(f.a, 1.0) * (1.0 - uDissolve * dis) < th){ fragColor = vec4(sky(uv), 1.0); return; }   // a strongly dispersing puff also loses interior pixels (wisps dissolve)\n' +
+  '  // diagnostic view 4: the coverage mask (the field alpha, ramp included), before the mask test drops the outside\n' +
+  '  if(uDiag > 3.5 && uDiag < 4.5){ fragColor = vec4(vec3(min(f.a, 1.0)), 1.0); return; }\n' +
   '  // depth weight: 1 near .. 0 far. Far volumes: softer normal, weaker shadow, less noise, bluer\n' +
   '  float dw = clamp(bx.g, 0.0, 1.0), far = uDepthFall * (1.0 - dw);\n' +
   '  float s = 1.0 + far * 3.0;   // normal footprint in texels (Normal smooth no longer widens it: a wide\n' +
@@ -299,11 +301,13 @@
   '    }\n' +
   '    n = normalize(nacc);\n' +
   '  }\n' +
-  '  // diagnostic views (Diag): 1 continuous grey lighting of the final normal, 2 height, 3 the normal as RGB\n' +
+  '  // diagnostic views (Diag): 1 continuous grey lighting of the final normal, 2 height, 3 the normal as RGB,\n' +
+  '  // 5 how many of the four normal-footprint neighbours the same-surface test accepts (red: none)\n' +
   '  if(uDiag > 0.5){\n' +
   '    if(uDiag < 1.5) fragColor = vec4(vec3(0.2 + 0.8 * max(dot(n, Lv), 0.0)), 1.0);\n' +
   '    else if(uDiag < 2.5) fragColor = vec4(vec3(fract(f.r / uRef * 2.0)), 1.0);\n' +
-  '    else fragColor = vec4(n * 0.5 + 0.5, 1.0);\n' +
+  '    else if(uDiag < 3.5) fragColor = vec4(n * 0.5 + 0.5, 1.0);\n' +
+  '    else { float cnt = 0.0; for(int q4 = 0; q4 < 4; q4++){ vec2 q = uv + (q4 == 0 ? dx : q4 == 1 ? -dx : q4 == 2 ? dy : -dy); if(hAt(q, uv, bias, bias2, namp).y > 0.5) cnt += 1.0; } fragColor = cnt < 0.5 ? vec4(1.0, 0.1, 0.1, 1.0) : vec4(vec3(0.3 + 0.7 * cnt / 4.0), 1.0); }\n' +
   '    return;\n' +
   '  }\n' +
   '  // the rim turns toward the viewer: the dome edge is otherwise a dark ring that reads as an outline;\n' +
