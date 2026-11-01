@@ -38,11 +38,11 @@
     <div id="cirrus"></div>
   </div>
 </div>
-<script src="src/sim.js?v=111"></script>
-<script src="src/puffs.js?v=111"></script>
-<script src="src/motion.js?v=111"></script>
-<script src="src/layer.js?v=111"></script>
-<script src="src/presets.js?v=111"></script>
+<script src="src/sim.js?v=114"></script>
+<script src="src/puffs.js?v=114"></script>
+<script src="src/motion.js?v=114"></script>
+<script src="src/layer.js?v=114"></script>
+<script src="src/presets.js?v=114"></script>
 <script>
 (function () {
   'use strict';
@@ -159,7 +159,7 @@
   build();
   window.sky = sky; window.P = P; window.renderer = renderer; window.SPECIES = SPECIES;
 
-  var last = performance.now(), fpsT = 0, frames = 0, fps = 0, t = 0;
+  var last = performance.now(), fpsT = 0, frames = 0, fps = 0, t = 0, camZ = 0, camWind = 0;   // where the camera has got to (the cirrus plane scrolls with it)
   function loop(now) {
     var dt = Math.min(0.1, (now - last) / 1000); last = now;
     var aspect = canvas.height / canvas.width;
@@ -176,7 +176,13 @@
         // the camera glides forward and the wind carries the cloud sideways; past the camera (or
         // out of the frustum) it re-forms far away as a new cloud
         c.z -= P.travel * dt; c.x += P.drift * dt;
-        if (c.z < Z_NEAR || Math.abs(c.x) > 0.5 * c.z + 0.3) clouds[i] = makeCloud(mulberry(Math.floor(Math.random() * 1e9)), Z_FAR + Math.random() * 0.4);
+      }
+      camZ += P.travel * dt; camWind -= P.drift * dt;
+      for (i = 0; i < clouds.length; i++) {
+        c = clouds[i];
+        // gone when its projection has left the frame: above the top (base line plus its own size) or past a side
+        var top = P.horizon * aspect - (c.h - 0.7 * c.s) / c.z, side = (Math.abs(c.x) - 0.7 * c.s) / c.z;
+        if (c.z < 0.2 || top < 0 || side > 0.5) clouds[i] = makeCloud(mulberry(Math.floor(Math.random() * 1e9)), Z_FAR + Math.random() * 0.4);
       }
     }
     // projection: camera sway in world units, the horizon line, each sim's world frame
@@ -191,6 +197,7 @@
         e.look.far = c.far;
       }
     }
+    sky.cam = { x: camX + camWind, z: camZ, hor: hor, alt: 1.05 * aspect };   // the cirrus veil: a plane above everything, travelling with the camera
     var flat = []; clouds.forEach(function (c) { c.sims.forEach(function (e) { flat.push(e); }); });
     renderer.render(flat, t, sky);
     frames++; fpsT += dt;

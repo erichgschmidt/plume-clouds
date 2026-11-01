@@ -82,6 +82,7 @@
   'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
   'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow, uDissolve, uDotSize;\n' +
   'uniform vec3 uSkyColor;\n' +
+  'uniform vec4 uCam;   // camera x, camera z, horizon (field y), cirrus altitude; w <= 0: no camera (the flat veil)\n' +
   'in vec2 vUv; out vec4 fragColor;\n' +
   // simplex-ish 2D noise (Ashima-style, compact)
   'vec3 mod289(vec3 x){ return x - floor(x * (1.0 / 289.0)) * 289.0; }\n' +
@@ -116,12 +117,19 @@
   '  vec3 col = uSkyColor;\n' +
   '  if(uCirrus > 0.001){\n' +
   '    vec2 w = vec2(uv.x, (1.0 - uv.y) * uAspect);\n' +
+  '    float near = 1.0;\n' +
+  '    if(uCam.w > 0.0){\n' +
+  '      float dy = uCam.z - w.y; if(dy <= 0.004) return col;   // below the horizon\n' +
+  '      float z = uCam.w / dy;\n' +
+  '      w = vec2((w.x - 0.5) * z + uCam.x, z + uCam.y) * 0.5;\n' +
+  '      near = smoothstep(0.0, 0.12, dy) * (1.0 - 0.5 * uAtmos * smoothstep(0.25, 0.02, dy));   // thins into the horizon haze\n' +
+  '    }\n' +
   '    float ca = cos(uCirrusAngle), sa = sin(uCirrusAngle);\n' +
   '    vec2 q = vec2(w.x * ca - w.y * sa, w.x * sa + w.y * ca) * uCirrusScale;\n' +
   '    float t = uTime * uCirrusFlow;\n' +
   '    float n = fbm(vec2(q.x * 0.18 + t, q.y * 2.6 + t * 0.1)) * 0.5 + 0.15 * snoise(vec2(q.x * 0.7 - t * 0.7, q.y * 7.0));\n' +
   '    float thin = smoothstep(0.55 - 0.5 * uCirrus, 1.05 - 0.3 * uCirrus, n + bayer(floor(vUv / uTexel) + 3.0) * 0.08);\n' +
-  '    col = mix(col, palette(0.72), thin * 0.7);\n' +
+  '    col = mix(col, palette(0.72), thin * 0.7 * near);\n' +
   '  }\n' +
   '  return col;\n' +
   '}\n' +
@@ -141,7 +149,15 @@
   '// regime, which read as a second outline\n' +
   'float pairL(vec2 a, vec2 b, float hc){ return a.y > 0.5 ? a.x : (b.y > 0.5 ? 2.0 * hc - b.x : hc); }\n' +
   'vec3 normalAt(vec2 uv, vec2 dx, vec2 dy, float wx, float wy, float bias, float namp){\n' +
-  '  vec2 L = hAt(uv - dx, uv, bias, namp), R = hAt(uv + dx, uv, bias, namp), U = hAt(uv - dy, uv, bias, namp), D = hAt(uv + dy, uv, bias, namp);\n' +
+  '  // near the rim the footprint shrinks (halved while a sample falls outside, down to one texel) so\n' +
+  '  // the ring inside the silhouette keeps the rim\'s own steep slope instead of a softened one\n' +
+  '  vec2 L, R, U, D; float k = 1.0;\n' +
+  '  for(int i = 0; i < 3; i++){\n' +
+  '    L = hAt(uv - dx * k, uv, bias, namp); R = hAt(uv + dx * k, uv, bias, namp); U = hAt(uv - dy * k, uv, bias, namp); D = hAt(uv + dy * k, uv, bias, namp);\n' +
+  '    if(L.y + R.y + U.y + D.y > 3.5 || dx.x * k <= uTexel.x * 1.01) break;\n' +
+  '    k = max(k * 0.5, uTexel.x / dx.x);\n' +
+  '  }\n' +
+  '  wx *= k; wy *= k;\n' +
   '  float hc = hAt(uv, uv, bias, namp).x;\n' +
   '  float hL = pairL(L, R, hc), hR = pairL(R, L, hc), hU = pairL(U, D, hc), hD = pairL(D, U, hc);\n' +
   '  return normalize(vec3(-(hR - hL) / wx, (hD - hU) / wy, 1.0));   // world y is down; uv y is up\n' +
@@ -203,7 +219,7 @@
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 4);
     this._sphTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
@@ -260,7 +276,7 @@
       // band: crown (0) to base (1) in the cloud's own frame, after Scale and Pan
       baseT: baseY + num(look.panY, 0), spanT: Math.max(1e-3, (baseY - topY) * zoom),
       dw: clamp(num(look.far, 1), 0, 1),   // depth weight: 1 near .. 0 far
-      zOff: (clamp(num(look.far, 1), 0, 1) - 1) * 0.6   // far clouds sit behind near ones in the height field
+      zOff: C ? -(C.z - 0.5) * 2.0 : (clamp(num(look.far, 1), 0, 1) - 1) * 0.6   // far clouds sit behind near ones in the height field; under the camera by distance, spaced wider than a near cloud's own depth
     };
   }
 
@@ -395,7 +411,7 @@
     var gl = this.gl, c = this.canvas, asp = c.height / c.width;
     // the style reference radius: the nearest (largest-scale) cloud's
     var ref = 0.08;
-    if (clouds.length) { ref = 0; for (var i = 0; i < clouds.length; i++) ref = Math.max(ref, form(clouds[i], i).ref); }
+    if (clouds.length) { ref = 0; for (var i = 0; i < clouds.length; i++) { var Fi = form(clouds[i], i); ref = Math.max(ref, Fi.cam ? Fi.ref * Math.min(1, 1.2 / Fi.zoom) : Fi.ref); } }
     this.resize(this._w);
     this._tree(clouds, time);
     // field
@@ -435,6 +451,7 @@
     gl.uniform4fv(su.uStyleA, SA); gl.uniform4fv(su.uStyleB, SB);
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);
     gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);
+    var cam = sky.cam; gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   };
 
