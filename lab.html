@@ -40,12 +40,13 @@
     <div class="seg" id="smooth"></div>
     <h3>Shadow</h3>
     <div class="seg" id="shadow"></div>
-    <h3>Own (step 1 / 2)</h3>
+    <h3>Own (step 1 / 2 / 3)</h3>
     <div class="seg" id="own"></div>
     <p class="hint">Geometry is fixed sphere records fed straight to PuffRenderer (no ThermalSim, no children, no noise). Coordinates are final renderer units: x and y over the width, y down, positive z0 nearer.</p>
   </div>
 </div>
-<script src="src/puffs.js?v=lab3"></script>
+<script src="src/puffs.js?v=lab4"></script>
+<script src="lab-ref.js?v=1"></script>
 <script>
 (function () {
   'use strict';
@@ -118,7 +119,7 @@
   seg('rim', [0, 0.5, 1], null, function () { return look.rim; }, function (v) { look.rim = v; });
   seg('smooth', [0, 0.5, 1], null, function () { return look.smooth; }, function (v) { look.smooth = v; });
   seg('shadow', [0, 0.64, 1], null, function () { return look.shadow; }, function (v) { look.shadow = v; });
-  seg('own', [0, 1, 2], ['off', '1', '2'], function () { return look.own || 0; }, function (v) { look.own = v; });
+  seg('own', [0, 1, 2, 3], ['off', '1', '2', '3'], function () { return look.own || 0; }, function (v) { look.own = v; });
   function sync() {
     segs.forEach(function (f) { f(); });
     $('btnSwap').classList.toggle('on', state.swap); $('btnShift').classList.toggle('on', state.shift); $('btnPlay').classList.toggle('on', state.playing);
@@ -169,6 +170,33 @@
   reset();
   window.renderer = renderer; window.labState = state;
   requestAnimationFrame(frame);
+
+  // Check ref (docs/core-audit.md step 5): the field rows of a 64x48 window centred on the frame against the
+  // CPU port in lab-ref.js, for the current fixture and look. Height and mask from COLOR_ATTACHMENT0, the
+  // gradient from COLOR_ATTACHMENT3 (RGBA16F, so G agrees to about 1e-3; H is 32-bit when _float32)
+  var btnCheck = document.createElement('button'); btnCheck.className = 'btn'; btnCheck.id = 'btnCheck'; btnCheck.textContent = 'Check ref';
+  $('btnReset').parentNode.appendChild(btnCheck);
+  btnCheck.addEventListener('click', function () {
+    draw();
+    var gl = renderer.gl, fw = renderer._w, fh = renderer._h, ww = 64, hh = 48, x0 = (fw - ww) >> 1, y0 = (fh - hh) >> 1;
+    var hp = new Float32Array(ww * hh * 4), gp = new Float32Array(ww * hh * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, renderer._fbo);
+    gl.readBuffer(gl.COLOR_ATTACHMENT0); gl.readPixels(x0, y0, ww, hh, gl.RGBA, gl.FLOAT, hp);
+    gl.readBuffer(gl.COLOR_ATTACHMENT3); gl.readPixels(x0, y0, ww, hh, gl.RGBA, gl.FLOAT, gp);
+    gl.readBuffer(gl.COLOR_ATTACHMENT0); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    var P = { W: fw, H: fh, T: Math.max(0.002, REF * look.zoom * 0.08 * look.softness), cap: look.cap, own: look.own || 0, MAX_SPH: PuffRenderer.MAX_SPH };
+    var eH = 0, eM = 0, eG = 0, bad = [], n = 0;
+    for (var j = 0; j < hh; j++) for (var i = 0; i < ww; i++) {
+      var o = (j * ww + i) * 4, ref = fieldRef(renderer._sphData, renderer.count, P, x0 + i, y0 + j);
+      var dH = Math.abs(hp[o] - ref.H), dM = Math.abs(hp[o + 3] - ref.mask), dG = Math.max(Math.abs(gp[o] - ref.Gx), Math.abs(gp[o + 1] - ref.Gy));
+      eH = Math.max(eH, dH); eM = Math.max(eM, dM); eG = Math.max(eG, dG);
+      if (dH > 1e-3 || dM > 1e-3 || dG > 1e-2) { n++; if (bad.length < 6) bad.push({ x: x0 + i, y: y0 + j, gpu: { H: hp[o], mask: hp[o + 3], Gx: gp[o], Gy: gp[o + 1] }, ref: ref }); }
+    }
+    var line = 'check ref: max |dH| ' + eH.toExponential(2) + '   |dMask| ' + eM.toExponential(2) + '   |dG| ' + eG.toExponential(2) + '   mismatches ' + n + '/' + (ww * hh);
+    hud.textContent += '\n' + line;
+    console.log(line, bad);
+    window.labCheck = { dH: eH, dMask: eM, dG: eG, mismatches: n, first: bad };
+  });
 })();
 </script>
 </body>

@@ -70,7 +70,7 @@
   '    else if(prim == 4) d *= mix(1.0, (abs(d.x) + abs(d.y)) / max(length(d), 1e-6), pa);\n' +
   '    float d2 = dot(d, d); if(d2 >= r * r) continue;\n' +
   '    float u = sqrt(d2) / r;\n' +
-  '    float h = s.w + r * mix(u < 0.9 ? sqrt(1.0 - u * u) : 0.43589 - (u - 0.9) * 2.0647, 1.0 - u * u, uCap);\n' +
+  '    float h = s.w + r * mix(uOwn > 2.5 ? sqrt(1.0 - u * u) : (u < 0.9 ? sqrt(1.0 - u * u) : 0.43589 - (u - 0.9) * 2.0647), 1.0 - u * u, uCap);\n' +
   '    if(h > winH){ winH = h; vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); winId = idp.x; winPid = idp.y; }\n' +
   '  }\n' +
   '  for(int i = 0; i < 4096; i++){\n' +
@@ -103,12 +103,15 @@
   '    // and continued along its own tangent (slope -2.06) through the rim into the skirt; Cap mixes\n' +
   '    // toward a parabola, whose rim slope -2 already matches its skirt\n' +
   '    float u = dist / r;\n' +
-  '    float sph = u < 0.9 ? sqrt(1.0 - u * u) : 0.43589 - (u - 0.9) * 2.0647;\n' +
+  '    // Own 3 (docs/core-audit.md step 3): the sphere is profiled to its true limb (no tangent cone, so no\n' +
+  '    // flat band of one normal round the outer tenth), the skirt falls from height 0 at the rim, and the\n' +
+  '    // shade pass lifts the puff\'s own rim toward the viewer at Rim soften strength, as the silhouette is\n' +
+  '    float sph = uOwn > 2.5 ? (u < 1.0 ? sqrt(1.0 - u * u) : -(u - 1.0) * 2.0647) : (u < 0.9 ? sqrt(1.0 - u * u) : 0.43589 - (u - 0.9) * 2.0647);\n' +
   '    float par = u < 1.0 ? 1.0 - u * u : -2.0 * (u - 1.0);\n' +
   '    float h = s.w + r * mix(sph, par, uCap) - pen;\n' +
   '    // the puff\'s own slope, analytic: d h / d dist along d, mapped back through the stretch (the other\n' +
   '    // primitive distortions are left as the identity, a small error in direction only)\n' +
-  '    float dsph = u < 0.9 ? -u / sqrt(max(1e-6, 1.0 - u * u)) : -2.0647;\n' +
+  '    float dsph = uOwn > 2.5 ? (u < 1.0 ? max(-20.0, -u / sqrt(max(1e-6, 1.0 - u * u))) : -2.0647) : (u < 0.9 ? -u / sqrt(max(1e-6, 1.0 - u * u)) : -2.0647);\n' +
   '    float dpar = u < 1.0 ? -2.0 * u : -2.0;\n' +
   '    // the penalty\'s slope is bounded: it diverges at the cutoff (80000 at tt 0.995, past the largest half float,\n' +
   '    // and the gradient target is RGBA16F, linearly filtered), while anything past 20 lights as a wall anyway\n' +
@@ -188,7 +191,7 @@
   'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
   'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow, uDissolve, uDotSize, uVeil;\n' +
   'uniform vec3 uSkyColor;\n' +
-  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach, uGrain, uDiag;\n' +
+  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach, uGrain, uDiag, uOwn;\n' +
   'uniform vec4 uCam;   // camera x, camera z, horizon (field y), cirrus altitude; w <= 0: no camera (the flat veil)\n' +
   'in vec2 vUv; out vec4 fragColor;\n' +
   // simplex-ish 2D noise (Ashima-style, compact)
@@ -332,7 +335,10 @@
   '    }\n' +
   '    n = normalize(nacc);\n' +
   '  }\n' +
-  '  // diagnostic views (Diag): 1 continuous grey lighting of the final normal, 2 height, 3 the normal as RGB,\n' +
+  '  // the rim turns toward the viewer: the dome edge is otherwise a dark ring that reads as an outline;\n' +
+  '  // the same at a puff\'s own rim inside the cloud, where one dome falls steeply over the puff behind it\n' +
+  '  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), max(uRim * edge, max(uPuffRim, uOwn > 2.5 ? uRim : 0.0) * bx.a)));   // Own 3: the own rim at Rim soften strength\n' +
+  '  // diagnostic views (Diag): 1 continuous grey lighting of the final normal (after Rim soften and Puff rim), 2 height, 3 the normal as RGB,\n' +
   '  // 5 how many of the four normal-footprint neighbours the same-surface test accepts (red: none)\n' +
   '  if(uDiag > 0.5){\n' +
   '    if(uDiag < 1.5) fragColor = vec4(vec3(0.2 + 0.8 * max(dot(n, Lv), 0.0)), 1.0);\n' +
@@ -341,9 +347,6 @@
   '    else { float cnt = 0.0; for(int q4 = 0; q4 < 4; q4++){ vec2 q = uv + (q4 == 0 ? dx : q4 == 1 ? -dx : q4 == 2 ? dy : -dy); if(hAt(q, uv, bias, bias2, namp).y > 0.5) cnt += 1.0; } fragColor = cnt < 0.5 ? vec4(1.0, 0.1, 0.1, 1.0) : vec4(vec3(0.3 + 0.7 * cnt / 4.0), 1.0); }\n' +
   '    return;\n' +
   '  }\n' +
-  '  // the rim turns toward the viewer: the dome edge is otherwise a dark ring that reads as an outline;\n' +
-  '  // the same at a puff\'s own rim inside the cloud, where one dome falls steeply over the puff behind it\n' +
-  '  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), max(uRim * edge, uPuffRim * bx.a)));\n' +
   '  // haze: an old, mixed parcel softens (flatter normal, less direct light, fainter edge)\n' +
   '  float haze = sA.y * (1.0 - ax.r);\n' +
   '  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), 0.7 * haze + 0.4 * far));\n' +
@@ -422,7 +425,7 @@
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT', 'uCap', 'uOwn']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain', 'uDiag']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain', 'uDiag', 'uOwn']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 5);   // five rows: the fifth is (puff id, parent id)
     this._sphTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
@@ -479,6 +482,10 @@
       children: Math.max(0, Math.round(num(look.children, 4))), ratio: clamp(num(look.ratio, 0.42), 0.1, 0.8),
       levels: clamp(Math.round(num(look.levels, 3)), 1, 3), life: Math.max(0, num(look.life, 1)), embed: clamp(num(look.embed, 0.78), 0.3, 1),
       depthScale: num(look.depth, 1), roll: num(look.roll, 1),
+      // step 4 (docs/core-audit.md): Depth scales the heights only (order and relief are one thing in a height
+      // union); the sway of child puffs has its own scale, and a puff's depth weight (its fade) comes from its
+      // unscaled depth, so Depth no longer changes either
+      swayScale: num(look.swayScale, 1),
       // band: crown (0) to base (1) in the cloud's own frame, after Scale and Pan
       baseT: baseY + num(look.panY, 0), spanT: Math.max(1e-3, (baseY - topY) * zoom), baseFall: Math.max(0.05, num(look.baseFall, 0.7)),
       dw: clamp(num(look.far, 1), 0, 1),   // depth weight: 1 near .. 0 far
@@ -519,11 +526,11 @@
         if (al < 1e-6) { ax = 0; ay = 0; az = 1; } else { ax /= al; ay /= al; az /= al; }
         // the reservoir's low detail value means 'no small caps', not 'mixed away': it never disperses
         var isBase = i >= baseStart, fresh = Dt ? clamp(Dt[i], 0, 1) : 1, mixed = isBase ? 1 : fresh;
-        var z0 = ((A[o + 1] - 0.5) * 2 * F.ref - (1 - link) * r * 2.5) * F.depthScale + F.zOff;
+        var zr = (A[o + 1] - 0.5) * 2 * F.ref - (1 - link) * r * 2.5, z0 = zr * F.depthScale + F.zOff;
         var dis = 1 - mixed * link;
         // the puff's own depth weight: 1 on the near face of the cloud, 0 at the back; the cloud's
         // depth weight scales the whole thing. Packed as cloud index + puff dw / 4.
-        var pdw = clamp(0.5 + 0.5 * (z0 - F.zOff) / (F.ref * 2), 0, 1) * F.dw;
+        var pdw = clamp(0.5 + 0.5 * zr / (F.ref * 2), 0, 1) * F.dw;
         var dwp = F.idx + pdw * 0.25;
         var stretch = (1 + F.shear * dis * (1 + F.shearBias * (2 * pdw - 1))) * (STR ? Math.max(0.2, STR[i]) : 1);   // the sim may stretch a parcel itself (streets, trails)
         var rx, ry, hgt, band;
@@ -548,7 +555,7 @@
         var stack0 = 0;   // a root puff carries no stack shade; children add their parent's underside
         var id = n + 1, pid = sim.parent ? sim.parent[i] : -(c + 1);
         if (!put(rx, ry, r, z0, stack0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp, id, pid)) break;
-        queue.push({ id: id, F: F, x: rx, y: ry, r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: stack0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band, zp: F.cam ? zp : 0 });
+        queue.push({ id: id, F: F, x: rx, y: ry, r: r, z: z0, zr: zr, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: stack0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band, zp: F.cam ? zp : 0 });
       }
     }
     // plan the budget: how many puffs each deeper level wants; the deepest level that does not fit
@@ -602,10 +609,10 @@
           if (prim === 1) oy /= 1 + 1.5 * pa; else if (prim === 2) ox /= 1 + 2 * pa * Math.max(0, -uy); else if (prim === 3) { var qx = ox * ox, qy = oy * oy, l4 = Math.sqrt(Math.sqrt(qx * qx + qy * qy)), ll = Math.sqrt(qx + qy) || 1e-6, kk = 1 + pa * (ll / l4 - 1); ox *= kk; oy *= kk; }
           else if (prim === 4) { var l1n = Math.abs(ox) + Math.abs(oy) || 1e-6, l2n = Math.sqrt(ox * ox + oy * oy), kd = 1 + pa * (l2n / l1n - 1); ox *= kd; oy *= kd; }
           if (q.st !== 1) { var al2 = ox * F.wx + oy * F.wy, ac2 = ox * F.wy - oy * F.wx, sa = al2 * q.st, sc = ac2 / Math.sqrt(q.st); ox = F.wx * sa + F.wy * sc; oy = F.wy * sa - F.wx * sc; }
-          var x = q.x + ox, y = q.y + oy, z = q.z + uz * shell * F.depthScale;
+          var x = q.x + ox, y = q.y + oy, z = q.z + uz * shell * F.depthScale, zr2 = q.zr + uz * shell;
           // parallax by the child's own depth: the sim swayed the root by its depth; the child sits uz * shell
           // nearer or farther, so it sways by that much more (otherwise children slide with their root as a group)
-          var pz = uz * shell * F.depthScale / F.ref; x += (F.sim.swx || 0) * F.zoom * pz; y += (F.sim.swy || 0) * F.zoom * pz;
+          var pz = uz * shell * F.swayScale / F.ref; x += (F.sim.swx || 0) * F.zoom * pz; y += (F.sim.swy || 0) * F.zoom * pz;
           if (F.cam && q.zp > 0) {   // under the camera: the sway re-projected at the child's depth, less the parent's share
             var Cc = F.cam, scP = Cc.f / Math.max(0.05, q.zp - (q.z - F.zOff) * Cc.z / Cc.f), scC = Cc.f / Math.max(0.05, q.zp - (z - F.zOff) * Cc.z / Cc.f);
             x += -Cc.sx * (scC - scP); y += Cc.sy * (scC - scP);
@@ -614,10 +621,10 @@
           // gradient at the birth point (uy > 0 is the parent's underside)
           var stack = q.stack * 0.6 + 0.5 * smoothstep(-0.6, 0.9, uy);
           var band2 = F.cam ? q.band : smoothstep(0, F.baseFall, 1 - (F.baseT - y) / F.spanT);   // under the camera the band is the parent's (a sheet's rows are depth, not height)
-          var pdw2 = clamp(0.5 + 0.5 * (z - F.zOff) / (F.ref * 2), 0, 1) * F.dw, dwp2 = F.idx + pdw2 * 0.25;
+          var pdw2 = clamp(0.5 + 0.5 * zr2 / (F.ref * 2), 0, 1) * F.dw, dwp2 = F.idx + pdw2 * 0.25;
           var cid = n + 1;
           put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id);
-          next.push({ id: cid, F: F, x: x, y: y, r: cr, z: z, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2, zp: q.zp });
+          next.push({ id: cid, F: F, x: x, y: y, r: cr, z: z, zr: zr2, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2, zp: q.zp });
         }
       }
       queue = next.filter(function (q) { return q.r * q.F.ratio >= minR; }).sort(function (a, b) { return b.r - a.r; });
@@ -696,7 +703,7 @@
     gl.uniform4fv(su.uStyleA, SA); gl.uniform4fv(su.uStyleB, SB);
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);
     gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);
-    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0));
+    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0)); gl.uniform1f(su.uOwn, num(sky.own, 0));
     var cam = sky.cam; gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   };
