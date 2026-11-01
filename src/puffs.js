@@ -75,10 +75,14 @@
   '    if(!inside && insC >= 0.0 && ci != insC) continue;\n' +
   '    if(inside && insC < 0.0){ insC = ci; if(acc > 0.0 && cIdx != ci){ m = -1e9; acc = 0.0; m2 = -1e9; acc2 = 0.0; dSum = 0.0; sSum = 0.0; fSum = 0.0; xSum = 0.0; bSum = 0.0; wSum = 0.0; rSum = 0.0; anc = vec2(0.0); } }\n' +
   '    vec4 a = texelFetch(uSph, ivec2(i, 1), 0);\n' +
-  '    // cap profile: a sphere (slope vertical at the rim: a thin dark terminator crescent) .. a parabola\n' +
-  '    // (rim slope -2, continuous with the falloff outside: a broad soft shadow side)\n' +
-  '    float qq = d2 / (r * r);\n' +
-  '    float h = (d2 < r * r) ? s.w + r * mix(sqrt(1.0 - qq), 1.0 - qq, uCap) : s.w - (dist - r) * 2.0 - pen;\n' +
+  '    // profile, continuous in height AND slope from the centre out through the skirt (a slope step at\n' +
+  '    // the radius drew a thin dark arc with a lighter strip outside it): the sphere is kept to 0.9 r\n' +
+  '    // and continued along its own tangent (slope -2.06) through the rim into the skirt; Cap mixes\n' +
+  '    // toward a parabola, whose rim slope -2 already matches its skirt\n' +
+  '    float u = dist / r;\n' +
+  '    float sph = u < 0.9 ? sqrt(1.0 - u * u) : 0.43589 - (u - 0.9) * 2.0647;\n' +
+  '    float par = u < 1.0 ? 1.0 - u * u : -2.0 * (u - 1.0);\n' +
+  '    float h = s.w + r * mix(sph, par, uCap) - pen;\n' +
   '    float w, rim = 1.0 - smoothstep(0.0, 0.3, 1.0 - dist / r);   // this puff\'s own rim: 1 at the edge, 0 a third of a radius in\n' +
   '    if(h > m){ acc = acc * exp((m - h) / T) + 1.0; cIdx = floor(wd.w); m = h; } else acc += exp((h - m) / T);\n' +
   '    if(h > m2){ w = exp((m2 - h) / T2); acc2 = acc2 * w + 1.0; dSum = dSum * w + a.y; sSum = sSum * w + a.x; fSum = fSum * w + a.z; xSum = xSum * w + a.w; anc = anc * w + sh.xy; bSum = bSum * w + wd.z; wSum = wSum * w + fract(wd.w) * 4.0; rSum = rSum * w + rim; m2 = h; }\n' +
