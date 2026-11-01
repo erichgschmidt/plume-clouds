@@ -34,7 +34,7 @@
   // sphere texture rows: 0 (x, y, r, z0); 1 (stack, detail, fresh, dispersal);
   // 2 (anchor x, anchor y, stretch, prim id + amt/2); 3 (wind x, wind y, band, depth weight: cloud dw + puff dw / 4 packed as floor + fract)
   var FIELD_FS = '#version 300 es\nprecision highp float; precision highp sampler2D;\n' +
-  'uniform sampler2D uSph; uniform int uCount; uniform float uAspect; uniform float uT;\n' +
+  'uniform sampler2D uSph; uniform int uCount; uniform float uAspect; uniform float uT, uCap;\n' +
   'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
@@ -67,7 +67,10 @@
   '    if(!inside && insC >= 0.0 && ci != insC) continue;\n' +
   '    if(inside && insC < 0.0){ insC = ci; if(acc > 0.0 && cIdx != ci){ m = -1e9; acc = 0.0; dSum = 0.0; sSum = 0.0; fSum = 0.0; xSum = 0.0; bSum = 0.0; wSum = 0.0; rSum = 0.0; anc = vec2(0.0); } }\n' +
   '    vec4 a = texelFetch(uSph, ivec2(i, 1), 0);\n' +
-  '    float h = (d2 < r * r) ? s.w + sqrt(r * r - d2) : s.w - (dist - r) * 2.0;\n' +
+  '    // cap profile: a sphere (slope vertical at the rim: a thin dark terminator crescent) .. a parabola\n' +
+  '    // (rim slope -2, continuous with the falloff outside: a broad soft shadow side)\n' +
+  '    float qq = d2 / (r * r);\n' +
+  '    float h = (d2 < r * r) ? s.w + r * mix(sqrt(1.0 - qq), 1.0 - qq, uCap) : s.w - (dist - r) * 2.0;\n' +
   '    float w, rim = 1.0 - smoothstep(0.0, 0.3, 1.0 - dist / r);   // this puff\'s own rim: 1 at the edge, 0 a third of a radius in\n' +
   '    if(h > m){ float k = exp((m - h) / T); acc = acc * k + 1.0; dSum = dSum * k + a.y; sSum = sSum * k + a.x; fSum = fSum * k + a.z; xSum = xSum * k + a.w; anc = anc * k + sh.xy; bSum = bSum * k + wd.z; wSum = wSum * k + fract(wd.w) * 4.0; rSum = rSum * k + rim; cIdx = floor(wd.w); m = h; }\n' +
   '    else { w = exp((h - m) / T); acc += w; dSum += w * a.y; sSum += w * a.x; fSum += w * a.z; xSum += w * a.w; anc += w * sh.xy; bSum += w * wd.z; wSum += w * fract(wd.w) * 4.0; rSum += w * rim; }\n' +
@@ -88,7 +91,7 @@
   'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
   'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow, uDissolve, uDotSize;\n' +
   'uniform vec3 uSkyColor;\n' +
-  'uniform float uOverhead, uRim, uPuffRim;\n' +
+  'uniform float uOverhead, uRim, uPuffRim, uContact;\n' +
   'uniform vec4 uCam;   // camera x, camera z, horizon (field y), cirrus altitude; w <= 0: no camera (the flat veil)\n' +
   'in vec2 vUv; out vec4 fragColor;\n' +
   // simplex-ish 2D noise (Ashima-style, compact)
@@ -209,10 +212,26 @@
   '  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), 0.7 * haze + 0.4 * far));\n' +
   '  float lambert = dot(n, Lv);\n' +
   '  float bounce = max(0.0, dot(n, normalize(vec3(-Lv.x, -Lv.y, 0.25))));\n' +
+  '  // contact shadow: march toward the light; a rise steeper than the light\'s slope means the puff in\n' +
+  '  // front shades this pixel (its dark rim continues into a shadow instead of ending in a line)\n' +
+  '  float occ = 0.0;\n' +
+  '  if(uContact > 0.0){\n' +
+  '    vec2 lxy = vec2(-Lv.x, Lv.y); float ll = length(lxy);\n' +
+  '    if(ll > 1e-3){\n' +
+  '      vec2 ld = lxy / ll; float slope = Lv.z / ll, stepW = uTexel.x * 1.5;\n' +
+  '      for(int k = 1; k <= 8; k++){\n' +
+  '        float dW = stepW * float(k);\n' +
+  '        vec4 fk = texture(uField, uv + vec2(ld.x, ld.y / uAspect) * dW);\n' +
+  '        if(fk.a > 0.5) occ = max(occ, (fk.r - f.r) / dW - slope);\n' +
+  '      }\n' +
+  '    }\n' +
+  '  }\n' +
+  '  float contact = uContact * smoothstep(0.0, 1.5, occ);\n' +
   '  float band = sB.y * bx.r;\n' +
   '  float stack = sA.z * f.b;\n' +
   '  float direct = 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - 0.7 * band) * (1.0 - 0.5 * stack);\n' +
   '  float ambient = (0.18 + uFill * bounce) * (1.0 - band) * (1.0 - 0.8 * stack);\n' +
+  '  direct *= 1.0 - contact; ambient *= 1.0 - 0.5 * contact;\n' +
   '  float light = ambient + direct * (1.0 - sB.x * (1.0 - 0.6 * far) * smoothstep(0.1, -0.2, lambert));\n' +
   '  light = mix(light, 0.45, 0.5 * haze);\n' +
   '  light += bayer(floor(vUv / uTexel)) * 0.012;\n' +
@@ -240,8 +259,8 @@
     gl.getExtension('EXT_color_buffer_float');
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
-    this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim']);
+    this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT', 'uCap']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 4);
     this._sphTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
@@ -296,7 +315,7 @@
       levels: clamp(Math.round(num(look.levels, 3)), 1, 3), life: Math.max(0, num(look.life, 1)), embed: clamp(num(look.embed, 0.78), 0.3, 1),
       depthScale: num(look.depth, 1), roll: num(look.roll, 1),
       // band: crown (0) to base (1) in the cloud's own frame, after Scale and Pan
-      baseT: baseY + num(look.panY, 0), spanT: Math.max(1e-3, (baseY - topY) * zoom),
+      baseT: baseY + num(look.panY, 0), spanT: Math.max(1e-3, (baseY - topY) * zoom), baseFall: Math.max(0.05, num(look.baseFall, 0.7)),
       dw: clamp(num(look.far, 1), 0, 1),   // depth weight: 1 near .. 0 far
       zOff: C ? -(C.z - 0.5) * 2.0 : (clamp(num(look.far, 1), 0, 1) - 1) * 0.6   // far clouds sit behind near ones in the height field; under the camera by distance, spaced wider than a near cloud's own depth
     };
@@ -347,12 +366,12 @@
           rx = 0.5 + (C.x + (B[o] - F.pivX) * C.s) * sc; ry = C.hor - (C.h + (1 - C.flat) * dy * C.s) * sc;
           hgt = Math.max(0, (1 - C.flat) * dy * C.s * sc) * F.lean; rx += F.wx * hgt; ry += F.wy * hgt;
           r *= C.s * sc;
-          band = smoothstep(0, 0.7, 1 - dy / C.spanS);
+          band = smoothstep(0, F.baseFall, 1 - dy / C.spanS);
         } else {
           rx = F.pivX + (B[o] - F.pivX) * F.zoom; ry = F.pivY + (B[o + 1] - F.pivY) * F.zoom;
           hgt = Math.max(0, F.pivY - ry) * F.lean; rx += F.wx * hgt + F.panX; ry += F.wy * hgt + F.panY;
           r *= F.zoom;
-          band = smoothstep(0, 0.7, 1 - (F.baseT - ry) / F.spanT);
+          band = smoothstep(0, F.baseFall, 1 - (F.baseT - ry) / F.spanT);
         }
         if (r <= 1e-4) continue;   // a parcel still too small to draw: skip it, never stop the loop (put() fails for the budget too, and that break hid every later parcel)
         if (!put(rx, ry, r, z0, 0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp)) break;
@@ -409,7 +428,7 @@
           // stacked shade: the own gradient is in the shader; the inherited part is the parent's
           // gradient at the birth point (uy > 0 is the parent's underside)
           var stack = q.stack * 0.6 + 0.5 * smoothstep(-0.6, 0.9, uy);
-          var band2 = F.cam ? q.band : smoothstep(0, 0.7, 1 - (F.baseT - y) / F.spanT);   // under the camera the band is the parent's (a sheet's rows are depth, not height)
+          var band2 = F.cam ? q.band : smoothstep(0, F.baseFall, 1 - (F.baseT - y) / F.spanT);   // under the camera the band is the parent's (a sheet's rows are depth, not height)
           var pdw2 = clamp(0.5 + 0.5 * (z - F.zOff) / (F.ref * 2), 0, 1) * F.dw, dwp2 = F.idx + pdw2 * 0.25;
           put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2);
           next.push({ F: F, x: x, y: y, r: cr, z: z, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2 });
@@ -448,7 +467,7 @@
     gl.useProgram(this._field);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
     gl.uniform1i(this._fu.uSph, 0); gl.uniform1i(this._fu.uCount, this.count); gl.uniform1f(this._fu.uAspect, asp);
-    gl.uniform1f(this._fu.uT, Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4)));
+    gl.uniform1f(this._fu.uT, Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4))); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0.8), 0, 1));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // shade
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);
@@ -481,7 +500,7 @@
     gl.uniform4fv(su.uStyleA, SA); gl.uniform4fv(su.uStyleB, SB);
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);
     gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);
-    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0.5), 0, 1));
+    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0.3), 0, 1));
     var cam = sky.cam; gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   };
