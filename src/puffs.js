@@ -386,7 +386,12 @@
     }
     // plan the budget: how many puffs each deeper level wants; the deepest level that does not fit
     // fades out (its radii scale down with the shortfall) rather than being cut mid-way
-    var l1 = 0, l2 = 0, k;
+    // a parent whose children would be smaller than a field texel gets none (they would be invisible),
+    // and the biggest parents on screen are served first, so the budget goes to the near clouds that show it
+    var minR = 1.0 / Math.max(1, this._w), k;
+    queue = queue.filter(function (q) { return q.F.levels < 2 || q.r * q.F.ratio >= minR; });
+    queue.sort(function (a, b) { return b.r - a.r; });
+    var l1 = 0, l2 = 0;
     for (k = 0; k < queue.length; k++) { F = queue[k].F; if (F.levels >= 2) l1 += F.children; if (F.levels >= 3) l2 += F.children * F.children; }
     var fade = [1, 1, 1];
     if (n + l1 > MAX_SPH) { fade[1] = Math.max(0, (MAX_SPH - n) / Math.max(1, l1)); fade[2] = 0; }
@@ -440,7 +445,7 @@
           next.push({ F: F, x: x, y: y, r: cr, z: z, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2 });
         }
       }
-      queue = next;
+      queue = next.filter(function (q) { return q.r * q.F.ratio >= minR; }).sort(function (a, b) { return b.r - a.r; });
     }
     this.count = n;
     var gl = this.gl;
