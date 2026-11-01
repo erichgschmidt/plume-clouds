@@ -374,8 +374,9 @@
           band = smoothstep(0, F.baseFall, 1 - (F.baseT - ry) / F.spanT);
         }
         if (r <= 1e-4) continue;   // a parcel still too small to draw: skip it, never stop the loop (put() fails for the budget too, and that break hid every later parcel)
-        if (!put(rx, ry, r, z0, 0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp)) break;
-        queue.push({ F: F, x: rx, y: ry, r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: 0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band });
+        var stack0 = 0.5 * (1 - pdw / Math.max(1e-3, F.dw));   // a root puff deeper in the cloud is darker (children add their parent's underside)
+        if (!put(rx, ry, r, z0, stack0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp)) break;
+        queue.push({ F: F, x: rx, y: ry, r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: stack0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band });
       }
     }
     // plan the budget: how many puffs each deeper level wants; the deepest level that does not fit
@@ -467,7 +468,7 @@
     gl.useProgram(this._field);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
     gl.uniform1i(this._fu.uSph, 0); gl.uniform1i(this._fu.uCount, this.count); gl.uniform1f(this._fu.uAspect, asp);
-    gl.uniform1f(this._fu.uT, Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4))); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0.8), 0, 1));
+    gl.uniform1f(this._fu.uT, Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4))); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0.6), 0, 1));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // shade
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);
