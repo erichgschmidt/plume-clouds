@@ -50,6 +50,29 @@
   '  float sm = -1e9, sacc = 0.0;                            // silhouette (soft union of r - dist)\n' +
   '  vec2 GI = vec2(0.0), GO = vec2(0.0);                   // gradient sums of the two sets, weighted like acc / accO\n' +
   '  float T = uT, T2 = uT * 4.0;\n' +
+  '  // ownership (Own 2, docs/core-audit.md step 2): the highest puff containing the pixel owns it. A containing\n' +
+  '  // puff attached to the owner (same parent, or its parent or child) joins it softly over T as before; an\n' +
+  '  // unattached one only shows where it is higher, over a quarter T: a crisp overlap with the front puff\'s own\n' +
+  '  // shading instead of a blend of the two across the edge\n' +
+  '  float winId = -1.0, winPid = -2.0, winH = -1e9;\n' +
+  '  if(uOwn > 1.5) for(int i = 0; i < 4096; i++){\n' +
+  '    if(i >= uCount) break;\n' +
+  '    vec4 s = texelFetch(uSph, ivec2(i, 0), 0); vec2 d = p - s.xy; float r = s.z;\n' +
+  '    vec4 sh = texelFetch(uSph, ivec2(i, 2), 0);\n' +
+  '    float rr = r * max(max(1.0, sh.z), inversesqrt(max(sh.z, 1e-4)));\n' +
+  '    if(dot(d, d) > rr * rr) continue;\n' +
+  '    vec4 wd = texelFetch(uSph, ivec2(i, 3), 0);\n' +
+  '    if(sh.z != 1.0){ float along = dot(d, wd.xy), across = d.x * wd.y - d.y * wd.x; d = vec2(along / sh.z, across * sqrt(sh.z)); }\n' +
+  '    int prim = int(floor(sh.w + 0.01)); float pa = (sh.w - floor(sh.w + 0.01)) * 2.0;\n' +
+  '    if(prim == 1) d.y *= 1.0 + 1.5 * pa;\n' +
+  '    else if(prim == 2) d.x *= 1.0 + 2.0 * pa * max(0.0, -d.y) / r;\n' +
+  '    else if(prim == 3){ vec2 q = d * d; d *= mix(1.0, sqrt(sqrt(dot(q, q))) / max(length(d), 1e-6), pa); }\n' +
+  '    else if(prim == 4) d *= mix(1.0, (abs(d.x) + abs(d.y)) / max(length(d), 1e-6), pa);\n' +
+  '    float d2 = dot(d, d); if(d2 >= r * r) continue;\n' +
+  '    float u = sqrt(d2) / r;\n' +
+  '    float h = s.w + r * mix(u < 0.9 ? sqrt(1.0 - u * u) : 0.43589 - (u - 0.9) * 2.0647, 1.0 - u * u, uCap);\n' +
+  '    if(h > winH){ winH = h; vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); winId = idp.x; winPid = idp.y; }\n' +
+  '  }\n' +
   '  for(int i = 0; i < 4096; i++){\n' +
   '    if(i >= uCount) break;\n' +
   '    vec4 s = texelFetch(uSph, ivec2(i, 0), 0);\n' +
@@ -95,11 +118,13 @@
   '    if(sh.z != 1.0) dirp = dirp.x * wd.xy / sh.z + dirp.y * vec2(wd.y, -wd.x) * sqrt(sh.z);\n' +
   '    vec2 gd = (mix(dsph, dpar, uCap) - dpen) * dirp;\n' +
   '    if(inside) ins = max(ins, smoothstep(0.0, T, r - dist));\n' +
+  '    float wa = 1.0;   // Own 2: an unattached containing puff fades out a quarter T below the owner\n' +
+  '    if(uOwn > 1.5 && inside){ vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); if(!(idp.x == winId || idp.y == winPid || idp.y == winId || idp.x == winPid)) wa = smoothstep(-0.25 * T, 0.0, h - winH); }\n' +
   '    float w, rim = 1.0 - smoothstep(0.0, 0.3, 1.0 - dist / r);   // this puff\'s own rim: 1 at the edge, 0 a third of a radius in\n' +
   '    if(inside){\n' +
-  '      if(h > m){ float wq = exp((m - h) / T); acc = acc * wq + 1.0; GI = GI * wq + gd; cIdx = floor(wd.w); m = h; } else { float wq = exp((h - m) / T); acc += wq; GI += wq * gd; }\n' +
-  '      if(h > m2){ w = exp((m2 - h) / T2); acc2 = acc2 * w + 1.0; dSum = dSum * w + a.y; sSum = sSum * w + a.x; fSum = fSum * w + a.z; xSum = xSum * w + a.w; anc = anc * w + sh.xy; bSum = bSum * w + wd.z; wSum = wSum * w + fract(wd.w) * 4.0; rSum = rSum * w + rim; m2 = h; }\n' +
-  '      else { w = exp((h - m2) / T2); acc2 += w; dSum += w * a.y; sSum += w * a.x; fSum += w * a.z; xSum += w * a.w; anc += w * sh.xy; bSum += w * wd.z; wSum += w * fract(wd.w) * 4.0; rSum += w * rim; }\n' +
+  '      if(h > m){ float wq = exp((m - h) / T); acc = acc * wq + wa; GI = GI * wq + wa * gd; cIdx = floor(wd.w); m = h; } else { float wq = wa * exp((h - m) / T); acc += wq; GI += wq * gd; }\n' +
+  '      if(h > m2){ w = exp((m2 - h) / T2); acc2 = acc2 * w + wa; dSum = dSum * w + wa * a.y; sSum = sSum * w + wa * a.x; fSum = fSum * w + wa * a.z; xSum = xSum * w + wa * a.w; anc = anc * w + wa * sh.xy; bSum = bSum * w + wa * wd.z; wSum = wSum * w + wa * fract(wd.w) * 4.0; rSum = rSum * w + wa * rim; m2 = h; }\n' +
+  '      else { w = wa * exp((h - m2) / T2); acc2 += w; dSum += w * a.y; sSum += w * a.x; fSum += w * a.z; xSum += w * a.w; anc += w * sh.xy; bSum += w * wd.z; wSum += w * fract(wd.w) * 4.0; rSum += w * rim; }\n' +
   '    } else {\n' +
   '      if(h > mO){ float wq = exp((mO - h) / T); accO = accO * wq + 1.0; GO = GO * wq + gd; cIdxO = floor(wd.w); mO = h; } else { float wq = exp((h - mO) / T); accO += wq; GO += wq * gd; }\n' +
   '      if(h > m2O){ w = exp((m2O - h) / T2); acc2O = acc2O * w + 1.0; dSumO = dSumO * w + a.y; sSumO = sSumO * w + a.x; fSumO = fSumO * w + a.z; xSumO = xSumO * w + a.w; ancO = ancO * w + sh.xy; bSumO = bSumO * w + wd.z; wSumO = wSumO * w + fract(wd.w) * 4.0; rSumO = rSumO * w + rim; m2O = h; }\n' +
@@ -398,10 +423,10 @@
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT', 'uCap', 'uOwn']);
     this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain', 'uDiag']);
-    this._sphData = new Float32Array(MAX_SPH * 4 * 4);
+    this._sphData = new Float32Array(MAX_SPH * 4 * 5);   // five rows: the fifth is (puff id, parent id)
     this._sphTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, MAX_SPH, 4, 0, gl.RGBA, gl.FLOAT, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, MAX_SPH, 5, 0, gl.RGBA, gl.FLOAT, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     this._fieldTex = gl.createTexture(); this._auxTex = gl.createTexture(); this._aux2Tex = gl.createTexture(); this._aux3Tex = gl.createTexture(); this._fbo = gl.createFramebuffer();
     this._w = 0; this._h = 0;
@@ -466,9 +491,10 @@
   PuffRenderer.prototype._tree = function (clouds, time) {
     var D = this._sphData, n = 0;
     var LEVEL_DETAIL = [0.25, 0.6, 1.0];
-    function put(x, y, r, z0, stack, detail, fresh, dis, stretch, anx, any, primPacked, wx, wy, band, dw) {
+    function put(x, y, r, z0, stack, detail, fresh, dis, stretch, anx, any, primPacked, wx, wy, band, dw, id, pid) {
       if (n >= MAX_SPH || r <= 1e-4) return false;
-      var o = n * 4, o2 = (MAX_SPH + n) * 4, o3 = (MAX_SPH * 2 + n) * 4, o4 = (MAX_SPH * 3 + n) * 4;
+      var o = n * 4, o2 = (MAX_SPH + n) * 4, o3 = (MAX_SPH * 2 + n) * 4, o4 = (MAX_SPH * 3 + n) * 4, o5 = (MAX_SPH * 4 + n) * 4;
+      D[o5] = id; D[o5 + 1] = pid; D[o5 + 2] = 0; D[o5 + 3] = 0;   // ownership: the puff's id (1-based upload index) and its parent's (roots: a virtual core per cloud, -(cloud + 1), or sim.parent[i] when the sim gives one)
       D[o] = x; D[o + 1] = y; D[o + 2] = r; D[o + 3] = z0;
       D[o2] = stack; D[o2 + 1] = detail; D[o2 + 2] = fresh; D[o2 + 3] = dis;
       D[o3] = anx; D[o3 + 1] = any; D[o3 + 2] = stretch; D[o3 + 3] = primPacked;
@@ -520,8 +546,9 @@
         }
         if (r <= 1e-4) continue;   // a parcel still too small to draw: skip it, never stop the loop (put() fails for the budget too, and that break hid every later parcel)
         var stack0 = 0;   // a root puff carries no stack shade; children add their parent's underside
-        if (!put(rx, ry, r, z0, stack0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp)) break;
-        queue.push({ F: F, x: rx, y: ry, r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: stack0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band, zp: F.cam ? zp : 0 });
+        var id = n + 1, pid = sim.parent ? sim.parent[i] : -(c + 1);
+        if (!put(rx, ry, r, z0, stack0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp, id, pid)) break;
+        queue.push({ id: id, F: F, x: rx, y: ry, r: r, z: z0, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: stack0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band, zp: F.cam ? zp : 0 });
       }
     }
     // plan the budget: how many puffs each deeper level wants; the deepest level that does not fit
@@ -588,8 +615,9 @@
           var stack = q.stack * 0.6 + 0.5 * smoothstep(-0.6, 0.9, uy);
           var band2 = F.cam ? q.band : smoothstep(0, F.baseFall, 1 - (F.baseT - y) / F.spanT);   // under the camera the band is the parent's (a sheet's rows are depth, not height)
           var pdw2 = clamp(0.5 + 0.5 * (z - F.zOff) / (F.ref * 2), 0, 1) * F.dw, dwp2 = F.idx + pdw2 * 0.25;
-          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2);
-          next.push({ F: F, x: x, y: y, r: cr, z: z, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2, zp: q.zp });
+          var cid = n + 1;
+          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id);
+          next.push({ id: cid, F: F, x: x, y: y, r: cr, z: z, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2, zp: q.zp });
         }
       }
       queue = next.filter(function (q) { return q.r * q.F.ratio >= minR; }).sort(function (a, b) { return b.r - a.r; });
@@ -598,7 +626,7 @@
     var gl = this.gl;
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, MAX_SPH);   // D is laid out MAX_SPH wide; upload only the used columns
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, Math.max(1, n), 4, gl.RGBA, gl.FLOAT, D, 0);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, Math.max(1, n), 5, gl.RGBA, gl.FLOAT, D, 0);
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
   };
 
