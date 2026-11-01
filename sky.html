@@ -38,11 +38,11 @@
     <div id="cirrus"></div>
   </div>
 </div>
-<script src="src/sim.js?v=141"></script>
-<script src="src/puffs.js?v=141"></script>
-<script src="src/motion.js?v=141"></script>
-<script src="src/layer.js?v=141"></script>
-<script src="src/presets.js?v=141"></script>
+<script src="src/sim.js?v=144"></script>
+<script src="src/puffs.js?v=144"></script>
+<script src="src/motion.js?v=144"></script>
+<script src="src/layer.js?v=144"></script>
+<script src="src/presets.js?v=144"></script>
 <script>
 (function () {
   'use strict';
@@ -73,7 +73,7 @@
     Object.keys(saved).forEach(function (name) {
       var L = saved[name], base = CLOUD_PRESETS[L.type] || CLOUD_PRESETS.congestus;
       if (base.engine === 'veil') return;
-      SPECIES[name] = { engine: L.engine || base.engine, preset: L.simPreset || base.preset, shape: L.shape || base.shape, prim: L.prim || base.prim, primAmt: (L.look || {}).primAmt,
+      SPECIES[name] = { type: L.type, engine: L.engine || base.engine, preset: L.simPreset || base.preset, shape: L.shape || base.shape, prim: L.prim || base.prim, primAmt: (L.look || {}).primAmt,
         forces: L.forces || {}, look: L.look || {}, extra: base.extra, depth: base.depth, scale: (L.look || {}).zoom || base.scale || 1 };
     });
   } catch (e) {}

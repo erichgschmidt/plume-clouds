@@ -196,6 +196,10 @@
   '// slope), not flattened: flattening gave every edge a band one footprint wide with its own normal\n' +
   '// regime, which read as a second outline\n' +
   'float pairL(vec2 a, vec2 b, float hc){ return a.y > 0.5 ? a.x : (b.y > 0.5 ? 2.0 * hc - b.x : hc); }\n' +
+  '// 1 where a sample is outside the silhouette or on another cloud: the outline. A step inside the same cloud\n' +
+  '// is NOT one: it protects the normal (hAt rejects it) but must not turn the rim toward the viewer, or Rim\n' +
+  '// soften draws a bright one-pixel stripe round every puff that sits in front of its own cloud\n' +
+  'float outAt(vec2 uv, vec2 uv0){ return (texture(uField, uv).a < 0.5 || abs(texture(uAux2, uv).b - texture(uAux2, uv0).b) > 0.5) ? 1.0 : 0.0; }\n' +
   'vec3 normalAt(vec2 uv, vec2 dx, vec2 dy, float wx, float wy, float bias, float bias2, float namp, out float edge){\n' +
   '  // near the rim the footprint shrinks (halved while a sample falls outside, down to one texel) so\n' +
   '  // the ring inside the silhouette keeps the rim\'s own steep slope instead of a softened one\n' +
@@ -206,7 +210,8 @@
   '    k = max(k * 0.5, uTexel.x / dx.x);\n' +
   '  }\n' +
   '  wx *= k; wy *= k;\n' +
-  '  edge = min(1.0, (1.0 - k) + (L.y + R.y + U.y + D.y > 3.5 ? 0.0 : 0.6));   // 0 well inside .. 1 at the rim\n' +
+  '  float outN = outAt(uv - dx * k, uv) + outAt(uv + dx * k, uv) + outAt(uv - dy * k, uv) + outAt(uv + dy * k, uv);\n' +
+  '  edge = min(1.0, (1.0 - k) + 0.6 * min(1.0, outN * 0.5));   // 0 well inside .. 1 at the rim, graded by how many samples fall outside\n' +
   '  float hc = hAt(uv, uv, bias, bias2, namp).x;\n' +
   '  float hL = pairL(L, R, hc), hR = pairL(R, L, hc), hU = pairL(U, D, hc), hD = pairL(D, U, hc);\n' +
   '  return normalize(vec3(-(hR - hL) / wx, (hD - hU) / wy, 1.0));   // world y is down; uv y is up\n' +
@@ -287,7 +292,7 @@
   '    // opposite neighbours (so a rim, higher on its inward side only, is never a valley), as a slope over\n' +
   '    // that ring\'s radius. Averaging the rings grades the darkening: the valley floor is seen by every\n' +
   '    // ring, a point part way up a wall only by the wide ones, so it falls off instead of being a band\n' +
-  '    float reach = uCavityReach * (1.0 + 0.5 * sB.w);\n' +
+  '    float reach = uCavityReach;   // its own control, not widened by Normal smooth\n' +
   '    for(int ring = 1; ring <= 3; ring++){\n' +
   '      float cs = reach * float(ring) / 3.0;\n' +
   '      vec2 cx = vec2(uTexel.x * cs, 0.0), cy = vec2(0.0, uTexel.y * cs), cd = vec2(uTexel.x, uTexel.y) * cs * 0.7071;\n' +
