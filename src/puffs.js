@@ -163,7 +163,11 @@
   'vec2 hAt(vec2 uv, vec2 uv0, float bias, float bias2, float namp){\n' +
   '  vec4 f = texture(uField, uv);\n' +
   '  // a sample outside the silhouette, or on another cloud (an occluding edge is a rim too, not a slope)\n' +
-  '  float ins = (f.a < 0.5 || abs(texture(uAux2, uv).b - texture(uAux2, uv0).b) > 0.5 || abs(f.r - texture(uField, uv0).r) > uRef * 0.25) ? 0.0 : 1.0;   // outside, another cloud, or across a height step: an occluding edge\n' +
+  '  // outside, on another cloud, or across a step: no dome profile is steeper than about 2 (the sphere is\n' +
+  '  // continued at 2.06, the skirt falls at 2), so a height change steeper than 4 over the sample distance\n' +
+  '  // is a front puff\'s edge over the surface behind it, an occluding edge like the silhouette\n' +
+  '  vec2 dd = vec2(uv.x - uv0.x, (uv.y - uv0.y) * uAspect);\n' +
+  '  float ins = (f.a < 0.5 || abs(texture(uAux2, uv).b - texture(uAux2, uv0).b) > 0.5 || abs(f.r - texture(uField, uv0).r) > 4.0 * length(dd) + 1e-6) ? 0.0 : 1.0;\n' +
   '  if(ins < 0.5) f = texture(uField, uv0);   // never read height outside the silhouette (the rim)\n' +
   '  vec2 w0 = (vec2(uv.x, (1.0 - uv.y) * uAspect) - uAnchor * texture(uAux, uv0).ba) / uRef;   // noise rides with the parcel\n' +
   '  float t = uTime * uFlow;\n' +
