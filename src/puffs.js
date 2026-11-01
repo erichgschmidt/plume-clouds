@@ -82,6 +82,7 @@
   'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
   'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow, uDissolve, uDotSize;\n' +
   'uniform vec3 uSkyColor;\n' +
+  'uniform float uOverhead;\n' +
   'uniform vec4 uCam;   // camera x, camera z, horizon (field y), cirrus altitude; w <= 0: no camera (the flat veil)\n' +
   'in vec2 vUv; out vec4 fragColor;\n' +
   // simplex-ish 2D noise (Ashima-style, compact)
@@ -179,14 +180,23 @@
   '  float namp = (1.0 - 0.6 * far) * sB.z;\n' +
   '  // noise bias: the macro (undisplaced) light decides where the noise lives (-1 shadow only .. +1 light only)\n' +
   '  vec3 n0 = normalAt(uv, dx, dy, wx, wy, 0.0, namp);\n' +
-  '  float l0 = dot(n0, uLight);\n' +
+  '  // under the camera the view pitches up toward the top of the frame, so the sun turns with it:\n' +
+  '  // a cloud near the horizon is lit from above, one straight overhead shows its underside with\n' +
+  '  // the light coming from beyond it\n' +
+  '  vec3 Lv = uLight;\n' +
+  '  if(uCam.w > 0.0 && uOverhead > 0.0){\n' +
+  '    float p = atan(max(0.0, uCam.z - (1.0 - uv.y) * uAspect)) * uOverhead, cp = cos(p), sp = sin(p);\n' +
+  '    float up = -uLight.y, tz = uLight.z;   // screen-up and toward-the-viewer parts (field y is down)\n' +
+  '    Lv = vec3(uLight.x, -(up * cp + tz * sp), tz * cp - up * sp);\n' +
+  '  }\n' +
+  '  float l0 = dot(n0, Lv);\n' +
   '  float bias = uNoiseBias > 0.0 ? mix(1.0, smoothstep(-0.2, 0.5, l0), uNoiseBias) : mix(1.0, smoothstep(0.5, -0.2, l0), -uNoiseBias);\n' +
   '  vec3 n = normalAt(uv, dx, dy, wx, wy, bias, namp);\n' +
   '  // haze: an old, mixed parcel softens (flatter normal, less direct light, fainter edge)\n' +
   '  float haze = sA.y * (1.0 - ax.r);\n' +
   '  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), 0.7 * haze + 0.4 * far));\n' +
-  '  float lambert = dot(n, uLight);\n' +
-  '  float bounce = max(0.0, dot(n, normalize(vec3(-uLight.x, -uLight.y, 0.25))));\n' +
+  '  float lambert = dot(n, Lv);\n' +
+  '  float bounce = max(0.0, dot(n, normalize(vec3(-Lv.x, -Lv.y, 0.25))));\n' +
   '  float band = sB.y * bx.r;\n' +
   '  float stack = sA.z * f.b;\n' +
   '  float direct = 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - 0.7 * band) * (1.0 - 0.5 * stack);\n' +
@@ -219,7 +229,7 @@
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 4);
     this._sphTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
@@ -459,6 +469,7 @@
     gl.uniform4fv(su.uStyleA, SA); gl.uniform4fv(su.uStyleB, SB);
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);
     gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);
+    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1));
     var cam = sky.cam; gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   };
