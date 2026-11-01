@@ -108,7 +108,9 @@
   '  float sil = (sacc > 0.0) ? (sm + log(sacc)) * T : -1.0;\n' +
   '  float mask = smoothstep(-0.5 * T, 0.5 * T, sil);\n' +
   '  float ia = acc2 > 0.0 ? 1.0 / acc2 : 0.0;\n' +
-  '  o = vec4(H, dSum * ia, sSum * ia, mask);\n' +
+  '  // alpha: the mask (0..1), plus ten times the distance inside the silhouette past the mask ramp, so the\n' +
+  '  // shade pass has a smooth distance from the outline (every mask test is < 0.5 or clamps, so it still works)\n' +
+  '  o = vec4(H, dSum * ia, sSum * ia, mask + 10.0 * max(0.0, sil - 0.5 * T));\n' +
   '  o2 = vec4(acc2 > 0.0 ? fSum * ia : 1.0, xSum * ia, anc * ia);\n' +
   '  o3 = vec4(bSum * ia, acc2 > 0.0 ? wSum * ia : 1.0, cIdx, rSum * ia);\n' +
   '}';
@@ -196,10 +198,6 @@
   '// slope), not flattened: flattening gave every edge a band one footprint wide with its own normal\n' +
   '// regime, which read as a second outline\n' +
   'float pairL(vec2 a, vec2 b, float hc){ return a.y > 0.5 ? a.x : (b.y > 0.5 ? 2.0 * hc - b.x : hc); }\n' +
-  '// 1 where a sample is outside the silhouette or on another cloud: the outline. A step inside the same cloud\n' +
-  '// is NOT one: it protects the normal (hAt rejects it) but must not turn the rim toward the viewer, or Rim\n' +
-  '// soften draws a bright one-pixel stripe round every puff that sits in front of its own cloud\n' +
-  'float outAt(vec2 uv, vec2 uv0){ return (texture(uField, uv).a < 0.5 || abs(texture(uAux2, uv).b - texture(uAux2, uv0).b) > 0.5) ? 1.0 : 0.0; }\n' +
   'vec3 normalAt(vec2 uv, vec2 dx, vec2 dy, float wx, float wy, float bias, float bias2, float namp, out float edge){\n' +
   '  // near the rim the footprint shrinks (halved while a sample falls outside, down to one texel) so\n' +
   '  // the ring inside the silhouette keeps the rim\'s own steep slope instead of a softened one\n' +
@@ -210,8 +208,10 @@
   '    k = max(k * 0.5, uTexel.x / dx.x);\n' +
   '  }\n' +
   '  wx *= k; wy *= k;\n' +
-  '  float outN = outAt(uv - dx * k, uv) + outAt(uv + dx * k, uv) + outAt(uv - dy * k, uv) + outAt(uv + dy * k, uv);\n' +
-  '  edge = min(1.0, (1.0 - k) + 0.6 * min(1.0, outN * 0.5));   // 0 well inside .. 1 at the rim, graded by how many samples fall outside\n' +
+  '  // rim weight: a smooth distance from the outline, 1 at the silhouette fading to 0 two footprints in. The\n' +
+  '  // footprint shrink above only protects the normal; it is no longer part of the weight (a same-cloud step\n' +
+  '  // shrinks it too, which used to switch half the rim treatment on inside the cloud)\n' +
+  '  edge = 1.0 - smoothstep(0.0, 2.0 * dx.x, max(0.0, texture(uField, uv).a - 1.0) * 0.1);\n' +
   '  float hc = hAt(uv, uv, bias, bias2, namp).x;\n' +
   '  float hL = pairL(L, R, hc), hR = pairL(R, L, hc), hU = pairL(U, D, hc), hD = pairL(D, U, hc);\n' +
   '  return normalize(vec3(-(hR - hL) / wx, (hD - hU) / wy, 1.0));   // world y is down; uv y is up\n' +
@@ -224,7 +224,7 @@
   '  int ci = clamp(int(bx.b + 0.5), 0, 31); vec4 sA = uStyleA[ci], sB = uStyleB[ci];\n' +
   '  float dis = sA.w * ax.g;   // dispersing puffs dissolve into the pixel grid\n' +
   '  float th = dis > 0.001 ? mix(0.5, (bayer(floor(vUv / (uTexel * uDotSize)) + 7.0) + 0.5) * 0.9 + 0.05, dis) : 0.5;\n' +
-  '  if(f.a * (1.0 - uDissolve * dis) < th){ fragColor = vec4(sky(uv), 1.0); return; }   // a strongly dispersing puff also loses interior pixels (wisps dissolve)\n' +
+  '  if(min(f.a, 1.0) * (1.0 - uDissolve * dis) < th){ fragColor = vec4(sky(uv), 1.0); return; }   // a strongly dispersing puff also loses interior pixels (wisps dissolve)\n' +
   '  // depth weight: 1 near .. 0 far. Far volumes: softer normal, weaker shadow, less noise, bluer\n' +
   '  float dw = clamp(bx.g, 0.0, 1.0), far = uDepthFall * (1.0 - dw);\n' +
   '  float s = 1.0 + far * 3.0;   // normal footprint in texels (Normal smooth no longer widens it: a wide\n' +
