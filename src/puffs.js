@@ -107,7 +107,7 @@
   'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
   'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow, uDissolve, uDotSize;\n' +
   'uniform vec3 uSkyColor;\n' +
-  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity;\n' +
+  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach;\n' +
   'uniform vec4 uCam;   // camera x, camera z, horizon (field y), cirrus altitude; w <= 0: no camera (the flat veil)\n' +
   'in vec2 vUv; out vec4 fragColor;\n' +
   // simplex-ish 2D noise (Ashima-style, compact)
@@ -252,12 +252,19 @@
   '  // its cancelling slopes face the viewer and would catch full light, so less reaches it\n' +
   '  float cav = 0.0;\n' +
   '  if(uCavity > 0.0){\n' +
-  '    float cs = 3.0 + 3.0 * sB.w; vec2 cx = vec2(uTexel.x * cs, 0.0), cy = vec2(0.0, uTexel.y * cs), cd = vec2(uTexel.x, uTexel.y) * cs * 0.7071;\n' +
-  '    // a valley needs higher ground on BOTH sides (per axis the lower of the two neighbours), so a rim,\n' +
-  '    // which is higher on its inward side only, is not one\n' +
-  '    float cavv = 0.0; vec2 offs[4]; offs[0] = cx; offs[1] = cy; offs[2] = cd; offs[3] = vec2(cd.x, -cd.y);\n' +
-  '    for(int k = 0; k < 4; k++){ vec4 fa = texture(uField, uv + offs[k]), fb = texture(uField, uv - offs[k]); if(fa.a > 0.5 && fb.a > 0.5) cavv = max(cavv, min(fa.r, fb.r) - f.r); }\n' +
-  '    cav = smoothstep(0.0, 0.5, cavv / (uRef * 0.04 * cs / 3.0));\n' +
+  '    // three rings out to Reach texels; each ring asks how far the surface sits below the lower of its two\n' +
+  '    // opposite neighbours (so a rim, higher on its inward side only, is never a valley), as a slope over\n' +
+  '    // that ring\'s radius. Averaging the rings grades the darkening: the valley floor is seen by every\n' +
+  '    // ring, a point part way up a wall only by the wide ones, so it falls off instead of being a band\n' +
+  '    float reach = uCavityReach * (1.0 + 0.5 * sB.w);\n' +
+  '    for(int ring = 1; ring <= 3; ring++){\n' +
+  '      float cs = reach * float(ring) / 3.0;\n' +
+  '      vec2 cx = vec2(uTexel.x * cs, 0.0), cy = vec2(0.0, uTexel.y * cs), cd = vec2(uTexel.x, uTexel.y) * cs * 0.7071;\n' +
+  '      vec2 offs[4]; offs[0] = cx; offs[1] = cy; offs[2] = cd; offs[3] = vec2(cd.x, -cd.y);\n' +
+  '      float cavv = 0.0;\n' +
+  '      for(int k = 0; k < 4; k++){ vec4 fa = texture(uField, uv + offs[k]), fb = texture(uField, uv - offs[k]); if(fa.a > 0.5 && fb.a > 0.5) cavv = max(cavv, min(fa.r, fb.r) - f.r); }\n' +
+  '      cav += smoothstep(0.0, 1.0, cavv / (uTexel.x * cs * 1.5)) / 3.0;   // depth below over the ring radius: a slope\n' +
+  '    }\n' +
   '  }\n' +
   '  float cavity = uCavity * cav;\n' +
   '  float band = sB.y * bx.r;\n' +
@@ -293,7 +300,7 @@
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT', 'uCap']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 4);
     this._sphTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
@@ -551,7 +558,7 @@
     gl.uniform4fv(su.uStyleA, SA); gl.uniform4fv(su.uStyleB, SB);
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);
     gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);
-    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1));
+    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8)));
     var cam = sky.cam; gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   };

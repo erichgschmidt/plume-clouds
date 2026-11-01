@@ -235,3 +235,5 @@ Status (parallax): the sims sway each root parcel by its depth and now expose th
 Status (noise bias): Noise 2 has its own bias (Noise 2 bias, in Style / Surface); a preset without the key follows Noise bias as before. Quirk: a cloud's per-cloud noise ratio (its noise / the sky noise) scales both noises, so Noise at 0 silences Noise 2 too.
 
 Status (edge by slope, sky parallax): the occluding-edge test in the height sampler is slope-based (a change steeper than 4 over the sample distance, where no dome profile exceeds about 2), so a front puff over the surface behind it is extrapolated instead of differenced even with Rim soften at 0. Under the sky camera the sway (look.cam.sx/sy) is re-projected per puff at its own depth ((z0 - zOff) * z / f in world), roots and children, so a cloud sways as a volume.
+
+Status (cavity falloff): Cavity samples three rings out to Cavity reach texels; each ring measures how far the surface sits below the lower of its two opposite neighbours as a slope over the ring radius, and the rings are averaged, so the darkening grades up a valley wall instead of being one band.
