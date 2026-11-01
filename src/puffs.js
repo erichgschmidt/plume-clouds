@@ -63,7 +63,11 @@
   '    float d2 = dot(d, d);\n' +
   '    if(d2 > r * r * 2.25) continue;\n' +
   '    float dist = sqrt(d2);\n' +
-  '    float e = (r - dist) / T;\n' +
+  '    // the skirt outside the radius dies off continuously before the 1.5 r cutoff (a penalty that diverges\n' +
+  '    // there), so nothing is lost abruptly at the boundary: a skirt still above a neighbour used to drop\n' +
+  '    // out at the cutoff and leave a second circular ledge round the puff\n' +
+  '    float tt = clamp((dist - r) / (0.5 * r), 0.0, 0.995), pen = r * tt * tt / (1.0 - tt);\n' +
+  '    float e = (r - dist - pen) / T;\n' +
   '    if(e > sm){ sacc = sacc * exp(sm - e) + 1.0; sm = e; } else sacc += exp(e - sm);\n' +
   '    // a puff\'s height ramps on past its radius; another cloud\'s ramp must not cross a cloud this pixel is\n' +
   '    // inside, or an occluding cloud draws a steep strip (a dark line) over the cloud behind it\n' +
@@ -74,7 +78,7 @@
   '    // cap profile: a sphere (slope vertical at the rim: a thin dark terminator crescent) .. a parabola\n' +
   '    // (rim slope -2, continuous with the falloff outside: a broad soft shadow side)\n' +
   '    float qq = d2 / (r * r);\n' +
-  '    float h = (d2 < r * r) ? s.w + r * mix(sqrt(1.0 - qq), 1.0 - qq, uCap) : s.w - (dist - r) * 2.0;\n' +
+  '    float h = (d2 < r * r) ? s.w + r * mix(sqrt(1.0 - qq), 1.0 - qq, uCap) : s.w - (dist - r) * 2.0 - pen;\n' +
   '    float w, rim = 1.0 - smoothstep(0.0, 0.3, 1.0 - dist / r);   // this puff\'s own rim: 1 at the edge, 0 a third of a radius in\n' +
   '    if(h > m){ acc = acc * exp((m - h) / T) + 1.0; cIdx = floor(wd.w); m = h; } else acc += exp((h - m) / T);\n' +
   '    if(h > m2){ w = exp((m2 - h) / T2); acc2 = acc2 * w + 1.0; dSum = dSum * w + a.y; sSum = sSum * w + a.x; fSum = fSum * w + a.z; xSum = xSum * w + a.w; anc = anc * w + sh.xy; bSum = bSum * w + wd.z; wSum = wSum * w + fract(wd.w) * 4.0; rSum = rSum * w + rim; m2 = h; }\n' +
