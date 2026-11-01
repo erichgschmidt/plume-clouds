@@ -38,10 +38,14 @@
   'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
-  '  float m = -1e9, acc = 0.0, dSum = 0.0, sSum = 0.0, fSum = 0.0, xSum = 0.0, bSum = 0.0, wSum = 0.0, rSum = 0.0, cIdx = 0.0; vec2 anc = vec2(0.0);   // online log-sum-exp; cIdx: the cloud of the highest puff\n' +
+  '  float m = -1e9, acc = 0.0, cIdx = 0.0;                 // online log-sum-exp of the heights; cIdx: the cloud of the highest puff\n' +
+  '  // the per-puff attributes blend over a band four times wider than the height union: where one dome\n' +
+  '  // crosses another the shape stays crisp, but stack, band, freshness and depth weight no longer jump\n' +
+  '  // along the crease (that jump drew a ring round every puff)\n' +
+  '  float m2 = -1e9, acc2 = 0.0, dSum = 0.0, sSum = 0.0, fSum = 0.0, xSum = 0.0, bSum = 0.0, wSum = 0.0, rSum = 0.0; vec2 anc = vec2(0.0);\n' +
   '  float sm = -1e9, sacc = 0.0;                            // silhouette (soft union of r - dist)\n' +
   '  float insC = -1.0;                                      // the cloud of the first puff that contains this pixel\n' +
-  '  float T = uT;\n' +
+  '  float T = uT, T2 = uT * 4.0;\n' +
   '  for(int i = 0; i < 4096; i++){\n' +
   '    if(i >= uCount) break;\n' +
   '    vec4 s = texelFetch(uSph, ivec2(i, 0), 0);\n' +
@@ -65,20 +69,21 @@
   '    // inside, or an occluding cloud draws a steep strip (a dark line) over the cloud behind it\n' +
   '    float ci = floor(wd.w); bool inside = d2 < r * r;\n' +
   '    if(!inside && insC >= 0.0 && ci != insC) continue;\n' +
-  '    if(inside && insC < 0.0){ insC = ci; if(acc > 0.0 && cIdx != ci){ m = -1e9; acc = 0.0; dSum = 0.0; sSum = 0.0; fSum = 0.0; xSum = 0.0; bSum = 0.0; wSum = 0.0; rSum = 0.0; anc = vec2(0.0); } }\n' +
+  '    if(inside && insC < 0.0){ insC = ci; if(acc > 0.0 && cIdx != ci){ m = -1e9; acc = 0.0; m2 = -1e9; acc2 = 0.0; dSum = 0.0; sSum = 0.0; fSum = 0.0; xSum = 0.0; bSum = 0.0; wSum = 0.0; rSum = 0.0; anc = vec2(0.0); } }\n' +
   '    vec4 a = texelFetch(uSph, ivec2(i, 1), 0);\n' +
   '    // cap profile: a sphere (slope vertical at the rim: a thin dark terminator crescent) .. a parabola\n' +
   '    // (rim slope -2, continuous with the falloff outside: a broad soft shadow side)\n' +
   '    float qq = d2 / (r * r);\n' +
   '    float h = (d2 < r * r) ? s.w + r * mix(sqrt(1.0 - qq), 1.0 - qq, uCap) : s.w - (dist - r) * 2.0;\n' +
   '    float w, rim = 1.0 - smoothstep(0.0, 0.3, 1.0 - dist / r);   // this puff\'s own rim: 1 at the edge, 0 a third of a radius in\n' +
-  '    if(h > m){ float k = exp((m - h) / T); acc = acc * k + 1.0; dSum = dSum * k + a.y; sSum = sSum * k + a.x; fSum = fSum * k + a.z; xSum = xSum * k + a.w; anc = anc * k + sh.xy; bSum = bSum * k + wd.z; wSum = wSum * k + fract(wd.w) * 4.0; rSum = rSum * k + rim; cIdx = floor(wd.w); m = h; }\n' +
-  '    else { w = exp((h - m) / T); acc += w; dSum += w * a.y; sSum += w * a.x; fSum += w * a.z; xSum += w * a.w; anc += w * sh.xy; bSum += w * wd.z; wSum += w * fract(wd.w) * 4.0; rSum += w * rim; }\n' +
+  '    if(h > m){ acc = acc * exp((m - h) / T) + 1.0; cIdx = floor(wd.w); m = h; } else acc += exp((h - m) / T);\n' +
+  '    if(h > m2){ w = exp((m2 - h) / T2); acc2 = acc2 * w + 1.0; dSum = dSum * w + a.y; sSum = sSum * w + a.x; fSum = fSum * w + a.z; xSum = xSum * w + a.w; anc = anc * w + sh.xy; bSum = bSum * w + wd.z; wSum = wSum * w + fract(wd.w) * 4.0; rSum = rSum * w + rim; m2 = h; }\n' +
+  '    else { w = exp((h - m2) / T2); acc2 += w; dSum += w * a.y; sSum += w * a.x; fSum += w * a.z; xSum += w * a.w; anc += w * sh.xy; bSum += w * wd.z; wSum += w * fract(wd.w) * 4.0; rSum += w * rim; }\n' +
   '  }\n' +
   '  float H = (acc > 0.0) ? m + T * log(acc) : -1.0;\n' +
   '  float sil = (sacc > 0.0) ? (sm + log(sacc)) * T : -1.0;\n' +
   '  float mask = smoothstep(-0.5 * T, 0.5 * T, sil);\n' +
-  '  float ia = acc > 0.0 ? 1.0 / acc : 0.0;\n' +
+  '  float ia = acc2 > 0.0 ? 1.0 / acc2 : 0.0;\n' +
   '  o = vec4(H, dSum * ia, sSum * ia, mask);\n' +
   '  o2 = vec4(acc > 0.0 ? fSum * ia : 1.0, xSum * ia, anc * ia);\n' +
   '  o3 = vec4(bSum * ia, acc > 0.0 ? wSum * ia : 1.0, cIdx, rSum * ia);\n' +

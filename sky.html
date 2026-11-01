@@ -38,11 +38,11 @@
     <div id="cirrus"></div>
   </div>
 </div>
-<script src="src/sim.js?v=123"></script>
-<script src="src/puffs.js?v=123"></script>
-<script src="src/motion.js?v=123"></script>
-<script src="src/layer.js?v=123"></script>
-<script src="src/presets.js?v=123"></script>
+<script src="src/sim.js?v=124"></script>
+<script src="src/puffs.js?v=124"></script>
+<script src="src/motion.js?v=124"></script>
+<script src="src/layer.js?v=124"></script>
+<script src="src/presets.js?v=124"></script>
 <script>
 (function () {
   'use strict';
@@ -108,6 +108,9 @@
     var look = { prim: sp.prim, primAmt: sp.primAmt === undefined ? 1 : sp.primAmt, far: far };
     FORM_KEYS.forEach(function (fk) { if (sp.look && sp.look[fk] !== undefined) look[fk] = sp.look[fk]; });
     if (look.levels === undefined) look.levels = 3;
+    if (sim.params.mode === 'sheet') {   // under the camera a sheet lies flat: a parcel stretched along the wind is a horizontal bar at its own depth (the sheets read as stacked planks), so the striation is short
+      sim.params.striate = 1 + ((sim.params.striate || 1) - 1) * 0.25;
+    }
     var sims = [{ sim: sim, look: look }];
     if (sp.extra) {
       var ex = makeSim(sp.extra.engine, sp.extra.preset, seed + 1, 'ring');
