@@ -27,16 +27,16 @@
 
   // level: layer height as a fraction of the canvas height (0 top .. 1 bottom); width/thick in canvas widths
   var PRESETS = {
-    stratus:       { mode: 'sheet', count: 64, size: 0.07, width: 1.1, thick: 0.08, level: 0.62, cover: 1.5, undulate: 0.01, wave: 2.0, life: 60, breathe: 25, jitter: 0.3, drift: 0.004, wind: 0, fresh: 0.5, parallax: 0.01, sway: 57, ragged: 0.8 },
-    altostratus:   { mode: 'sheet', count: 90, size: 0.045, width: 1.25, thick: 0.14, level: 0.45, cover: 1.6, undulate: 0.006, wave: 1.5, life: 90, breathe: 40, jitter: 0.25, drift: 0.006, wind: 0, fresh: 0.4, parallax: 0.008, sway: 57, ragged: 0.4, striate: 2.8, patch: 2, hole: 0.2 },
+    stratus:       { mode: 'sheet', ends: 0.6, count: 64, size: 0.07, width: 1.1, thick: 0.08, level: 0.62, cover: 1.5, undulate: 0.01, wave: 2.0, life: 60, breathe: 25, jitter: 0.3, drift: 0.004, wind: 0, fresh: 0.5, parallax: 0.01, sway: 57, ragged: 0.8 },
+    altostratus:   { mode: 'sheet', ends: 0.5, count: 90, size: 0.045, width: 1.25, thick: 0.14, level: 0.45, cover: 1.6, undulate: 0.006, wave: 1.5, life: 90, breathe: 40, jitter: 0.25, drift: 0.006, wind: 0, fresh: 0.4, parallax: 0.008, sway: 57, ragged: 0.4, striate: 2.8, patch: 2, hole: 0.2 },
     // broken sheets: patch = holes across the width, hole = how much of the sheet they take (parcels in a hole shrink away)
-    fractus:       { mode: 'sheet', count: 48, size: 0.05, width: 0.9, thick: 0.1, level: 0.55, cover: 1.4, undulate: 0.01, wave: 2.0, life: 50, breathe: 20, jitter: 0.35, drift: 0.006, wind: 0, fresh: 0.4, parallax: 0.01, sway: 57, ragged: 1.0, striate: 1.6, patch: 3, hole: 0.45 },
-    undulatus:     { mode: 'sheet', count: 80, size: 0.04, width: 1.2, thick: 0.12, level: 0.45, cover: 1.5, undulate: 0.02, wave: 3.0, life: 80, breathe: 35, jitter: 0.25, drift: 0.006, wind: 0, fresh: 0.4, parallax: 0.008, sway: 57, ragged: 0.3, striate: 2.2, patch: 5, hole: 0.35 },
+    fractus:       { mode: 'sheet', ends: 0.7, count: 48, size: 0.05, width: 0.9, thick: 0.1, level: 0.55, cover: 1.4, undulate: 0.01, wave: 2.0, life: 50, breathe: 20, jitter: 0.35, drift: 0.006, wind: 0, fresh: 0.4, parallax: 0.01, sway: 57, ragged: 1.0, striate: 1.6, patch: 3, hole: 0.45 },
+    undulatus:     { mode: 'sheet', ends: 0.5, count: 80, size: 0.04, width: 1.2, thick: 0.12, level: 0.45, cover: 1.5, undulate: 0.02, wave: 3.0, life: 80, breathe: 35, jitter: 0.25, drift: 0.006, wind: 0, fresh: 0.4, parallax: 0.008, sway: 57, ragged: 0.3, striate: 2.2, patch: 5, hole: 0.35 },
     anvil:         { mode: 'sheet', count: 30, size: 0.085, width: 0.75, thick: 0.05, level: 0.3, cover: 1.5, undulate: 0.004, wave: 2.0, life: 80, breathe: 30, jitter: 0.2, drift: 0.01, wind: 0, fresh: 0.5, parallax: 0.015, sway: 57, ragged: 0.6, striate: 1.4, lead: 0.4, taper: 0.75, offset: 0.18 },
     lenticular:    { mode: 'sheet', count: 30, size: 0.06, width: 0.5, thick: 0.02, level: 0.45, cover: 1.4, undulate: 0.0, wave: 1.0, life: 40, breathe: 30, jitter: 0.1, drift: 0.02, wind: 0, fresh: 0.9, parallax: 0.01, sway: 57, ragged: 0.0, fixed: 1, taper: 0.8 },
-    stratocumulus: { mode: 'cells', count: 80, size: 0.07, width: 1.25, thick: 0.13, level: 0.6, cell: 0.1, rows: 4, gap: 0.15, streets: 0.3, jitter: 0.25, breathe: 18, life: 70, drift: 0.006, wind: 0, fresh: 0.75, parallax: 0.012, sway: 57 },
-    altocumulus:   { mode: 'cells', count: 110, size: 0.032, width: 1.25, thick: 0.17, level: 0.42, cell: 0.06, rows: 5, gap: 0.25, streets: 0.4, jitter: 0.3, breathe: 12, life: 45, drift: 0.008, wind: 0, fresh: 0.85, parallax: 0.008, sway: 57 },
-    cirrocumulus:  { mode: 'cells', count: 125, size: 0.015, width: 1.15, thick: 0.11, level: 0.25, cell: 0.038, rows: 6, gap: 0.3, streets: 0.2, jitter: 0.35, breathe: 6, life: 25, drift: 0.012, wind: 0, fresh: 0.95, parallax: 0.004, sway: 57 },
+    stratocumulus: { mode: 'cells', ends: 0.6, count: 80, size: 0.07, width: 1.25, thick: 0.13, level: 0.6, cell: 0.1, rows: 4, gap: 0.15, streets: 0.3, jitter: 0.25, breathe: 18, life: 70, drift: 0.006, wind: 0, fresh: 0.75, parallax: 0.012, sway: 57 },
+    altocumulus:   { mode: 'cells', ends: 0.5, count: 110, size: 0.032, width: 1.25, thick: 0.17, level: 0.42, cell: 0.06, rows: 5, gap: 0.25, streets: 0.4, jitter: 0.3, breathe: 12, life: 45, drift: 0.008, wind: 0, fresh: 0.85, parallax: 0.008, sway: 57 },
+    cirrocumulus:  { mode: 'cells', ends: 0.4, count: 125, size: 0.015, width: 1.15, thick: 0.11, level: 0.25, cell: 0.038, rows: 6, gap: 0.3, streets: 0.2, jitter: 0.35, breathe: 6, life: 25, drift: 0.012, wind: 0, fresh: 0.95, parallax: 0.004, sway: 57 },
     cirrus:        { mode: 'streak', count: 0, heads: 6, trail: 14, size: 0.02, width: 1.2, thick: 0.1, level: 0.25, curve: 0.9, fall: 0.16, lag: 0.22, life: 50, drift: 0.015, wind: 8, fresh: 0.9, parallax: 0.004, sway: 57, source: 'field', spread: 0, lobes: 0 },
     contrail:      { mode: 'streak', count: 0, heads: 60, trail: 1, size: 0.012, width: 1.3, thick: 0.02, level: 0.22, curve: 0.0, fall: 0.0, lag: 0.0, life: 90, drift: 0.004, wind: -6, fresh: 0.95, parallax: 0.004, sway: 57, source: 'line', plane: 0.028, spread: 2.0, lobes: 0.6, beads: 0.7 }
   };
@@ -167,6 +167,9 @@
     var swx = (P.parallax || 0) * Math.sin(this.time * sw) + (this.eyeX || 0), swy = (P.parallax || 0) * 0.35 * Math.sin(this.time * sw * 0.66 + 1.0) + (this.eyeY || 0);
     this.swx = swx; this.swy = swy;   // per unit depth, for the renderer's child puffs
     var cols = Math.max(1, Math.round(P.width / (P.cell || 0.1))), rows = Math.max(1, P.rows | 0);
+    // the ends (sheets and cells): over the outer third of the band the parcels get smaller, sit flatter, stretch along
+    // the wind and read staler, so the band thins out instead of ending in a cluster of full round puffs
+    var endsAmt = P.ends || 0, endE = function (u) { return endsAmt * smoothstep(0.62, 1, u); };
     var put = function (x, y, r, seed, depth, link, roll, fresh, stretch) {
       if (n >= MAX || r <= 1e-4 || link <= 1e-4) return;
       o = n * 4;
@@ -188,19 +191,21 @@
         var lx = ((p.col * cell + this.off) % (cols * cell) + cols * cell) % (cols * cell) - cols * cell * 0.5;
         var edge = smoothstep(0, 0.12, cols * cell * 0.5 - Math.abs(lx));   // recycle round the lattice without a pop
         var ly = (p.row - (rows - 1) * 0.5) * P.thick / Math.max(1, rows - 1) + p.jy + 0.006 * Math.sin(this.time * 0.4 + p.ph);
+        var ce = endE(Math.abs(lx) / (cols * cell * 0.5)); ly *= 1 - 0.5 * ce;
         // the row is laid along the wind
         var x = this.cx + (lx + p.jx) * wx - ly * wy, y = this.cy + (lx + p.jx) * wy + ly * wx;
-        put(x, y, size * p.size * breathe, p.seed, 0.5 + 0.3 * (p.depth - 0.5) + 0.15 * (p.row / Math.max(1, rows - 1) - 0.5), p.link * edge, p.roll + this.time * 0.05, fresh, 1 + 1.2 * (P.streets || 0));
+        put(x, y, size * p.size * breathe * (1 - 0.45 * ce), p.seed, 0.5 + 0.3 * (p.depth - 0.5) + 0.15 * (p.row / Math.max(1, rows - 1) - 0.5), p.link * edge, p.roll + this.time * 0.05, fresh * (1 - 0.5 * ce), (1 + 1.2 * (P.streets || 0)) * (1 + 1.2 * ce));
       } else if (P.mode === 'sheet') {
         var und = (P.undulate || 0) * Math.sin(p.x * 6.2832 * (P.wave || 2) + this.time * 0.15 + p.ph * 0.2);
         var ex = smoothstep(0, 0.1, P.width * 0.5 + 0.05 - Math.abs(p.x));
         if (P.patch) ex *= smoothstep(0, 0.35, 0.5 + 0.5 * Math.sin(p.x * 6.2832 * P.patch + p.i * 0.9 + this.time * 0.01) - (P.hole || 0.4));   // a broken sheet: holes across it, drifting slowly
         var lead = (P.lead || 0) * (p.x / (P.width * 0.5));   // an anvil thins toward its downwind edge
-        var u = Math.abs(p.x) / (P.width * 0.5), taper = 1 - (P.taper || 0) * u * u;   // a lens: thick in the middle, thin at the ends
+        var u = Math.abs(p.x) / (P.width * 0.5), taper = 1 - (P.taper || 0) * u * u, se = endE(u);   // a lens: thick in the middle, thin at the ends
         var sx = p.x + (P.offset || 0) * P.width;   // the sheet sits off-centre (an anvil ahead of its tower)
         // ragged underside: the lower the parcel, the staler it reads (haze and dither dissolve the base); wisps most of all
         var under = smoothstep(-0.3, 0.7, p.y / Math.max(1e-3, P.thick * 0.5)), rag = (P.ragged || 0) * (p.wisp ? 0.85 : 0.6 * under);
-        put(this.cx + sx * wx - (p.y + und) * wy, this.cy + sx * wy + (p.y + und) * wx, size * p.size * breathe * taper * (1 - 0.35 * Math.max(0, lead)), p.seed, 0.5 + 0.35 * (p.depth - 0.5), p.link * ex, p.roll, fresh * (1 - 0.6 * Math.max(0, lead)) * (1 - rag), (P.striate || 1) * (p.wisp ? 1.4 : 1));
+        var py = p.y * (1 - 0.5 * se);
+        put(this.cx + sx * wx - (py + und) * wy, this.cy + sx * wy + (py + und) * wx, size * p.size * breathe * taper * (1 - 0.35 * Math.max(0, lead)) * (1 - 0.45 * se), p.seed, 0.5 + 0.35 * (p.depth - 0.5), p.link * ex, p.roll, fresh * (1 - 0.6 * Math.max(0, lead)) * (1 - rag) * (1 - 0.5 * se), (P.striate || 1) * (p.wisp ? 1.4 : 1) * (1 + 1.2 * se));
       } else {
         // streak: the head, then the trail laid along a curve that lags upwind and sags with fall time
         var grow = smoothstep(0, 0.35, ageF), fade = 1 - smoothstep(0.6, 1, ageF);

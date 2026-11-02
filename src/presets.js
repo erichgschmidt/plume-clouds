@@ -74,7 +74,7 @@
     ],
     layer: [
       ['count', 'Parcels', 0, 127, 1], ['heads', 'Heads', 1, 40, 1], ['trail', 'Trail', 1, 24, 1], ['size', 'Size', 0.005, 0.15, 0.001], ['width', 'Width', 0.2, 2, 0.01], ['thick', 'Thickness', 0, 0.3, 0.005], ['level', 'Level', 0, 1, 0.01],
-      ['cell', 'Cell', 0.02, 0.3, 0.005], ['rows', 'Rows', 1, 8, 1], ['gap', 'Gap', 0, 0.9, 0.01], ['streets', 'Streets', 0, 1, 0.01], ['cover', 'Cover', 0.5, 3, 0.05], ['undulate', 'Undulate', 0, 0.05, 0.001], ['wave', 'Wave', 0.5, 8, 0.1], ['striate', 'Striate', 1, 4, 0.05], ['patch', 'Patches', 0, 8, 1], ['hole', 'Holes', 0, 0.9, 0.01], ['lead', 'Lead', 0, 1, 0.01], ['taper', 'Taper', 0, 1, 0.01], ['offset', 'Offset', -0.5, 0.5, 0.01],
+      ['cell', 'Cell', 0.02, 0.3, 0.005], ['rows', 'Rows', 1, 8, 1], ['gap', 'Gap', 0, 0.9, 0.01], ['streets', 'Streets', 0, 1, 0.01], ['cover', 'Cover', 0.5, 3, 0.05], ['undulate', 'Undulate', 0, 0.05, 0.001], ['wave', 'Wave', 0.5, 8, 0.1], ['striate', 'Striate', 1, 4, 0.05], ['patch', 'Patches', 0, 8, 1], ['hole', 'Holes', 0, 0.9, 0.01], ['lead', 'Lead', 0, 1, 0.01], ['taper', 'Taper', 0, 1, 0.01], ['ends', 'Ends', 0, 1, 0.01], ['offset', 'Offset', -0.5, 0.5, 0.01],
       ['curve', 'Curve', 0, 3, 0.05], ['fall', 'Fall', 0, 0.5, 0.005], ['lag', 'Lag', 0, 0.6, 0.005], ['plane', 'Plane step', 0.02, 0.3, 0.005], ['spread', 'Spread', 0, 5, 0.05], ['lobes', 'Lobes', 0, 2, 0.05], ['beads', 'Beads', 0, 1, 0.01],
       ['jitter', 'Jitter', 0, 1, 0.01], ['breathe', 'Breathe (s)', 2, 60, 1], ['life', 'Life (s)', 5, 200, 1], ['drift', 'Drift', 0, 0.05, 0.001], ['wind', 'Wind (deg)', -45, 45, 1], ['fresh', 'Fresh', 0, 1, 0.01], ['parallax', 'Parallax', 0, 0.08, 0.002], ['sway', 'Sway (s)', 5, 120, 1]
     ],
@@ -82,8 +82,8 @@
   };
   // which layer sliders matter per mode (the rest are hidden)
   window.LAYER_MODE_KEYS = {
-    sheet: ['count', 'size', 'width', 'thick', 'level', 'cover', 'undulate', 'wave', 'striate', 'patch', 'hole', 'lead', 'taper', 'offset', 'jitter', 'breathe', 'life', 'drift', 'wind', 'fresh', 'parallax', 'sway'],
-    cells: ['count', 'size', 'width', 'thick', 'level', 'cell', 'rows', 'gap', 'streets', 'jitter', 'breathe', 'life', 'drift', 'wind', 'fresh', 'parallax', 'sway'],
+    sheet: ['count', 'size', 'width', 'thick', 'level', 'cover', 'undulate', 'wave', 'striate', 'patch', 'hole', 'lead', 'taper', 'ends', 'offset', 'jitter', 'breathe', 'life', 'drift', 'wind', 'fresh', 'parallax', 'sway'],
+    cells: ['count', 'size', 'width', 'thick', 'level', 'cell', 'rows', 'gap', 'streets', 'ends', 'jitter', 'breathe', 'life', 'drift', 'wind', 'fresh', 'parallax', 'sway'],
     streak: ['heads', 'trail', 'size', 'width', 'thick', 'level', 'curve', 'fall', 'lag', 'plane', 'spread', 'lobes', 'beads', 'life', 'drift', 'wind', 'fresh', 'parallax', 'sway']
   };
 })();
