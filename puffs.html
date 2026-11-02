@@ -21,6 +21,10 @@
   #hud { position: absolute; left: 10px; top: 10px; background: rgba(0,0,0,.45); padding: 6px 10px; border-radius: 4px; white-space: pre; }
   #scrubBar { position: absolute; left: 10px; right: 10px; bottom: 10px; height: 30px; background: rgba(0,0,0,.45); padding: 0 10px; border-radius: 4px; }
   #scrubBar #scrubT { width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+  #keys { position: absolute; left: 10px; bottom: 46px; display: flex; gap: 6px; }
+  #keys .key { position: relative; cursor: pointer; }
+  #keys canvas { display: block; height: 80px; border: 1px solid #000; border-radius: 3px; background: #10303c; }
+  #keys span { position: absolute; left: 4px; bottom: 3px; font-size: 10px; background: rgba(0,0,0,.45); padding: 0 3px; border-radius: 2px; }
   p.hint { color: #8d9ca4; margin: 4px 0 8px; }
   details.grp { margin: 6px 0 2px; }
   details.grp > summary { cursor: pointer; list-style: none; margin: 4px 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #9fb0b8; user-select: none; }
@@ -33,7 +37,8 @@
 <body>
 <div id="app">
   <div id="stage"><canvas id="canvas"></canvas><div id="hud"></div>
-    <div id="scrubBar" class="row" title="Replays a fresh run of the current type, seed, forces and look to this time, in fixed steps: the same time always gives the same picture"><button class="btn" id="btnPlay2">Pause</button><label style="width:auto">Scrub</label><input id="scrub" type="range" min="0" max="120" step="0.5" value="0"><span id="scrubT">0s</span></div>
+    <div id="keys"></div>
+    <div id="scrubBar" class="row" title="Replays a fresh run of the current type, seed, forces and look to this time, in fixed steps: the same time always gives the same picture"><button class="btn" id="btnPlay2">Pause</button><button class="btn" id="btnKeys" title="Five key frames across the scrub range, replayed with the current settings; click one to scrub there">Keys</button><label style="width:auto">Scrub</label><input id="scrub" type="range" min="0" max="120" step="0.5" value="0"><span id="scrubT">0s</span></div>
   </div>
   <div id="panel">
     <div id="groupsTop"></div>
@@ -325,6 +330,20 @@
     renderer.render(frameList(), 0, look);
     for (var s = 0; s < t - 1e-6; s += 0.1) { stepAll(0.1); renderer.render(frameList(), sim.time, look); }
   }
+  // key frames: five replays across the scrub range, each copied off the canvas into a thumbnail; the run then returns to where it was
+  function takeKeys() {
+    var holder = $('keys'), was = playing, t0 = sim.time, max = +$('scrub').max; holder.innerHTML = ''; setPlaying(false);
+    for (var k = 1; k <= 5; k++) (function (t) {
+      replay(t);
+      var cv = document.createElement('canvas'); cv.height = 80; cv.width = Math.round(80 * canvas.width / canvas.height);
+      cv.getContext('2d').drawImage(canvas, 0, 0, cv.width, cv.height);
+      var d = document.createElement('div'), sp = document.createElement('span'); d.className = 'key'; sp.textContent = t + 's'; d.appendChild(cv); d.appendChild(sp);
+      d.addEventListener('click', function () { setPlaying(false); $('scrub').value = t; $('scrubT').textContent = t.toFixed(1) + 's'; replay(t); });
+      holder.appendChild(d);
+    })(max * k / 5);
+    replay(t0); setPlaying(was);
+  }
+  $('btnKeys').addEventListener('click', takeKeys);
   var scrubbing = false;
   $('scrub').addEventListener('pointerdown', function () { scrubbing = true; });
   $('scrub').addEventListener('input', function () { scrubbing = true; $('scrubT').textContent = (+this.value).toFixed(1) + 's'; });
