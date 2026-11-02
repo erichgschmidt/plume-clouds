@@ -45,11 +45,11 @@
     <div id="groups"></div>
   </div>
 </div>
-<script src="src/sim.js?v=188"></script>
-<script src="src/puffs.js?v=188"></script>
-<script src="src/motion.js?v=188"></script>
-<script src="src/layer.js?v=188"></script>
-<script src="src/presets.js?v=188"></script>
+<script src="src/sim.js?v=189"></script>
+<script src="src/puffs.js?v=189"></script>
+<script src="src/motion.js?v=189"></script>
+<script src="src/layer.js?v=189"></script>
+<script src="src/presets.js?v=189"></script>
 <script>
 (function () {
   'use strict';
@@ -137,7 +137,7 @@
     children: 'Puffs each parcel grows on its shell, at every level.',
     ratio: 'Child radius as a fraction of its parent.',
     levels: 'Depth of the recursion: 1 is bare parcels, 3 is grandchildren.',
-    life: 'Speed of the child cycle (born on top, carried round, swells, subsides, reseeds). 0 freezes it.',
+    life: 'Speed of the child cycle (born on top, swells, subsides, reseeds) on its own clock; the parent\'s roll only carries a child round. 0 freezes the cycle.',
     embed: 'How far out on the parent shell a child sits: lower buries it, higher perches it.',
     softness: 'Blend width of the soft union between puffs.',
     depth: 'Scale of the pseudo-3D depth: how far back puffs sit behind their neighbours (heights only; fade and sway have their own controls).',

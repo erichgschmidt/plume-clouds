@@ -695,7 +695,9 @@
         // depth weight scales the whole thing. Packed as cloud index + puff dw / 4.
         var pdw = clamp(0.5 + 0.5 * zr / (F.ref * 2), 0, 1) * F.dw;
         var dwp = F.idx + pdw * 0.25;
-        var stretch = (1 + F.shear * dis * (1 + F.shearBias * (2 * pdw - 1))) * (STR ? Math.max(0.2, STR[i]) : 1);   // the sim may stretch a parcel itself (streets, trails)
+        // the shear follows the mixing only: a newborn, its link still rising, used to count as fully dispersed and came in as a
+        // long spike (dis keeps the link for the shader: a parcel evaporating out is a dispersing one)
+        var stretch = (1 + F.shear * (1 - mixed) * (1 + F.shearBias * (2 * pdw - 1))) * (STR ? Math.max(0.2, STR[i]) : 1);   // the sim may stretch a parcel itself (streets, trails)
         var rx, ry, hgt, band;
         if (F.cam) {
           var C = F.cam, dy = F.pivY - B[o + 1], zp = Math.max(0.05, C.z + C.flat * dy * C.k), sc = C.f / zp;
@@ -729,8 +731,11 @@
     // fractional child (one per parent at a scaled radius) swelled and shrank with every frame's count
     // a parent whose children would be smaller than a field texel gets none (they would be invisible),
     // and the biggest parents on screen are served first, so the budget goes to the near clouds that show it
+    // ... measured across the deformed footprint (the thin axis of a sheared parent), and the children fade in over the
+    // second texel (cf below) instead of appearing whole at the first
     var minR = 1.0 / Math.max(1, this._w), k;
-    queue = queue.filter(function (q) { return q.F.levels < 2 || q.r * q.F.ratio >= minR; });
+    function thinR(q) { return q.r * q.F.ratio * Math.min(1, q.st, 1 / Math.sqrt(Math.max(q.st, 1e-4))); }
+    queue = queue.filter(function (q) { return q.F.levels < 2 || thinR(q) >= minR; });
     queue.sort(function (a, b) { return b.r - a.r; });
     var l1 = 0, l2 = 0;
     for (k = 0; k < queue.length; k++) { F = queue[k].F; if (F.levels >= 2) l1 += F.children; if (F.levels >= 3) l2 += F.children * F.children; }
@@ -741,6 +746,8 @@
     for (k = 1; k < 3; k++) { if (fade[k] < 1 && last[k] < 1 && Math.abs(fade[k] - last[k]) < 1 / 64) fade[k] = last[k]; }
     this._fade = fade;
     this.degrade = fade[2] < 1 ? fade[2] : fade[1];
+    // a child's birth is the parent's roll angle then, kept while the child is seen (entries not refreshed this frame are dropped)
+    var born = this._born || new Map(), bornNow = new Map();
     for (var level = 0; level < 2 && queue.length; level++) {
       var next = [], fd = fade[level + 1];
       if (fd <= 0) break;
@@ -750,25 +757,31 @@
         if (F.levels < level + 2) continue;
         var keep = fd >= 1 ? F.children : Math.floor(fd * 0.98 * F.children + hash(q.seed + 77.7));
         for (j = 0; j < keep && n < cap; j++) {
-          var cf = 1;
+          var cf = smoothstep(minR, 2 * minR, thinR(q));
           var rate = 0.7 + 0.6 * hash(q.seed + 4.7 + j * 41.3);
           var cyc = 1.2 + 1.0 * hash(q.seed + 12.3 + j * 29.7);
-          var sraw = (q.angle * rate + time * 0.05) * F.life + hash(q.seed + 5.5 + j * 7.1) * cyc;
+          // the child's age runs on the sim clock alone (0.12 per second at Life 1: about the old default turnover); it used to
+          // run on the parent's roll too, so a high Roll gain made every child cycle fast whatever Life said
+          var sraw = time * 0.12 * F.life + hash(q.seed + 5.5 + j * 7.1) * cyc;
           var ci = Math.floor(sraw / cyc), ph = sraw / cyc - ci;
           var cs = q.seed + ci * 101.3 + level * 17.9;   // reseeded every life
+          var ck = cs + j * 3.1, b0 = born.get(ck); if (b0 === undefined) b0 = q.angle; bornNow.set(ck, b0);
           var jit = hash(cs + j * 31.7) - 0.5;
           var zz = (1 - 2 * (j + 0.5 + jit * 0.55) / F.children) * 0.9;
           var azm = hash(cs + 1.3 + j * 13.9) * 6.2832;
           var sr = Math.sqrt(Math.max(1 - zz * zz, 0));
           var vx = sr * Math.cos(azm), vy = sr * Math.sin(azm), vz = zz;
           if (vy > 0) { vx = -vx; vy = -vy; }   // born on the upper shell (world y is down)
-          // carried round by the parent's roll since birth
-          var ca = ph * cyc, cc = Math.cos(ca), sn = Math.sin(ca);
+          // carried round by the parent's roll since birth (born on top, whatever the parent's angle then)
+          var ca = (q.angle - b0) * rate, cc = Math.cos(ca), sn = Math.sin(ca);
           var d = q.ax * vx + q.ay * vy + q.az * vz;
           var ux = vx * cc + (q.ay * vz - q.az * vy) * sn + q.ax * d * (1 - cc);
           var uy = vy * cc + (q.az * vx - q.ax * vz) * sn + q.ay * d * (1 - cc);
           var uz = vz * cc + (q.ax * vy - q.ay * vx) * sn + q.az * d * (1 - cc);
-          var env = Math.pow(Math.sin(Math.PI * ph), 0.6);
+          // the life envelope: nothing through the first and last 4% of the cycle (no frame straddles the reseed: the seat and
+          // shape change while the child is at zero size), eased in to 24% and out from 76% with zero velocity at both ends.
+          // The old sin^0.6 had infinite slope at birth and death: a child was an eighth of its size 1% into its life
+          var env = smoothstep(0.04, 0.24, ph) * (1 - smoothstep(0.76, 0.96, ph));
           var cr = q.r * F.ratio * (0.8 + 0.4 * hash(cs + 5.1 + j * 23.0)) * env * cf;
           if (cr <= 1e-4) continue;
           var shell = q.r * F.embed * (0.7 + 0.3 * env);
@@ -798,8 +811,9 @@
           next.push({ id: cid, v: cv, F: F, x: x, y: y, r: cr, z: z, zr: zr2, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2, zp: q.zp });
         }
       }
-      queue = next.filter(function (q) { return q.r * q.F.ratio >= minR; }).sort(function (a, b) { return b.r - a.r; });
+      queue = next.filter(function (q) { return thinR(q) >= minR; }).sort(function (a, b) { return b.r - a.r; });
     }
+    this._born = bornNow;
     this.count = n;
     var gl = this.gl;
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);

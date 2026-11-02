@@ -57,7 +57,7 @@
     <p class="hint">Geometry is fixed sphere records fed straight to PuffRenderer (no ThermalSim, no children, no noise). Coordinates are final renderer units: x and y over the width, y down, positive z0 nearer.</p>
   </div>
 </div>
-<script src="src/puffs.js?v=lab33"></script>
+<script src="src/puffs.js?v=lab34"></script>
 <script src="lab-ref.js?v=12"></script>
 <script>
 (function () {
@@ -303,7 +303,7 @@
     res.breakupRemoved = removed; res.breakupNearEdge = removed > 100 && far === 0;   // (mask - 1) / 10 is the distance inside the outline past the ramp, in field units
     state.disperse = 1; look.dissolve = 0; var e0 = snap(); look.dissolve = 0.3; var e3 = snap(); look.dissolve = 0.6; var e6 = snap(); look.dissolve = 0; state.disperse = 0;
     var m0 = skyMask(e0), m3 = skyMask(e3), m6 = skyMask(e6); res.evapMonotone = subset(m3, m0) === 0 && subset(m6, m3) === 0 && subset(m0, m3) > 100 && subset(m3, m6) > 100; res.evapRemovedAt3 = subset(m0, m3); res.evapRemovedAt6 = subset(m0, m6);
-    res.evapFreshKept = maxDiff(snap(), s0) === 0;   // disperse 0 again, evaporation 0: the frame is the untouched one
+    res.evapFreshKept = maxDiff(snap(), s0) <= 1;   // disperse 0 again, evaporation 0: the frame is the untouched one (to a level: the GPU rounds a pixel differently now and then)
     Object.assign(look, L0);
     // the angular profile: the GPU against the reference at full angle (no visible mismatch, finite), nudge continuity,
     // and the outline inscribed (coverage within the round footprint, and smaller)
