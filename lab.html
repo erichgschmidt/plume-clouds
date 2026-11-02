@@ -27,7 +27,7 @@
     <div class="seg"><button class="btn" id="btnPlay">Play</button><button class="btn" id="btnReset">Reset</button></div>
     <h3>View (diag)</h3>
     <div class="seg" id="views"></div>
-    <p class="hint">0 production, 1 grey lighting, 2 height contours, 3 normal RGB, 4 coverage mask, 5 accepted normal neighbours (red = none), 6 the owning group as colour. Click a pixel for its contributors.</p>
+    <p class="hint">0 production, 1 grey lighting, 2 height contours, 3 normal RGB, 4 coverage mask, 5 accepted normal neighbours (red = none), 6 the owning group as colour, 7 the light before the palette (contact and cavity in). Click a pixel for its contributors.</p>
     <h3>Magnify</h3>
     <div class="seg" id="mag"></div>
     <h3>Depth multiplier</h3>
@@ -57,7 +57,7 @@
     <p class="hint">Geometry is fixed sphere records fed straight to PuffRenderer (no ThermalSim, no children, no noise). Coordinates are final renderer units: x and y over the width, y down, positive z0 nearer.</p>
   </div>
 </div>
-<script src="src/puffs.js?v=lab27"></script>
+<script src="src/puffs.js?v=lab32"></script>
 <script src="lab-ref.js?v=11"></script>
 <script>
 (function () {
@@ -128,7 +128,7 @@
     segs.push(function () { bs.forEach(function (b, i) { b.classList.toggle('on', get() === values[i]); }); });
   }
   seg('fixtures', Object.keys(FIXTURES), null, function () { return state.fixture; }, function (v) { state.fixture = v; });
-  seg('views', [0, 1, 2, 3, 4, 5, 6], null, function () { return look.diag; }, function (v) { look.diag = v; });
+  seg('views', [0, 1, 2, 3, 4, 5, 6, 7], null, function () { return look.diag; }, function (v) { look.diag = v; });
   seg('mag', [1, 2, 4], ['1x', '2x', '4x'], function () { return state.mag; }, function (v) { state.mag = v; });
   seg('depth', [0, 0.5, 1, 2], null, function () { return look.depth; }, function (v) { look.depth = v; });
   seg('softness', [0.3, 1, 4], null, function () { return look.softness; }, function (v) { look.softness = v; });
@@ -322,13 +322,25 @@
     state.fixture = 'F Unattached pair'; look.smooth = 0; var sF0 = snap(); look.smooth = 1; var sF1 = snap(); res.smoothKeepsCrease = rowDiff(sF0, sF1) <= 3; res.smoothCreaseMax = rowDiff(sF0, sF1);
     state.fixture = 'B Equal-depth overlap'; look.smooth = 0; var sB0 = snap(); look.smooth = 1; var sB1 = snap(); res.smoothActs = rowDiff(sB0, sB1) > 3; res.smoothBMax = rowDiff(sB0, sB1);
     Object.assign(look, L0);
-    ok = res.unattachedCrisp && res.attachedBlended && res.coverageKept && res.varZeroSame && res.sameSeedSame && res.varChanges && res.reseedChanges && res.reorderSame && res.deformedRef && res.childrenAttached && res.rimKeepsCoverage && res.silRimActs && res.puffRimActs && res.rimsIndependent && res.stippleKeepsCoverage && res.stippleActs && res.breakupOnlyRemoves && res.breakupNearEdge && res.evapMonotone && res.evapFreshKept && res.angularRef && res.angularInscribed && res.smoothDome && res.smoothKeepsStep && res.smoothKeepsCrease && res.smoothActs;
+    // the shadow terms: along a row just inside the top outline of fixture E (view 7, the light before the palette)
+    // Cavity at reach 4, 8, 16 and 24 and Contact 1 add no sign changes of the slope (repeated bands) over the plain
+    // row, and each term acts somewhere
+    look.diag = 7; look.rim = 0; look.puffRim = 0; state.fixture = 'E Three-way junction';
+    function rowE(p) { var r = [], yk = H - 1 - 215; for (var xx = 400; xx < 620; xx += 2) r.push(p[(yk * W + xx) * 4]); return r; }
+    function flips(r) { var n = 0; for (var i = 2; i < r.length; i++) { var a = r[i - 1] - r[i - 2], b = r[i] - r[i - 1]; if (a * b < 0 && Math.abs(a) > 2 && Math.abs(b) > 2) n++; } return n; }
+    look.contact = 0; look.cavity = 0; var pE = snap(), fl0 = flips(rowE(pE)), worst = 0, acts = true;
+    look.cavity = 1; [4, 8, 16, 24].forEach(function (rc) { look.cavityReach = rc; var pc = snap(); worst = Math.max(worst, flips(rowE(pc)) - fl0); if (maxDiff(pE, pc) < 10) acts = false; });
+    look.cavity = 0; look.contact = 1; var pk = snap(); worst = Math.max(worst, flips(rowE(pk)) - fl0); if (maxDiff(pE, pk) < 10) acts = false;
+    res.shadowNoBands = worst <= 0; res.shadowExtraFlips = worst; res.shadowActs = acts; res.shadowBaseFlips = fl0;
+    Object.assign(look, L0);
+    ok = res.unattachedCrisp && res.attachedBlended && res.coverageKept && res.varZeroSame && res.sameSeedSame && res.varChanges && res.reseedChanges && res.reorderSame && res.deformedRef && res.childrenAttached && res.rimKeepsCoverage && res.silRimActs && res.puffRimActs && res.rimsIndependent && res.stippleKeepsCoverage && res.stippleActs && res.breakupOnlyRemoves && res.breakupNearEdge && res.evapMonotone && res.evapFreshKept && res.angularRef && res.angularInscribed && res.smoothDome && res.smoothKeepsStep && res.smoothKeepsCrease && res.smoothActs && res.shadowNoBands && res.shadowActs;
     var line = 'check rules: ' + (ok ? 'PASS' : 'FAIL') + '   unattached crisp ' + res.unattachedCrisp + ' (Gx ' + res.gF.join(' ') + ')   attached blended ' + res.attachedBlended + ' (Gx ' + res.gB.join(' ') + ')   coverage at Dissolve 0 ' + res.coverageKept + ' (' + holes + ' holes / ' + tested + ')' +
       '\n  shape: var 0 same ' + res.varZeroSame + '   same seed same ' + res.sameSeedSame + '   var changes ' + res.varChanges + '   reseed changes ' + res.reseedChanges + '   reorder same ' + res.reorderSame + ' (max ' + res.reorderDiff + ')   deformed vs ref ' + res.deformedRef + ' (' + res.deformedMismatches + ' mismatches, ' + res.deformedVisible + ' visible, nudge max ' + res.deformedNudge + ')   children attached ' + res.childrenAttached + ' (' + nch + ')' +
       '\n  rims: keep coverage ' + res.rimKeepsCoverage + '   silhouette rim acts ' + res.silRimActs + '   puff rim acts ' + res.puffRimActs + '   independent ' + res.rimsIndependent +
       '\n  dither: stipple keeps coverage ' + res.stippleKeepsCoverage + '   stipple acts ' + res.stippleActs + '   breakup only removes ' + res.breakupOnlyRemoves + '   near the edge ' + res.breakupNearEdge + ' (' + res.breakupRemoved + ' px)   evaporation monotone ' + res.evapMonotone + ' (' + res.evapRemovedAt3 + ' / ' + res.evapRemovedAt6 + ' px at .3 / .6)   fresh kept ' + res.evapFreshKept +
       '\n  angular: vs ref ' + res.angularRef + ' (' + res.angularMismatches + ' mismatches, nudge max ' + res.angularNudge + ')   inscribed ' + res.angularInscribed +
-      '\n  normal smooth: dome untouched ' + res.smoothDome + ' (' + res.smoothDomeMax + ')   step kept ' + res.smoothKeepsStep + ' (' + res.smoothStepMax + ')   unattached crease kept ' + res.smoothKeepsCrease + ' (' + res.smoothCreaseMax + ')   attached smooths ' + res.smoothActs + ' (' + res.smoothBMax + ')';
+      '\n  normal smooth: dome untouched ' + res.smoothDome + ' (' + res.smoothDomeMax + ')   step kept ' + res.smoothKeepsStep + ' (' + res.smoothStepMax + ')   unattached crease kept ' + res.smoothKeepsCrease + ' (' + res.smoothCreaseMax + ')   attached smooths ' + res.smoothActs + ' (' + res.smoothBMax + ')' +
+      '\n  shadows: no bands along the outline ' + res.shadowNoBands + ' (extra slope flips ' + res.shadowExtraFlips + ', base ' + res.shadowBaseFlips + ')   contact and cavity act ' + res.shadowActs;
     state.fixture = DEFAULT_FIXTURE; sync(); draw(); hud.textContent += '\n' + line; console.log(line, res); window.labRules = res;
   });
 })();

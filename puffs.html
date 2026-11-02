@@ -44,11 +44,11 @@
     <div id="light"></div>
   </div>
 </div>
-<script src="src/sim.js?v=176"></script>
-<script src="src/puffs.js?v=176"></script>
-<script src="src/motion.js?v=176"></script>
-<script src="src/layer.js?v=176"></script>
-<script src="src/presets.js?v=176"></script>
+<script src="src/sim.js?v=177"></script>
+<script src="src/puffs.js?v=177"></script>
+<script src="src/motion.js?v=177"></script>
+<script src="src/layer.js?v=177"></script>
+<script src="src/presets.js?v=177"></script>
 <script>
 (function () {
   'use strict';
@@ -108,7 +108,7 @@
   var FORCES = CLOUD_FORCES.thermal;
   var SURFACE = [['pixel', 'Pixel size', 1, 6, 1], ['rim', 'Rim soften', 0, 1, 0.01], ['cap', 'Cap', 0, 1, 0.01], ['puffRim', 'Puff rim', 0, 1, 0.01], ['shapeVar', 'Shape variation', 0, 1, 0.01], ['stretchVar', 'Stretch variation', 0, 1, 0.01], ['contourVar', 'Contour irregularity', 0, 1, 0.01], ['shapeSeed', 'Shape seed', 0, 99, 1], ['angular', 'Angular', 0, 1, 0.01], ['sides', 'Sides', 3, 8, 1], ['children', 'Children', 0, 6, 1], ['ratio', 'Size ratio', 0.25, 0.7, 0.01], ['levels', 'Levels', 1, 3, 1], ['life', 'Life', 0, 3, 0.01], ['embed', 'Embed', 0.4, 1, 0.01], ['softness', 'Softness', 0.3, 4, 0.01], ['depth', 'Depth', 0, 2, 0.01], ['swayScale', 'Sway depth', 0, 2, 0.01],
     ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias2', 'Noise 2 bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['shear', 'Shear', 0, 3, 0.05], ['shearBias', 'Shear bias', -1, 1, 0.01], ['wind', 'Wind (deg)', -90, 90, 1], ['lean', 'Lean', -1, 1, 0.01], ['primAmt', 'Primitive amt', 0, 1, 0.01]];
-  var VIEW = [['zoom', 'Scale', 0.5, 2.5, 0.05], ['panX', 'Pan X', -1, 1, 0.01], ['panY', 'Pan Y', -1, 1, 0.01], ['diag', 'Diag view', 0, 6, 1]];
+  var VIEW = [['zoom', 'Scale', 0.5, 2.5, 0.05], ['panX', 'Pan X', -1, 1, 0.01], ['panY', 'Pan Y', -1, 1, 0.01], ['diag', 'Diag view', 0, 7, 1]];
   var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['shadow', 'Shadow', 0, 1, 0.01], ['contact', 'Contact', 0, 1, 0.01], ['cavity', 'Cavity', 0, 1, 0.01], ['cavityReach', 'Cavity reach', 2, 24, 1], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['baseFall', 'Base falloff', 0.1, 1.5, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['dissolve', 'Evaporation', 0, 1, 0.01], ['evapScale', 'Evap. scale', 0.5, 8, 0.1], ['stipple', 'Stipple', 0, 1, 0.01], ['stippleBias', 'Stipple bias', -1, 1, 0.01], ['breakup', 'Edge breakup', 0, 1, 0.01], ['breakupReach', 'Breakup reach', 1, 24, 1], ['dotSize', 'Dot size', 1, 4, 1], ['patternLock', 'Pattern lock', 0, 1, 1], ['grain', 'Palette dither', 0, 2, 0.01], ['depthFall', 'Depth falloff', 0, 1, 0.01], ['cirrus', 'Cirrus', 0, 1, 0.01], ['cirrusScale', 'Cirrus scale', 0.5, 6, 0.1], ['cirrusAngle', 'Cirrus angle', -45, 45, 1], ['veil', 'Veil', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
   var TIPS = { rim: 'Silhouette rim: turns the normal toward the viewer near the exposed outline of the cloud, so the dome edge is not a dark ring. Shading only; independent of Puff rim.',
     shapeVar: 'How far each puff departs from the primitive (0: the exact primitive). Each puff\'s own shape, from its identity and the shape seed; the strength scales it, never rearranges it.',
@@ -170,7 +170,7 @@
     angular: 'Angular profile: each puff\'s outline pulled toward a regular polygon with rounded corners (0: round). Independent of Shape variation.', sides: 'Sides of the angular profile polygon.',
     bands: 'Number of colour bands in the palette.',
     zoom: 'View scale about the base line; the sim is untouched.',
-    diag: 'Diagnostic view: 0 off, 1 continuous grey lighting (no bands, shadow or fill), 2 height contours, 3 the normal as colour, 4 coverage mask, 5 accepted normal neighbours, 6 the owning group as colour.',
+    diag: 'Diagnostic view: 0 off, 1 continuous grey lighting (no bands, shadow or fill), 2 height contours, 3 the normal as colour, 4 coverage mask, 5 accepted normal neighbours, 6 the owning group as colour, 7 the light before the palette (contact and cavity in).',
     panX: 'View offset sideways.',
     panY: 'View offset up and down.'
   };

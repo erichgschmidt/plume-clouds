@@ -456,7 +456,7 @@
   '  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), max(uRim * edge, uPuffRim * bx.a)));\n' +
   '  // diagnostic views (Diag): 1 continuous grey lighting of the final normal (after Rim soften and Puff rim), 2 height, 3 the normal as RGB,\n' +
   '  // 5 how many of the four normal-footprint neighbours the same-surface test accepts (red: none)\n' +
-  '  if(uDiag > 0.5){\n' +
+  '  if(uDiag > 0.5 && uDiag < 6.5){   // (view 7, the light before the palette, is further down)\n' +
   '    if(uDiag < 1.5) fragColor = vec4(vec3(0.2 + 0.8 * max(dot(n, Lv), 0.0)), 1.0);\n' +
   '    else if(uDiag < 2.5) fragColor = vec4(vec3(fract(f.r / uRef * 2.0)), 1.0);\n' +
   '    else if(uDiag < 3.5) fragColor = vec4(n * 0.5 + 0.5, 1.0);\n' +
@@ -475,12 +475,17 @@
   '    vec2 lxy = vec2(Lv.x, -Lv.y); float ll = length(lxy);   // toward the light in uv (world y is down, uv y is up)\n' +
   '    if(ll > 1e-3){\n' +
   '      vec2 ld = lxy / ll; float slope = Lv.z / ll, stepW = uTexel.x * 1.5;\n' +
+  '      ivec2 c0 = ivec2(uv / uTexel); float h0 = texelFetch(uField, c0, 0).r;\n' +
   '      for(int k = 1; k <= 8; k++){\n' +
   '        float dW = stepW * float(k);\n' +
-  '        vec4 fk = texture(uField, uv + vec2(ld.x, ld.y / uAspect) * dW);\n' +
+  '        // the blocker\'s height read per texel, unfiltered (a filtered read at a silhouette mixed the background\'s\n' +
+  '        // height in), and weighted by its coverage confidence (the alpha past the mask ramp) instead of a threshold,\n' +
+  '        // so a step fades in across the outline instead of switching on. Any puff may be the blocker\n' +
+  '        ivec2 ck = ivec2((uv + vec2(ld.x, ld.y / uAspect) * dW) / uTexel); vec4 fk = texelFetch(uField, ck, 0);\n' +
+  '        float conf = smoothstep(0.5, 1.0, fk.a);\n' +
   '        // penumbra: a blocker close by casts a full shadow, one at the end of the march a faint one, so the\n' +
   '        // shadow falls off away from the occluding puff instead of being one flat band\n' +
-  '        if(fk.a > 0.5) occ = max(occ, smoothstep(0.0, 1.5, (fk.r - f.r) / dW - slope) * (1.0 - 0.85 * float(k - 1) / 7.0));\n' +
+  '        occ = max(occ, conf * smoothstep(0.0, 1.5, (fk.r - h0) / dW - slope) * (1.0 - 0.85 * float(k - 1) / 7.0));\n' +
   '      }\n' +
   '    }\n' +
   '  }\n' +
@@ -489,19 +494,24 @@
   '  // its cancelling slopes face the viewer and would catch full light, so less reaches it\n' +
   '  float cav = 0.0;\n' +
   '  if(uCavity > 0.0){\n' +
-  '    // three rings out to Reach texels; each ring asks how far the surface sits below the lower of its two\n' +
-  '    // opposite neighbours (so a rim, higher on its inward side only, is never a valley), as a slope over\n' +
-  '    // that ring\'s radius. Averaging the rings grades the darkening: the valley floor is seen by every\n' +
-  '    // ring, a point part way up a wall only by the wide ones, so it falls off instead of being a band\n' +
-  '    float reach = uCavityReach;   // its own control, not widened by Normal smooth\n' +
-  '    for(int ring = 1; ring <= 3; ring++){\n' +
-  '      float cs = reach * float(ring) / 3.0;\n' +
-  '      vec2 cx = vec2(uTexel.x * cs, 0.0), cy = vec2(0.0, uTexel.y * cs), cd = vec2(uTexel.x, uTexel.y) * cs * 0.7071;\n' +
-  '      vec2 offs[4]; offs[0] = cx; offs[1] = cy; offs[2] = cd; offs[3] = vec2(cd.x, -cd.y);\n' +
-  '      float cavv = 0.0;\n' +
-  '      for(int k = 0; k < 4; k++){ vec4 fa = texture(uField, uv + offs[k]), fb = texture(uField, uv - offs[k]); if(fa.a > 0.5 && fb.a > 0.5) cavv = max(cavv, min(fa.r, fb.r) - f.r); }\n' +
-  '      cav += smoothstep(0.0, 1.0, cavv / (uTexel.x * cs * 1.5)) / 3.0;   // depth below over the ring radius: a slope\n' +
+  '    // four rings out to Reach texels, four opposite pairs each (eight directions); a pair asks how far the surface\n' +
+  '    // sits below the lower of its two samples (so a rim, higher on its inward side only, is never a valley), as a\n' +
+  '    // slope over the ring radius. Heights are read per texel, unfiltered, and every pair is weighted by the coverage\n' +
+  '    // confidence of both samples (the alpha past the mask ramp) and by a Gaussian in the radius, then combined as\n' +
+  '    // a power mean of order eight (near the strongest pair, but smooth): nothing switches on at a threshold or a ring. Three rings\n' +
+  '    // with a hard coverage test, filtered reads and the strongest direction left repeated bands along a silhouette\n' +
+  '    float reach = uCavityReach, wsum = 0.0, acc = 0.0; ivec2 c0 = ivec2(uv / uTexel); float h0 = texelFetch(uField, c0, 0).r;\n' +
+  '    for(int ring = 1; ring <= 4; ring++){\n' +
+  '      float cs = reach * float(ring) / 4.0, wr = exp(-2.0 * float(ring * ring) / 16.0);\n' +
+  '      for(int k = 0; k < 4; k++){\n' +
+  '        float an = float(k) * 0.7853982; vec2 o = vec2(cos(an), sin(an)) * cs;\n' +
+  '        ivec2 oa = ivec2(round(o)); vec4 fa = texelFetch(uField, c0 + oa, 0), fb = texelFetch(uField, c0 - oa, 0);\n' +
+  '        float w = wr * smoothstep(0.5, 1.0, fa.a) * smoothstep(0.5, 1.0, fb.a);\n' +
+  '        float cv = smoothstep(0.0, 1.0, (min(fa.r, fb.r) - h0) / (uTexel.x * cs * 1.5));\n' +
+  '        float c4 = cv * cv * cv * cv; acc += w * c4 * c4; wsum += w;\n' +
+  '      }\n' +
   '    }\n' +
+  '    cav = wsum > 0.0 ? pow(acc / wsum, 0.125) : 0.0;\n' +
   '  }\n' +
   '  float cavity = uCavity * cav;\n' +
   '  float band = sB.y * bx.r;\n' +
@@ -518,6 +528,7 @@
   '  // tone stippling: the light moved up to half a band by the ordered pattern, so pixels choose between the two\n' +
   '  // neighbouring palette colours; placed by Stipple bias (-1 shadows only .. +1 lit only). Coverage is untouched\n' +
   '  if(uStipple > 0.0){ float lw = smoothstep(-0.2, 0.5, lambert), place = uStippleBias > 0.0 ? mix(1.0, lw, uStippleBias) : mix(1.0, 1.0 - lw, -uStippleBias); light += (pat - 0.5) * uStipple * place / (clamp(uBands, 3.0, 5.0) - 1.0); }\n' +
+  '  if(uDiag > 6.5 && uDiag < 7.5){ fragColor = vec4(vec3(clamp(light, 0.0, 1.0)), 1.0); return; }   // diagnostic view 7: the light before the palette (shadow, fill, contact, cavity, bands, stack in)\n' +
   '  vec3 cloud = palette(light);\n' +
   '  cloud = mix(cloud, uSkyColor, uAtmos * (1.0 - clamp(sA.x, 0.0, 1.0)));   // atmospheric perspective between clouds\n' +
   '  float soft = dis > 0.001 ? 1.0 : smoothstep(0.5, 0.5 + max(0.001, 0.45 * haze), f.a);   // a hazy parcel loses its hard edge\n' +
