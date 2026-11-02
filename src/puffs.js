@@ -628,6 +628,7 @@
       // reference radii, top emphasis: how much the exposure concentrates toward the crown
       windSpeed: Math.max(0, num(look.windSpeed, 0)), gust: Math.max(0.2, num(look.gustSize, 1.5)), top: clamp(num(look.topEmphasis, 0.5), 0, 1),
       erosion: Math.max(0, num(look.erosion, 0)),   // wind erosion, step 2: how fast an exposed lobe wears away
+      wisps: clamp(Math.round(num(look.wispAmount, 0) * 8), 0, 8), wispLife: Math.max(1, num(look.wispLife, 8)),   // step 3: wisps per cloud at most, and their life in seconds
       spanY: Math.max(1e-3, baseY - topY),   // the sim's height range (base to nominal top), for the exposure
       prim: prim, pa: clamp(num(look.primAmt, 1), 0, 1), primPacked: prim + clamp(num(look.primAmt, 1), 0, 1) * 0.5,
       children: Math.max(0, Math.round(num(look.children, 4))), ratio: clamp(num(look.ratio, 0.42), 0.1, 0.8),
@@ -696,6 +697,12 @@
     // 3.4: the field pass scales the lobe's radius per pixel by 1 - amount * (0.3 + 0.7 noise), so the last specks go at 3.34;
     // the children carry their root's amount
     var wear = this._wear || new Map(), wearNow = new Map();
+    // wisps (step 3): when a lobe has worn past 1 (its connection thinning), a bounded number per cloud of elongated puffs
+    // separate: one per lobe, born at its downwind edge with its motion, stretching along the wind, speeding up to the wind,
+    // fraying as they go (their own erosion amount rises) and retiring at zero size. Roots without children, of the lobe's
+    // family, so they blend with it while they overlap and part on their own once clear. Keyed by the lobe's id
+    var wisps = this._wisps || new Map();
+    if (time < this._wTime) { drift = new Map(); wear = new Map(); wisps = new Map(); }   // the clock went back (a reset): forget the past
     // roots
     for (c = 0; c < clouds.length; c++) {
       F = form(clouds[c], c);
@@ -758,11 +765,24 @@
             rx += dr.x * sf * F.ref; ry += dr.y * sf * F.ref; stretch *= 1 + 0.5 * al * sf;
           }
           if (F.erosion > 0) { wer = clamp((wear.get(id) || 0) + F.erosion * (ex * ua - 0.15) * 0.15 * dtW, 0, 3.4); wearNow.set(id, wer); }
+          if (wer > 1 && F.wisps > 0 && !wisps.has(id)) {
+            var nw = 0; wisps.forEach(function (w) { if (w.c === c) nw++; });
+            if (nw < F.wisps) wisps.set(id, { c: c, x: rx + F.wx * r * 0.8, y: ry + F.wy * r * 0.8, r: r * 0.6, v: vs * ex * ua, age: 0, life: F.wispLife * (0.7 + 0.6 * hash(id + 9.9)), z: z0, dw: dwp, band: band, pid: pid, id: id + 0.5 + 1000 * hash(id * 0.53 + 3.3) });
+          }
         }
         var vv = vary(F.vary, id);
         if (!put(rx, ry, r, z0, stack0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp, id, pid, vv, wer)) break;
         queue.push({ id: id, v: vv, F: F, x: rx, y: ry, r: r, z: z0, zr: zr, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: stack0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band, zp: F.cam ? zp : 0, wer: wer });
       }
+      // this cloud's wisps: moved, aged, drawn; retired past their life
+      wisps.forEach(function (w, key) {
+        if (w.c !== c) return;
+        w.age += dtW; var u = w.age / w.life; if (u >= 1) { wisps.delete(key); return; }
+        var vw = Math.max(F.windSpeed, 0.25) * 0.4, uv = smoothstep(0, 0.3, u), v = w.v + (vw - w.v) * uv;   // from the lobe's pace up to the wind's
+        w.x += F.wx * v * F.ref * dtW; w.y += F.wy * v * F.ref * dtW;
+        var env = smoothstep(0, 0.15, u) * (1 - smoothstep(0.45, 1, u)), ws = 1.5 + 2.5 * u, wwear = 0.8 + 2.2 * u;   // swells in, stretches and frays out
+        put(w.x, w.y, w.r * env, w.z, 0, 0.3, 0, 1, ws, w.x, w.y, F.primPacked, F.wx, F.wy, w.band, w.dw, w.id, w.pid, vary(F.vary, w.id), wwear);
+      });
     }
     // plan the budget: how many puffs each deeper level wants; the deepest level that does not fit is
     // thinned in whole children (integer slots): each parent keeps floor(fd * children + its own hash)
@@ -853,7 +873,7 @@
       }
       queue = next.filter(function (q) { return thinR(q) >= minR; }).sort(function (a, b) { return b.r - a.r; });
     }
-    this._born = bornNow; this._drift = driftNow; this._wear = wearNow;
+    this._born = bornNow; this._drift = driftNow; this._wear = wearNow; this._wisps = wisps;
     this.count = n;
     var gl = this.gl;
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
