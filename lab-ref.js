@@ -7,7 +7,7 @@
  *   D       renderer._sphData (five rows of MAX_SPH vec4: (x,y,r,z0), attrs, (anchor.xy, stretch, prim),
  *           (wind.xy, band, depth weight), (id, parent id))
  *   count   renderer.count
- *   params  { W, H: field texels; T: uT; cap: uCap; own: uOwn; MAX_SPH (default PuffRenderer.MAX_SPH) }
+ *   params  { W, H: field texels; T: uT; cap: uCap; MAX_SPH (default PuffRenderer.MAX_SPH) }
  *   x, y    texel indices, GL convention (y up from the bottom row), as readPixels addresses them
  *   returns { H, mask, Gx, Gy } = the shader's o.r, o.a, o4.x, o4.y
  */
@@ -19,14 +19,14 @@
 
   function fieldRef(D, count, P, x, y) {
     var M = P.MAX_SPH || (window.PuffRenderer && PuffRenderer.MAX_SPH) || 4096;
-    var W = P.W, Hh = P.H, asp = Hh / W, T = P.T, T2 = T * 4, cap = P.cap, own = P.own;
+    var W = P.W, Hh = P.H, asp = Hh / W, T = P.T, T2 = T * 4, cap = P.cap;
     // p = vec2(vUv.x, (1 - vUv.y) * uAspect) at the texel centre
     var px = (x + 0.5) / W, py = (1 - (y + 0.5) / Hh) * asp;
     var i, o0, o1, o2, o3, o4, dx, dy, r, st, prim, pa, q, len, d2, u, h, along, across;
 
-    // ownership pre-pass (Own 2+): the highest puff containing the pixel
+    // ownership pre-pass: the highest puff containing the pixel
     var winId = -1, winPid = -2, winH = -1e9;
-    if (own > 1.5) for (i = 0; i < count; i++) {
+    for (i = 0; i < count; i++) {
       o0 = i * 4; o2 = (M * 2 + i) * 4; o3 = (M * 3 + i) * 4; o4 = (M * 4 + i) * 4;
       dx = px - D[o0]; dy = py - D[o0 + 1]; r = D[o0 + 2]; st = D[o2 + 2];
       var rr = r * Math.max(Math.max(1, st), 1 / Math.sqrt(Math.max(st, 1e-4)));
@@ -39,7 +39,7 @@
       else if (prim === 4) { q = (Math.abs(dx) + Math.abs(dy)) / Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6); len = mix(1, q, pa); dx *= len; dy *= len; }
       d2 = dx * dx + dy * dy; if (d2 >= r * r) continue;
       u = Math.sqrt(d2) / r;
-      h = D[o0 + 3] + r * mix(own > 2.5 ? Math.sqrt(1 - u * u) : (u < 0.9 ? Math.sqrt(1 - u * u) : 0.43589 - (u - 0.9) * 2.0647), 1 - u * u, cap);
+      h = D[o0 + 3] + r * mix(Math.sqrt(1 - u * u), 1 - u * u, cap);
       if (h > winH) { winH = h; winId = D[o4]; winPid = D[o4 + 1]; }
     }
 
@@ -67,10 +67,10 @@
       if (e > sm) { sacc = sacc * Math.exp(sm - e) + 1; sm = e; } else sacc += Math.exp(e - sm);
       var inside = d2 < r * r;
       u = dist / r;
-      var sph = own > 2.5 ? (u < 1 ? Math.sqrt(1 - u * u) : -(u - 1) * 2.0647) : (u < 0.9 ? Math.sqrt(1 - u * u) : 0.43589 - (u - 0.9) * 2.0647);
+      var sph = u < 1 ? Math.sqrt(1 - u * u) : -(u - 1) * 2.0647;
       var par = u < 1 ? 1 - u * u : -2 * (u - 1);
       h = D[o0 + 3] + r * mix(sph, par, cap) - pen;
-      var dsph = own > 2.5 ? (u < 1 ? Math.max(-20, -u / Math.sqrt(Math.max(1e-6, 1 - u * u))) : -2.0647) : (u < 0.9 ? -u / Math.sqrt(Math.max(1e-6, 1 - u * u)) : -2.0647);
+      var dsph = u < 1 ? Math.max(-20, -u / Math.sqrt(Math.max(1e-6, 1 - u * u))) : -2.0647;
       var dpar = u < 1 ? -2 * u : -2;
       var dpen = (tt > 0 && tt < 0.995) ? Math.min(20, 2 * (2 * tt - tt * tt) / ((1 - tt) * (1 - tt))) : (tt > 0 ? 20 : 0);
       var dpx = dx / Math.max(dist, 1e-6), dpy = dy / Math.max(dist, 1e-6);
@@ -79,7 +79,7 @@
       var gs = mix(dsph, dpar, cap) - dpen, gdx = gs * dpx, gdy = gs * dpy;
       if (inside) ins = Math.max(ins, smoothstep(0, T, r - dist));
       var wa = 1;
-      if (own > 1.5 && inside) { var id = D[o4], pid = D[o4 + 1]; if (!(id === winId || pid === winPid || pid === winId || id === winPid)) wa = smoothstep(-0.25 * T, 0, h - winH); }
+      if (inside) { var id = D[o4], pid = D[o4 + 1]; if (!(id === winId || pid === winPid || pid === winId || id === winPid)) wa = smoothstep(-0.25 * T, 0, h - winH); }
       var w, wq;
       if (inside) {
         if (h > m) { wq = Math.exp((m - h) / T); acc = acc * wq + wa; GIx = GIx * wq + wa * gdx; GIy = GIy * wq + wa * gdy; m = h; }
@@ -97,7 +97,7 @@
     var HI = acc > 0 ? m + T * Math.log(acc) : -1e9, HO = accO > 0 ? mO + T * Math.log(accO) : -1e9;
     var HO0 = HO;
     if (HI > -1e8 && HO > -1e8) HO -= ins * Math.max(0, HO - (HI - 2 * T));
-    if (own > 0.5 && HO > -1e8) { HO = g > 1e-4 ? HO + T * Math.log(g) : -1e9; if (g <= 1e-4) accO = 0; }
+    if (HO > -1e8) { HO = g > 1e-4 ? HO + T * Math.log(g) : -1e9; if (g <= 1e-4) accO = 0; }
     var Hm = Math.max(HI, HO);
     var Hf = Hm > -1e8 ? Hm + T * Math.log(Math.exp((HI - Hm) / T) + Math.exp((HO - Hm) / T)) : -1;
     var gIx = acc > 0 ? GIx / acc : 0, gIy = acc > 0 ? GIy / acc : 0, gOx = accO > 0 ? GOx / accO : 0, gOy = accO > 0 ? GOy / accO : 0;

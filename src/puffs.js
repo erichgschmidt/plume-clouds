@@ -34,7 +34,7 @@
   // sphere texture rows: 0 (x, y, r, z0); 1 (stack, detail, fresh, dispersal);
   // 2 (anchor x, anchor y, stretch, prim id + amt/2); 3 (wind x, wind y, band, depth weight: cloud dw + puff dw / 4 packed as floor + fract)
   var FIELD_FS = '#version 300 es\nprecision highp float; precision highp sampler2D;\n' +
-  'uniform sampler2D uSph; uniform int uCount; uniform float uAspect; uniform float uT, uCap, uOwn;\n' +
+  'uniform sampler2D uSph; uniform int uCount; uniform float uAspect; uniform float uT, uCap;\n' +
   'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3; layout(location = 3) out vec4 o4;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
@@ -50,12 +50,12 @@
   '  float sm = -1e9, sacc = 0.0;                            // silhouette (soft union of r - dist)\n' +
   '  vec2 GI = vec2(0.0), GO = vec2(0.0);                   // gradient sums of the two sets, weighted like acc / accO\n' +
   '  float T = uT, T2 = uT * 4.0;\n' +
-  '  // ownership (Own 2, docs/core-audit.md step 2): the highest puff containing the pixel owns it. A containing\n' +
+  '  // ownership (docs/core-audit.md): the highest puff containing the pixel owns it. A containing\n' +
   '  // puff attached to the owner (same parent, or its parent or child) joins it softly over T as before; an\n' +
   '  // unattached one only shows where it is higher, over a quarter T: a crisp overlap with the front puff\'s own\n' +
   '  // shading instead of a blend of the two across the edge\n' +
   '  float winId = -1.0, winPid = -2.0, winH = -1e9;\n' +
-  '  if(uOwn > 1.5) for(int i = 0; i < 4096; i++){\n' +
+  '  for(int i = 0; i < 4096; i++){\n' +
   '    if(i >= uCount) break;\n' +
   '    vec4 s = texelFetch(uSph, ivec2(i, 0), 0); vec2 d = p - s.xy; float r = s.z;\n' +
   '    vec4 sh = texelFetch(uSph, ivec2(i, 2), 0);\n' +
@@ -70,7 +70,7 @@
   '    else if(prim == 4) d *= mix(1.0, (abs(d.x) + abs(d.y)) / max(length(d), 1e-6), pa);\n' +
   '    float d2 = dot(d, d); if(d2 >= r * r) continue;\n' +
   '    float u = sqrt(d2) / r;\n' +
-  '    float h = s.w + r * mix(uOwn > 2.5 ? sqrt(1.0 - u * u) : (u < 0.9 ? sqrt(1.0 - u * u) : 0.43589 - (u - 0.9) * 2.0647), 1.0 - u * u, uCap);\n' +
+  '    float h = s.w + r * mix(sqrt(1.0 - u * u), 1.0 - u * u, uCap);\n' +
   '    if(h > winH){ winH = h; vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); winId = idp.x; winPid = idp.y; }\n' +
   '  }\n' +
   '  for(int i = 0; i < 4096; i++){\n' +
@@ -98,20 +98,17 @@
   '    if(e > sm){ sacc = sacc * exp(sm - e) + 1.0; sm = e; } else sacc += exp(e - sm);\n' +
   '    bool inside = d2 < r * r;\n' +
   '    vec4 a = texelFetch(uSph, ivec2(i, 1), 0);\n' +
-  '    // profile, continuous in height AND slope from the centre out through the skirt (a slope step at\n' +
-  '    // the radius drew a thin dark arc with a lighter strip outside it): the sphere is kept to 0.9 r\n' +
-  '    // and continued along its own tangent (slope -2.06) through the rim into the skirt; Cap mixes\n' +
-  '    // toward a parabola, whose rim slope -2 already matches its skirt\n' +
+  '    // profile: the sphere to its true limb (a tangent cone from 0.9 r gave the outer tenth one flat normal, a\n' +
+  '    // band round every puff), then the skirt falling from height 0 at the rim at slope -2.06; the limb\'s\n' +
+  '    // steep slope is lifted toward the viewer by the shade pass (the puff\'s own rim, at Rim soften strength,\n' +
+  '    // as the silhouette is). Cap mixes toward a parabola, whose rim slope -2 already matches its skirt\n' +
   '    float u = dist / r;\n' +
-  '    // Own 3 (docs/core-audit.md step 3): the sphere is profiled to its true limb (no tangent cone, so no\n' +
-  '    // flat band of one normal round the outer tenth), the skirt falls from height 0 at the rim, and the\n' +
-  '    // shade pass lifts the puff\'s own rim toward the viewer at Rim soften strength, as the silhouette is\n' +
-  '    float sph = uOwn > 2.5 ? (u < 1.0 ? sqrt(1.0 - u * u) : -(u - 1.0) * 2.0647) : (u < 0.9 ? sqrt(1.0 - u * u) : 0.43589 - (u - 0.9) * 2.0647);\n' +
+  '    float sph = u < 1.0 ? sqrt(1.0 - u * u) : -(u - 1.0) * 2.0647;\n' +
   '    float par = u < 1.0 ? 1.0 - u * u : -2.0 * (u - 1.0);\n' +
   '    float h = s.w + r * mix(sph, par, uCap) - pen;\n' +
   '    // the puff\'s own slope, analytic: d h / d dist along d, mapped back through the stretch (the other\n' +
   '    // primitive distortions are left as the identity, a small error in direction only)\n' +
-  '    float dsph = uOwn > 2.5 ? (u < 1.0 ? max(-20.0, -u / sqrt(max(1e-6, 1.0 - u * u))) : -2.0647) : (u < 0.9 ? -u / sqrt(max(1e-6, 1.0 - u * u)) : -2.0647);\n' +
+  '    float dsph = u < 1.0 ? max(-20.0, -u / sqrt(max(1e-6, 1.0 - u * u))) : -2.0647;\n' +
   '    float dpar = u < 1.0 ? -2.0 * u : -2.0;\n' +
   '    // the penalty\'s slope is bounded: it diverges at the cutoff (80000 at tt 0.995, past the largest half float,\n' +
   '    // and the gradient target is RGBA16F, linearly filtered), while anything past 20 lights as a wall anyway\n' +
@@ -121,8 +118,8 @@
   '    if(sh.z != 1.0) dirp = dirp.x * wd.xy / sh.z + dirp.y * vec2(wd.y, -wd.x) * sqrt(sh.z);\n' +
   '    vec2 gd = (mix(dsph, dpar, uCap) - dpen) * dirp;\n' +
   '    if(inside) ins = max(ins, smoothstep(0.0, T, r - dist));\n' +
-  '    float wa = 1.0;   // Own 2: an unattached containing puff fades out a quarter T below the owner\n' +
-  '    if(uOwn > 1.5 && inside){ vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); if(!(idp.x == winId || idp.y == winPid || idp.y == winId || idp.x == winPid)) wa = smoothstep(-0.25 * T, 0.0, h - winH); }\n' +
+  '    float wa = 1.0;   // an unattached containing puff fades out a quarter T below the owner\n' +
+  '    if(inside){ vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); if(!(idp.x == winId || idp.y == winPid || idp.y == winId || idp.x == winPid)) wa = smoothstep(-0.25 * T, 0.0, h - winH); }\n' +
   '    float w, rim = 1.0 - smoothstep(0.0, 0.3, 1.0 - dist / r);   // this puff\'s own rim: 1 at the edge, 0 a third of a radius in\n' +
   '    if(inside){\n' +
   '      if(h > m){ float wq = exp((m - h) / T); acc = acc * wq + wa; GI = GI * wq + wa * gd; cIdx = floor(wd.w); m = h; } else { float wq = wa * exp((h - m) / T); acc += wq; GI += wq * gd; }\n' +
@@ -146,12 +143,11 @@
   '  float HI = acc > 0.0 ? m + T * log(acc) : -1e9, HO = accO > 0.0 ? mO + T * log(accO) : -1e9;\n' +
   '  float HO0 = HO;\n' +
   '  if(HI > -1e8 && HO > -1e8) HO -= ins * max(0.0, HO - (HI - 2.0 * T));\n' +
-  '  // Own (step 1 of the ownership refactor, docs/core-audit.md): inside a footprint the skirt set is also\n' +
-  '  // weighted by g = 1 - ins, so a fully containing puff owns its pixels outright: no skirt height, no skirt\n' +
-  '  // slope (the clamp seam and the join groove the lab measured are both skirt slope inside a footprint).\n' +
-  '  // Across the footprint ramp the weight falls with the same ins the clamp uses. Outside every footprint,\n' +
-  '  // where the outlines merge, nothing changes\n' +
-  '  if(uOwn > 0.5 && HO > -1e8){ HO = g > 1e-4 ? HO + T * log(g) : -1e9; if(g <= 1e-4) accO = 0.0; }\n' +
+  '  // and inside a footprint the skirt set is also weighted by g = 1 - ins, so a fully containing puff owns\n' +
+  '  // its pixels outright: no skirt height, no skirt slope (the clamp seam and the join groove the lab measured\n' +
+  '  // were both skirt slope inside a footprint). Across the footprint ramp the weight falls with the same ins\n' +
+  '  // the clamp uses. Outside every footprint, where the outlines merge, the skirts stand as before\n' +
+  '  if(HO > -1e8){ HO = g > 1e-4 ? HO + T * log(g) : -1e9; if(g <= 1e-4) accO = 0.0; }\n' +
   '  float Hm = max(HI, HO);\n' +
   '  float H = Hm > -1e8 ? Hm + T * log(exp((HI - Hm) / T) + exp((HO - Hm) / T)) : -1.0;\n' +
   '  if(acc <= 0.0) cIdx = cIdxO;\n' +
@@ -191,7 +187,7 @@
   'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
   'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow, uDissolve, uDotSize, uVeil;\n' +
   'uniform vec3 uSkyColor;\n' +
-  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach, uGrain, uDiag, uOwn;\n' +
+  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach, uGrain, uDiag;\n' +
   'uniform vec4 uCam;   // camera x, camera z, horizon (field y), cirrus altitude; w <= 0: no camera (the flat veil)\n' +
   'in vec2 vUv; out vec4 fragColor;\n' +
   // simplex-ish 2D noise (Ashima-style, compact)
@@ -337,7 +333,7 @@
   '  }\n' +
   '  // the rim turns toward the viewer: the dome edge is otherwise a dark ring that reads as an outline;\n' +
   '  // the same at a puff\'s own rim inside the cloud, where one dome falls steeply over the puff behind it\n' +
-  '  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), max(uRim * edge, max(uPuffRim, uOwn > 2.5 ? uRim : 0.0) * bx.a)));   // Own 3: the own rim at Rim soften strength\n' +
+  '  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), max(uRim * edge, max(uPuffRim, uRim) * bx.a)));   // the own rim at least at Rim soften strength (the true limb needs it)\n' +
   '  // diagnostic views (Diag): 1 continuous grey lighting of the final normal (after Rim soften and Puff rim), 2 height, 3 the normal as RGB,\n' +
   '  // 5 how many of the four normal-footprint neighbours the same-surface test accepts (red: none)\n' +
   '  if(uDiag > 0.5){\n' +
@@ -424,8 +420,8 @@
     this._float32 = !!gl.getExtension('OES_texture_float_linear');   // the height target is 32-bit when it can be filtered
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
-    this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT', 'uCap', 'uOwn']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain', 'uDiag', 'uOwn']);
+    this._fu = uniforms(gl, this._field, ['uSph', 'uCount', 'uAspect', 'uT', 'uCap']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain', 'uDiag']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 5);   // five rows: the fifth is (puff id, parent id)
     this._sphTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
@@ -668,7 +664,7 @@
     gl.useProgram(this._field);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
     gl.uniform1i(this._fu.uSph, 0); gl.uniform1i(this._fu.uCount, this.count); gl.uniform1f(this._fu.uAspect, asp);
-    gl.uniform1f(this._fu.uT, Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4))); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0), 0, 1)); gl.uniform1f(this._fu.uOwn, num(sky.own, 0));
+    gl.uniform1f(this._fu.uT, Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4))); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0), 0, 1));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // shade
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);
@@ -703,7 +699,7 @@
     gl.uniform4fv(su.uStyleA, SA); gl.uniform4fv(su.uStyleB, SB);
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);
     gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);
-    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0)); gl.uniform1f(su.uOwn, num(sky.own, 0));
+    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0));
     var cam = sky.cam; gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   };

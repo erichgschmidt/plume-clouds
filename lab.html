@@ -40,13 +40,11 @@
     <div class="seg" id="smooth"></div>
     <h3>Shadow</h3>
     <div class="seg" id="shadow"></div>
-    <h3>Own (step 1 / 2 / 3)</h3>
-    <div class="seg" id="own"></div>
     <p class="hint">Geometry is fixed sphere records fed straight to PuffRenderer (no ThermalSim, no children, no noise). Coordinates are final renderer units: x and y over the width, y down, positive z0 nearer.</p>
   </div>
 </div>
-<script src="src/puffs.js?v=lab4"></script>
-<script src="lab-ref.js?v=1"></script>
+<script src="src/puffs.js?v=lab5"></script>
+<script src="lab-ref.js?v=2"></script>
 <script>
 (function () {
   'use strict';
@@ -119,7 +117,6 @@
   seg('rim', [0, 0.5, 1], null, function () { return look.rim; }, function (v) { look.rim = v; });
   seg('smooth', [0, 0.5, 1], null, function () { return look.smooth; }, function (v) { look.smooth = v; });
   seg('shadow', [0, 0.64, 1], null, function () { return look.shadow; }, function (v) { look.shadow = v; });
-  seg('own', [0, 1, 2, 3], ['off', '1', '2', '3'], function () { return look.own || 0; }, function (v) { look.own = v; });
   function sync() {
     segs.forEach(function (f) { f(); });
     $('btnSwap').classList.toggle('on', state.swap); $('btnShift').classList.toggle('on', state.shift); $('btnPlay').classList.toggle('on', state.playing);
@@ -157,7 +154,7 @@
       var ref = REF * look.zoom, T = Math.max(0.002, ref * 0.08 * look.softness);
       hud.textContent = state.fixture + (state.swap ? ' (depths swapped)' : '') + (state.shift ? ' (x +0.25 px)' : '') + '\n' +
         'puffs ' + renderer.count + '   field ' + renderer._w + 'x' + renderer._h + '   height ' + (renderer._float32 ? 'RGBA32F' : 'RGBA16F') + '\n' +
-        'T ' + T.toFixed(4) + ' (' + (T * W).toFixed(1) + ' px)   softness ' + look.softness + '   depth x' + look.depth + '   diag ' + look.diag + '   own ' + (look.own || 0) + '\n' +
+        'T ' + T.toFixed(4) + ' (' + (T * W).toFixed(1) + ' px)   softness ' + look.softness + '   depth x' + look.depth + '   diag ' + look.diag + '\n' +
         'records ' + (ok ? 'OK' : 'MISMATCH') + '   t ' + state.time.toFixed(2) + 's   hash ' + hash;
       window.labHash = hash;
   }
@@ -184,7 +181,7 @@
     gl.readBuffer(gl.COLOR_ATTACHMENT0); gl.readPixels(x0, y0, ww, hh, gl.RGBA, gl.FLOAT, hp);
     gl.readBuffer(gl.COLOR_ATTACHMENT3); gl.readPixels(x0, y0, ww, hh, gl.RGBA, gl.FLOAT, gp);
     gl.readBuffer(gl.COLOR_ATTACHMENT0); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    var P = { W: fw, H: fh, T: Math.max(0.002, REF * look.zoom * 0.08 * look.softness), cap: look.cap, own: look.own || 0, MAX_SPH: PuffRenderer.MAX_SPH };
+    var P = { W: fw, H: fh, T: Math.max(0.002, REF * look.zoom * 0.08 * look.softness), cap: look.cap,  MAX_SPH: PuffRenderer.MAX_SPH };
     var eH = 0, eM = 0, eG = 0, bad = [], n = 0;
     for (var j = 0; j < hh; j++) for (var i = 0; i < ww; i++) {
       var o = (j * ww + i) * 4, ref = fieldRef(renderer._sphData, renderer.count, P, x0 + i, y0 + j);
