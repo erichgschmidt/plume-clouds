@@ -43,8 +43,8 @@
     <p class="hint">Geometry is fixed sphere records fed straight to PuffRenderer (no ThermalSim, no children, no noise). Coordinates are final renderer units: x and y over the width, y down, positive z0 nearer.</p>
   </div>
 </div>
-<script src="src/puffs.js?v=lab8"></script>
-<script src="lab-ref.js?v=3"></script>
+<script src="src/puffs.js?v=lab10"></script>
+<script src="lab-ref.js?v=5"></script>
 <script>
 (function () {
   'use strict';
@@ -60,7 +60,8 @@
     'C Depth overlap': [[0.44, 0.375, 0.10, 0.075], [0.56, 0.375, 0.10, -0.075]],
     'D Small foreground lobe': [[0.48, 0.39, 0.16, -0.03], [0.59, 0.35, 0.07, 0.10]],
     'E Three-way junction': [[0.44, 0.40, 0.10, 0], [0.56, 0.40, 0.10, 0.06], [0.50, 0.296, 0.10, -0.06]],
-    'F Unattached pair': [[0.44, 0.375, 0.10, 0, -10], [0.56, 0.375, 0.10, 0, -20]]   // B with different parents (5th value): under Own 2 the crease is a crisp overlap, not a T blend
+    'F Unattached pair': [[0.44, 0.375, 0.10, 0, -10], [0.56, 0.375, 0.10, 0, -20]],   // B with different parents (5th value): the crease is a crisp overlap, not a T blend
+    'G Competing families': [[0.44, 0.375, 0.10, 0, -10], [0.56, 0.375, 0.10, 0, -20], [0.50, 0.33, 0.05, 0.04, 1]]   // F plus a child of the first root (parent 1 = its id): the two families cross under the child
   };
   var DEFAULT_FIXTURE = 'C Depth overlap';
 
@@ -96,7 +97,7 @@
   }
   function records() {
     var sh = state.shift ? 0.25 / W : 0, sg = state.swap ? -1 : 1;
-    return FIXTURES[state.fixture].map(function (r) { return [r[0] + sh, r[1], r[2], r[3] * sg, r[4]]; });
+    return FIXTURES[state.fixture].map(function (r, idx) { return [r[0] + sh, r[1], r[2], r[3] * sg + (idx === 1 ? (state.nudge || 0) : 0), r[4]]; });   // nudge: a tiny height change of the second record, for the continuity check
   }
 
   // controls: segmented buttons, one variable each; geometry is not regenerated, only the records re-read
@@ -168,31 +169,40 @@
   window.renderer = renderer; window.labState = state;
   requestAnimationFrame(frame);
 
-  // Check ref (docs/core-audit.md step 5): the field rows of a 64x48 window centred on the frame against the
-  // CPU port in lab-ref.js, for the current fixture and look. Height and mask from COLOR_ATTACHMENT0, the
-  // gradient from COLOR_ATTACHMENT3 (RGBA16F, so G agrees to about 1e-3; H is 32-bit when _float32)
+  // Check ref (docs/core-audit.md step 5): the field, sampled every 8th texel over the whole frame (so the
+  // silhouettes and the overlaps are in it), against the CPU port in lab-ref.js, for the current fixture and
+  // look. Height and mask from COLOR_ATTACHMENT0, the gradient from COLOR_ATTACHMENT3 (RGBA16F, so G agrees to
+  // about 1e-3; H is 32-bit when _float32). A non-finite value on either side is a mismatch. Then the
+  // continuity check: the second record's height nudged by 1e-6 must not change any pixel by more than a
+  // few grey levels (a rule tied to a winning puff jumped by a whole contribution at a crossing)
   var btnCheck = document.createElement('button'); btnCheck.className = 'btn'; btnCheck.id = 'btnCheck'; btnCheck.textContent = 'Check ref';
   $('btnReset').parentNode.appendChild(btnCheck);
   btnCheck.addEventListener('click', function () {
     draw();
-    var gl = renderer.gl, fw = renderer._w, fh = renderer._h, ww = 64, hh = 48, x0 = (fw - ww) >> 1, y0 = (fh - hh) >> 1;
+    var gl = renderer.gl, fw = renderer._w, fh = renderer._h, ww = fw, hh = fh, x0 = 0, y0 = 0, step = 8;
     var hp = new Float32Array(ww * hh * 4), gp = new Float32Array(ww * hh * 4);
     gl.bindFramebuffer(gl.FRAMEBUFFER, renderer._fbo);
     gl.readBuffer(gl.COLOR_ATTACHMENT0); gl.readPixels(x0, y0, ww, hh, gl.RGBA, gl.FLOAT, hp);
     gl.readBuffer(gl.COLOR_ATTACHMENT3); gl.readPixels(x0, y0, ww, hh, gl.RGBA, gl.FLOAT, gp);
     gl.readBuffer(gl.COLOR_ATTACHMENT0); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     var P = { W: fw, H: fh, T: Math.max(0.002, REF * look.zoom * 0.08 * look.softness), cap: look.cap, dissolve: look.dissolve || 0, dotSize: 1,  MAX_SPH: PuffRenderer.MAX_SPH };
-    var eH = 0, eM = 0, eG = 0, bad = [], n = 0;
-    for (var j = 0; j < hh; j++) for (var i = 0; i < ww; i++) {
-      var o = (j * ww + i) * 4, ref = fieldRef(renderer._sphData, renderer.count, P, x0 + i, y0 + j);
+    var eH = 0, eM = 0, eG = 0, bad = [], n = 0, total = 0;
+    for (var j = 4; j < hh; j += step) for (var i = 4; i < ww; i += step) {
+      var o = (j * ww + i) * 4, ref = fieldRef(renderer._sphData, renderer.count, P, x0 + i, y0 + j); total++;
+      var vals = [hp[o], hp[o + 3], gp[o], gp[o + 1], ref.H, ref.mask, ref.Gx, ref.Gy], finite = vals.every(function (v) { return isFinite(v); });
       var dH = Math.abs(hp[o] - ref.H), dM = Math.abs(hp[o + 3] - ref.mask), dG = Math.max(Math.abs(gp[o] - ref.Gx), Math.abs(gp[o + 1] - ref.Gy));
-      eH = Math.max(eH, dH); eM = Math.max(eM, dM); eG = Math.max(eG, dG);
-      if (dH > 1e-3 || dM > 1e-3 || dG > 1e-2) { n++; if (bad.length < 6) bad.push({ x: x0 + i, y: y0 + j, gpu: { H: hp[o], mask: hp[o + 3], Gx: gp[o], Gy: gp[o + 1] }, ref: ref }); }
+      if (finite) { eH = Math.max(eH, dH); eM = Math.max(eM, dM); eG = Math.max(eG, dG); }
+      var tolG = 5e-3 * Math.max(1, Math.abs(ref.Gx), Math.abs(ref.Gy));   // half float: relative, and the skirt slope reaches 20 at the fringe
+      if (!finite || dH > 1e-3 || dM > 1e-3 || dG > tolG) { n++; if (bad.length < 6) bad.push({ x: x0 + i, y: y0 + j, finite: finite, gpu: { H: hp[o], mask: hp[o + 3], Gx: gp[o], Gy: gp[o + 1] }, ref: ref }); }
     }
-    var line = 'check ref: max |dH| ' + eH.toExponential(2) + '   |dMask| ' + eM.toExponential(2) + '   |dG| ' + eG.toExponential(2) + '   mismatches ' + n + '/' + (ww * hh);
+    var line = 'check ref: max |dH| ' + eH.toExponential(2) + '   |dMask| ' + eM.toExponential(2) + '   |dG| ' + eG.toExponential(2) + '   mismatches ' + n + '/' + total;
+    // continuity: the frame before and after a 1e-6 nudge of the second record's height
+    var before = new Uint8Array(pix); state.nudge = 1e-6; draw(); var after = new Uint8Array(pix); state.nudge = 0; draw();
+    var jump = 0, jumps = 0; for (var k = 0; k < before.length; k += 4) { var dj = Math.abs(before[k] - after[k]); if (dj > jump) jump = dj; if (dj > 3) jumps++; }
+    line += '   nudge 1e-6: max pixel change ' + jump + ' (' + jumps + ' pixels over 3)';
     hud.textContent += '\n' + line;
     console.log(line, bad);
-    window.labCheck = { dH: eH, dMask: eM, dG: eG, mismatches: n, first: bad };
+    window.labCheck = { dH: eH, dMask: eM, dG: eG, mismatches: n, total: total, first: bad, jump: jump, jumps: jumps };
   });
 })();
 </script>

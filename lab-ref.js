@@ -22,14 +22,16 @@
     var W = P.W, Hh = P.H, asp = Hh / W, T = P.T, T2 = T * 4, cap = P.cap, dissolve = P.dissolve || 0, dot = P.dotSize || 1;
     // the dither threshold at this texel (gl_FragCoord = texel + 0.5), for the dissolve of dispersing puffs
     var BAY = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-    var bq = Math.floor((x + 0.5) / dot) + 7, bqy = Math.floor((y + 0.5) / dot) + 7, bay = BAY[(((bqy % 4) + 4) % 4) * 4 + (((bq % 4) + 4) % 4)] / 16 - 0.5 + 0.5;
-    function dissolved(i) { var dis = D[(M + i) * 4 + 3]; return dis > 0.001 && bay < dissolve * dis; }
+    var bq = Math.floor((x + 0.5) / dot) + 7, bqy = Math.floor((y + 0.5) / dot) + 7;
+    function fr(v) { return v - Math.floor(v); }
+    function dissolved(i) { var dis = D[(M + i) * 4 + 3]; if (dis <= 0.001) return false; var id = D[(M * 4 + i) * 4], hx = fr(Math.sin(id * 12.9898) * 43758.5453), hy = fr(Math.sin(id * 78.233) * 43758.5453);
+      var qx = bq + Math.floor(hx * 4), qy = bqy + Math.floor(hy * 4), bay = BAY[(((qy % 4) + 4) % 4) * 4 + (((qx % 4) + 4) % 4)] / 16 - 0.5 + 0.5; return bay < dissolve * dis; }
     // p = vec2(vUv.x, (1 - vUv.y) * uAspect) at the texel centre
     var px = (x + 0.5) / W, py = (1 - (y + 0.5) / Hh) * asp;
     var i, o0, o1, o2, o3, o4, dx, dy, r, st, prim, pa, q, len, d2, u, h, along, across;
 
     // ownership pre-pass: the highest puff containing the pixel
-    var winId = -1, winPid = -2, winH = -1e9;
+    var winId = -1, winPid = -2, winH = -1e9, ph = [], pidA = [], ppA = [];
     for (i = 0; i < count; i++) {
       o0 = i * 4; o2 = (M * 2 + i) * 4; o3 = (M * 3 + i) * 4; o4 = (M * 4 + i) * 4;
       dx = px - D[o0]; dy = py - D[o0 + 1]; r = D[o0 + 2]; st = D[o2 + 2];
@@ -45,6 +47,8 @@
       if (dissolved(i)) continue;
       u = Math.sqrt(d2) / r;
       h = D[o0 + 3] + r * mix(Math.sqrt(1 - u * u), 1 - u * u, cap);
+      if (ph.length < 8) { ph.push(h); pidA.push(D[o4]); ppA.push(D[o4 + 1]); }
+      else { var lo = 0; for (var qq = 1; qq < 8; qq++) if (ph[qq] < ph[lo]) lo = qq; if (h > ph[lo]) { ph[lo] = h; pidA[lo] = D[o4]; ppA[lo] = D[o4 + 1]; } }
       if (h > winH) { winH = h; winId = D[o4]; winPid = D[o4 + 1]; }
     }
 
@@ -85,7 +89,7 @@
       var gs = mix(dsph, dpar, cap) - dpen, gdx = gs * dpx, gdy = gs * dpy;
       if (inside) ins = Math.max(ins, smoothstep(0, T, r - dist));
       var wa = 1;
-      if (inside) { var id = D[o4], pid = D[o4 + 1]; if (!(id === winId || pid === winPid || pid === winId || id === winPid)) wa = smoothstep(-0.25 * T, 0, h - winH); }
+      if (inside) { var id = D[o4], pid = D[o4 + 1]; for (var q2 = 0; q2 < ph.length; q2++) if (!(id === pidA[q2] || pid === ppA[q2] || pid === pidA[q2] || id === ppA[q2])) wa *= smoothstep(-0.25 * T, 0, h - ph[q2]); }
       var w, wq;
       if (inside) {
         if (h > m) { wq = Math.exp((m - h) / T); acc = acc * wq + wa; GIx = GIx * wq + wa * gdx; GIy = GIy * wq + wa * gdy; m = h; }

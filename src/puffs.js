@@ -36,12 +36,14 @@
   var FIELD_FS = '#version 300 es\nprecision highp float; precision highp sampler2D;\n' +
   'uniform sampler2D uSph; uniform float uAspect; uniform float uT, uCap;\n' +
   '// tiles: the spheres whose reach touches a 16-texel tile, as a list per tile (uTileHead: offset, count; uTileList: indices)\n' +
-  'uniform sampler2D uTileHead, uTileList; uniform float uTexW; uniform ivec2 uTiles;\n' +
+  'uniform sampler2D uTileHead, uTileList; uniform float uTexW, uTileSize; uniform ivec2 uTiles;\n' +
   '// dissolve: a dispersing puff (attribute w) loses texels on the dither grid HERE, in the union and the silhouette,\n' +
   '// so the holes show the cloud behind it (the shade pass used to drop the pixel to sky instead)\n' +
   'uniform float uDissolve, uDotSize;\n' +
   'float bayer(vec2 p){ vec2 q = mod(floor(p), 4.0); float m[16]; m[0]=0.;m[1]=8.;m[2]=2.;m[3]=10.;m[4]=12.;m[5]=4.;m[6]=14.;m[7]=6.;m[8]=3.;m[9]=11.;m[10]=1.;m[11]=9.;m[12]=15.;m[13]=7.;m[14]=13.;m[15]=5.; return m[int(q.y) * 4 + int(q.x)] / 16.0 - 0.5; }\n' +
-  'bool dissolved(int i){ float dis = texelFetch(uSph, ivec2(i, 1), 0).w; return dis > 0.001 && bayer(floor(gl_FragCoord.xy / uDotSize) + 7.0) + 0.5 < uDissolve * dis; }\n' +
+  'bool dissolved(int i){ float dis = texelFetch(uSph, ivec2(i, 1), 0).w; if(dis <= 0.001) return false;\n' +
+  '  float id = texelFetch(uSph, ivec2(i, 4), 0).x, hx = fract(sin(id * 12.9898) * 43758.5453), hy = fract(sin(id * 78.233) * 43758.5453);   // the pattern shifted per puff (by its persistent id), so stacked puffs open different holes\n' +
+  '  return bayer(floor(gl_FragCoord.xy / uDotSize) + 7.0 + floor(vec2(hx, hy) * 4.0)) + 0.5 < uDissolve * dis; }\n' +
   'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3; layout(location = 3) out vec4 o4;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
@@ -57,13 +59,16 @@
   '  float sm = -1e9, sacc = 0.0;                            // silhouette (soft union of r - dist)\n' +
   '  vec2 GI = vec2(0.0), GO = vec2(0.0);                   // gradient sums of the two sets, weighted like acc / accO\n' +
   '  float T = uT, T2 = uT * 4.0;\n' +
-  '  // ownership (docs/core-audit.md): the highest puff containing the pixel owns it. A containing\n' +
-  '  // puff attached to the owner (same parent, or its parent or child) joins it softly over T as before; an\n' +
-  '  // unattached one only shows where it is higher, over a quarter T: a crisp overlap with the front puff\'s own\n' +
-  '  // shading instead of a blend of the two across the edge\n' +
-  '  ivec2 tile = clamp(ivec2(p * uTexW / 16.0), ivec2(0), uTiles - 1);\n' +
+  '  // ownership (docs/core-audit.md): a containing puff is hidden by every unattached containing puff above it\n' +
+  '  // (not the same parent, nor its parent or child), fading out a quarter T below each: a crisp overlap with the\n' +
+  '  // front puff\'s own shading, while attached puffs join softly over T as before. Pairwise, so no winner is\n' +
+  '  // chosen: a rule tied to the single highest puff changed the whole set of contributors when that puff\n' +
+  '  // changed, a jump in the surface at every crossing. The pre-pass keeps the eight highest containing puffs\n' +
+  '  // (a ninth is hidden by them anyway); the highest one is the owner, whose family the shade pass gets\n' +
+  '  ivec2 tile = clamp(ivec2(p * uTexW / uTileSize), ivec2(0), uTiles - 1);\n' +
   '  vec2 thead = texelFetch(uTileHead, tile, 0).xy; int toff = int(thead.x), tcnt = int(thead.y);\n' +
   '  float winId = -1.0, winPid = -2.0, winH = -1e9;\n' +
+  '  float ph[8], pidA[8], ppA[8]; int pn = 0;\n' +
   '  for(int k = 0; k < 4096; k++){\n' +
   '    if(k >= tcnt) break;\n' +
   '    int i = int(texelFetch(uTileList, ivec2((toff + k) & 4095, (toff + k) >> 12), 0).x);\n' +
@@ -82,7 +87,10 @@
   '    if(dissolved(i)) continue;\n' +
   '    float u = sqrt(d2) / r;\n' +
   '    float h = s.w + r * mix(sqrt(1.0 - u * u), 1.0 - u * u, uCap);\n' +
-  '    if(h > winH){ winH = h; vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); winId = idp.x; winPid = idp.y; }\n' +
+  '    vec4 idp = texelFetch(uSph, ivec2(i, 4), 0);\n' +
+  '    if(pn < 8){ ph[pn] = h; pidA[pn] = idp.x; ppA[pn] = idp.y; pn++; }\n' +
+  '    else { int lo = 0; for(int q = 1; q < 8; q++) if(ph[q] < ph[lo]) lo = q; if(h > ph[lo]){ ph[lo] = h; pidA[lo] = idp.x; ppA[lo] = idp.y; } }\n' +
+  '    if(h > winH){ winH = h; winId = idp.x; winPid = idp.y; }\n' +
   '  }\n' +
   '  for(int k = 0; k < 4096; k++){\n' +
   '    if(k >= tcnt) break;\n' +
@@ -131,8 +139,8 @@
   '    if(sh.z != 1.0) dirp = dirp.x * wd.xy / sh.z + dirp.y * vec2(wd.y, -wd.x) * sqrt(sh.z);\n' +
   '    vec2 gd = (mix(dsph, dpar, uCap) - dpen) * dirp;\n' +
   '    if(inside) ins = max(ins, smoothstep(0.0, T, r - dist));\n' +
-  '    float wa = 1.0;   // an unattached containing puff fades out a quarter T below the owner\n' +
-  '    if(inside){ vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); if(!(idp.x == winId || idp.y == winPid || idp.y == winId || idp.x == winPid)) wa = smoothstep(-0.25 * T, 0.0, h - winH); }\n' +
+  '    float wa = 1.0;   // hidden by every unattached containing puff above it\n' +
+  '    if(inside){ vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); for(int q = 0; q < 8; q++){ if(q >= pn) break; if(!(idp.x == pidA[q] || idp.y == ppA[q] || idp.y == pidA[q] || idp.x == ppA[q])) wa *= smoothstep(-0.25 * T, 0.0, h - ph[q]); } }\n' +
   '    float w, rim = 1.0 - smoothstep(0.0, 0.3, 1.0 - dist / r);   // this puff\'s own rim: 1 at the edge, 0 a third of a radius in\n' +
   '    if(inside){\n' +
   '      if(h > m){ float wq = exp((m - h) / T); acc = acc * wq + wa; GI = GI * wq + wa * gd; cIdx = floor(wd.w); m = h; } else { float wq = wa * exp((h - m) / T); acc += wq; GI += wq * gd; }\n' +
@@ -190,7 +198,7 @@
   '  o = vec4(H, dSum * ia, sSum * ia, mask + 10.0 * max(0.0, sil - 0.5 * T));\n' +
   '  o2 = vec4(acc2 > 0.0 ? fSum * ia : 1.0, xSum * ia, anc * ia);\n' +
   '  o3 = vec4(bSum * ia, acc2 > 0.0 ? wSum * ia : 1.0, cIdx, rSum * ia);\n' +
-  '  o4 = vec4(G, sil, 0.0);   // z: the signed distance to the silhouette line, field units (the rim weight distance)\n' +
+  '  o4 = vec4(G, sil, winPid);   // z: the signed distance to the silhouette line (field units); w: the owner\'s group (its parent id)\n' +
   '}';
 
   var SHADE_FS = '#version 300 es\nprecision highp float;\n' +
@@ -264,7 +272,9 @@
   '  // continued at 2.06, a flattened disc reaches about 5), so a height change steeper than 10 over the sample distance\n' +
   '  // is a front puff\'s edge over the surface behind it, an occluding edge like the silhouette\n' +
   '  vec2 dd = vec2(uv.x - uv0.x, (uv.y - uv0.y) * uAspect);\n' +
-  '  float ins = (f.a < 0.5 || abs(texture(uAux2, uv).b - texture(uAux2, uv0).b) > 0.5 || abs(f.r - texture(uField, uv0).r) > 10.0 * length(dd) + 1e-6) ? 0.0 : 1.0;\n' +
+  '  // ... or in another group (the owner\'s parent id, fetched unfiltered): a crisp overlap between unattached puffs is a\n' +
+  '  // boundary the smoothing must not cross; roots of one cloud share a group, a root\'s children another\n' +
+  '  float ins = (f.a < 0.5 || abs(texture(uAux2, uv).b - texture(uAux2, uv0).b) > 0.5 || texelFetch(uAux3, ivec2(uv / uTexel), 0).w != texelFetch(uAux3, ivec2(uv0 / uTexel), 0).w || abs(f.r - texture(uField, uv0).r) > 10.0 * length(dd) + 1e-6) ? 0.0 : 1.0;\n' +
   '  if(ins < 0.5) f = texture(uField, uv0);   // never read height outside the silhouette (the rim)\n' +
   '  vec2 w0 = (vec2(uv.x, (1.0 - uv.y) * uAspect) - uAnchor * texture(uAux, uv0).ba) / uRef;   // noise rides with the parcel\n' +
   '  float t = uTime * uFlow;\n' +
@@ -435,14 +445,14 @@
     this._float32 = !!gl.getExtension('OES_texture_float_linear');   // the height target is 32-bit when it can be filtered
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
-    this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTiles', 'uAspect', 'uT', 'uCap', 'uDissolve', 'uDotSize']);
+    this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTileSize', 'uTiles', 'uAspect', 'uT', 'uCap', 'uDissolve', 'uDotSize']);
     this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain', 'uDiag', 'uT']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 5);   // five rows: the fifth is (puff id, parent id)
     this._sphTex = gl.createTexture();
     // tile lists: a head texture (offset, count) per 16-texel tile, sized in resize, and a flat index list
-    this._tileHead = gl.createTexture(); this._tileList = gl.createTexture(); this._tileData = new Float32Array(4096 * 256);
-    gl.bindTexture(gl.TEXTURE_2D, this._tileList); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 4096, 256, 0, gl.RED, gl.FLOAT, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    this._tileHead = gl.createTexture(); this._tileList = gl.createTexture(); this._tileSize = 16;
+    this._listRows = 0; this._maxListRows = 2048;   // the list grows (doubling rows) up to 8M entries; past that the tiles double instead
+    this._growList(256);
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, MAX_SPH, 5, 0, gl.RGBA, gl.FLOAT, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
@@ -459,9 +469,7 @@
     var w = Math.max(32, width | 0), h = Math.max(32, height ? height | 0 : Math.round(w * asp));
     if (w === this._w && h === this._h) return;
     this._w = w; this._h = h;
-    this._tx = Math.ceil(w / 16); this._ty = Math.ceil(h / 16); this._headData = new Float32Array(this._tx * this._ty * 2);
-    gl.bindTexture(gl.TEXTURE_2D, this._tileHead); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, this._tx, this._ty, 0, gl.RG, gl.FLOAT, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    this._tileSize = 16; this._sizeTiles();
     var f32 = this._float32;
     [this._fieldTex, this._auxTex, this._aux2Tex, this._aux3Tex].forEach(function (tex, ti) {
       gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -561,7 +569,7 @@
           // the camera's sway is a translation: a puff nearer than the cloud's centre shifts more. Its depth in
           // the field (screen units) is a world depth of (z0 - zOff) * z / f, so the sway term is re-projected
           // at the puff's own distance; children get the same from their own depth below
-          var sc2 = C.f / Math.max(0.05, zp - (z0 - F.zOff) * C.z / C.f);
+          var sc2 = C.f / Math.max(0.05, zp - zr * F.swayScale * C.z / C.f);   // by the unscaled depth and Sway depth: Depth (relief) no longer moves the sway
           rx += -C.sx * (sc2 - sc); ry += C.sy * (sc2 - sc);
         } else {
           rx = F.pivX + (B[o] - F.pivX) * F.zoom; ry = F.pivY + (B[o + 1] - F.pivY) * F.zoom;
@@ -571,7 +579,7 @@
         }
         if (r <= 1e-4) continue;   // a parcel still too small to draw: skip it, never stop the loop (put() fails for the budget too, and that break hid every later parcel)
         var stack0 = 0;   // a root puff carries no stack shade; children add their parent's underside
-        var id = n + 1, pid = sim.parent ? sim.parent[i] : -(c + 1);
+        var id = B[o + 3], pid = sim.parent ? sim.parent[i] : -(c + 1);   // the id is the parcel's seed: persistent across frames, unlike an upload index
         if (!put(rx, ry, r, z0, stack0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp, id, pid)) break;
         queue.push({ id: id, F: F, x: rx, y: ry, r: r, z: z0, zr: zr, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: stack0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band, zp: F.cam ? zp : 0 });
       }
@@ -636,7 +644,7 @@
           // nearer or farther, so it sways by that much more (otherwise children slide with their root as a group)
           var pz = uz * shell * F.swayScale / F.ref; x += (F.sim.swx || 0) * F.zoom * pz; y += (F.sim.swy || 0) * F.zoom * pz;
           if (F.cam && q.zp > 0) {   // under the camera: the sway re-projected at the child's depth, less the parent's share
-            var Cc = F.cam, scP = Cc.f / Math.max(0.05, q.zp - (q.z - F.zOff) * Cc.z / Cc.f), scC = Cc.f / Math.max(0.05, q.zp - (z - F.zOff) * Cc.z / Cc.f);
+            var Cc = F.cam, scP = Cc.f / Math.max(0.05, q.zp - q.zr * F.swayScale * Cc.z / Cc.f), scC = Cc.f / Math.max(0.05, q.zp - zr2 * F.swayScale * Cc.z / Cc.f);
             x += -Cc.sx * (scC - scP); y += Cc.sy * (scC - scP);
           }
           // stacked shade: the own gradient is in the shader; the inherited part is the parent's
@@ -644,7 +652,7 @@
           var stack = q.stack * 0.6 + 0.5 * smoothstep(-0.6, 0.9, uy);
           var band2 = F.cam ? q.band : smoothstep(0, F.baseFall, 1 - (F.baseT - y) / F.spanT);   // under the camera the band is the parent's (a sheet's rows are depth, not height)
           var pdw2 = clamp(0.5 + 0.5 * zr2 / (F.ref * 2), 0, 1) * F.dw, dwp2 = F.idx + pdw2 * 0.25;
-          var cid = n + 1;
+          var cid = cs + j * 3.1;   // the child's seed: persistent for its life
           put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id);
           next.push({ id: cid, F: F, x: x, y: y, r: cr, z: z, zr: zr2, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2, zp: q.zp });
         }
@@ -660,27 +668,42 @@
     this._bin();
   };
 
-  // Bin the spheres into 16-texel tiles by their reach (the field pass's coarse reject: r * max(1, stretch,
+  PuffRenderer.prototype._growList = function (rows) {
+    var gl = this.gl; this._listRows = rows; this._tileData = new Float32Array(4096 * rows);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this._tileList); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 4096, rows, 0, gl.RED, gl.FLOAT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  };
+  PuffRenderer.prototype._sizeTiles = function () {
+    var gl = this.gl, ts = this._tileSize; this._tx = Math.ceil(this._w / ts); this._ty = Math.ceil(this._h / ts); this._headData = new Float32Array(this._tx * this._ty * 2);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this._tileHead); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, this._tx, this._ty, 0, gl.RG, gl.FLOAT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  };
+
+  // Bin the spheres into tiles (16 texels, doubled when the list would exceed its ceiling) by their reach (the field pass's coarse reject: r * max(1, stretch,
   // 1 / sqrt(stretch)) * 1.6, so every sphere a texel could accept is in its tile's list). Counting sort:
   // counts per tile, prefix offsets, then the indices; the list is one flat texture, 4096 wide
   PuffRenderer.prototype._bin = function () {
-    var D = this._sphData, n = this.count, W = this._w, tx = this._tx, ty = this._ty, head = this._headData, list = this._tileData, cap = list.length;
+    var D = this._sphData, n = this.count, W = this._w, tx = this._tx, ty = this._ty, head = this._headData, list = this._tileData, cap = list.length, TS = this._tileSize;
     var cnt = new Int32Array(tx * ty), box = new Int32Array(n * 4), i, o, x0, x1, y0, y1, x, y;
     for (i = 0; i < n; i++) {
-      o = i * 4; var st = D[(MAX_SPH * 2 + i) * 4 + 2], reach = D[o + 2] * Math.max(1, st, 1 / Math.sqrt(Math.max(st, 1e-4))) * 1.6 * W / 16;
-      var cx = D[o] * W / 16, cy = D[o + 1] * W / 16;
+      o = i * 4; var st = D[(MAX_SPH * 2 + i) * 4 + 2], reach = D[o + 2] * Math.max(1, st, 1 / Math.sqrt(Math.max(st, 1e-4))) * 1.6 * W / TS;
+      var cx = D[o] * W / TS, cy = D[o + 1] * W / TS;
       x0 = Math.max(0, Math.floor(cx - reach)); x1 = Math.min(tx - 1, Math.floor(cx + reach)); y0 = Math.max(0, Math.floor(cy - reach)); y1 = Math.min(ty - 1, Math.floor(cy + reach));
       box[o] = x0; box[o + 1] = x1; box[o + 2] = y0; box[o + 3] = y1;
       for (y = y0; y <= y1; y++) for (x = x0; x <= x1; x++) cnt[y * tx + x]++;
     }
     var total = 0, t;
     for (t = 0; t < cnt.length; t++) { head[t * 2] = total; head[t * 2 + 1] = 0; total += cnt[t]; }
-    if (total > cap) { if (!this._binWarned) { this._binWarned = true; console.warn('tile list overflow', total); } }
+    if (total > cap) {   // too many entries: a longer list while it fits the ceiling, else coarser tiles (fewer entries per sphere), and bin again
+      if (this._listRows < this._maxListRows) { this._growList(Math.min(this._maxListRows, this._listRows * 2)); return this._bin(); }
+      if (TS < 256) { this._tileSize = TS * 2; this._sizeTiles(); return this._bin(); }
+      if (!this._binWarned) { this._binWarned = true; console.warn('tile list overflow', total); }
+    }
     for (i = 0; i < n; i++) {
       o = i * 4; x0 = box[o]; x1 = box[o + 1]; y0 = box[o + 2]; y1 = box[o + 3];
       for (y = y0; y <= y1; y++) for (x = x0; x <= x1; x++) { t = y * tx + x; var k = head[t * 2] + head[t * 2 + 1]; if (k < cap) { list[k] = i; head[t * 2 + 1]++; } }
     }
-    var gl = this.gl, rows = Math.min(256, Math.max(1, Math.ceil(Math.min(total, cap) / 4096)));
+    var gl = this.gl, rows = Math.min(this._listRows, Math.max(1, Math.ceil(Math.min(total, cap) / 4096)));
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this._tileHead); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, tx, ty, gl.RG, gl.FLOAT, head);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this._tileList); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 4096, rows, gl.RED, gl.FLOAT, list, 0);
     this.tileEntries = total;
@@ -717,7 +740,7 @@
     gl.useProgram(this._field);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this._tileHead); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this._tileList);
-    gl.uniform1i(this._fu.uSph, 0); gl.uniform1i(this._fu.uTileHead, 1); gl.uniform1i(this._fu.uTileList, 2); gl.uniform1f(this._fu.uTexW, this._w); gl.uniform2i(this._fu.uTiles, this._tx, this._ty); gl.uniform1f(this._fu.uAspect, asp);
+    gl.uniform1i(this._fu.uSph, 0); gl.uniform1i(this._fu.uTileHead, 1); gl.uniform1i(this._fu.uTileList, 2); gl.uniform1f(this._fu.uTexW, this._w); gl.uniform1f(this._fu.uTileSize, this._tileSize); gl.uniform2i(this._fu.uTiles, this._tx, this._ty); gl.uniform1f(this._fu.uAspect, asp);
     var T = Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4)); this._T = T;
     gl.uniform1f(this._fu.uT, T); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0), 0, 1)); gl.uniform1f(this._fu.uDissolve, clamp(num(sky.dissolve, 0.7), 0, 1)); gl.uniform1f(this._fu.uDotSize, Math.max(1, Math.round(num(sky.dotSize, 1))));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
