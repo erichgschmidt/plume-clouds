@@ -5,7 +5,7 @@
  *
  * fieldRef(D, count, params, x, y)
  *   D       renderer._sphData (seven rows of MAX_SPH vec4: (x,y,r,z0), attrs, (anchor.xy, stretch, prim),
- *           (wind.xy, band, depth weight), (id, parent id), (cos, sin, aspect, bound), (A1, B1, A3, B3))
+ *           (wind.xy, band, depth weight), (id, parent id), (cos, sin, aspect, bound), (A1, B1, A3, B3), (angular, sides))
  *   count   renderer.count
  *   params  { W, H: field texels; T: uT; cap: uCap; MAX_SPH (default PuffRenderer.MAX_SPH) }
  *   x, y    texel indices, GL convention (y up from the bottom row), as readPixels addresses them
@@ -17,18 +17,32 @@
   function mix(a, b, t) { return a * (1 - t) + b * t; }
   function smoothstep(a, b, x) { var t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
   // the shape variation (FIELD_FS varyIn / varyGrad): rows 5 and 6 of puff i
+  // the contour factor and its derivative (FIELD_FS shapeF): harmonics (row 6) times the rounded polygon (row 7)
+  function shapeF(D, M, i, ph) {
+    var o6 = (M * 6 + i) * 4, o7 = (M * 7 + i) * 4;
+    var f = 1 + D[o6] * Math.cos(ph) + D[o6 + 1] * Math.sin(ph) + D[o6 + 2] * Math.cos(3 * ph) + D[o6 + 3] * Math.sin(3 * ph);
+    var df = -D[o6] * Math.sin(ph) + D[o6 + 1] * Math.cos(ph) - 3 * D[o6 + 2] * Math.sin(3 * ph) + 3 * D[o6 + 3] * Math.cos(3 * ph);
+    var amt = D[o7];
+    if (amt > 0) {
+      var hs = Math.PI / D[o7 + 1], t = ((ph % (2 * hs)) + 2 * hs) % (2 * hs) - hs, cp = Math.cos(hs), ct = Math.cos(t);
+      var a = cp / ct, da = cp * Math.sin(t) / (ct * ct);
+      var u = clamp((Math.abs(t) - 0.65 * hs) / (0.35 * hs), 0, 1), sm = u * u * (3 - 2 * u), dsm = 6 * u * (1 - u) / (0.35 * hs) * Math.sign(t);
+      var g = mix(a, 1, sm), dg = da * (1 - sm) + (1 - a) * dsm, P = mix(1, g, amt), dP = amt * dg;
+      df = df * P + f * dP; f *= P;
+    }
+    return [f, df];
+  }
   function varyIn(D, M, i, dx, dy) {
-    var o5 = (M * 5 + i) * 4, o6 = (M * 6 + i) * 4, c = D[o5], sn = D[o5 + 1], a = D[o5 + 2];
+    var o5 = (M * 5 + i) * 4, c = D[o5], sn = D[o5 + 1], a = D[o5 + 2];
     var qx = c * dx + sn * dy, qy = -sn * dx + c * dy; qx /= 1 + a; qy *= 1 + a;
-    var ph = Math.atan2(qy, qx), f = 1 + D[o6] * Math.cos(ph) + D[o6 + 1] * Math.sin(ph) + D[o6 + 2] * Math.cos(3 * ph) + D[o6 + 3] * Math.sin(3 * ph);
+    var ph = Math.atan2(qy, qx), f = shapeF(D, M, i, ph)[0];
     qx /= f; qy /= f;
     return [c * qx - sn * qy, sn * qx + c * qy];
   }
   function varyGrad(D, M, i, gx, gy, x1, y1) {
-    var o5 = (M * 5 + i) * 4, o6 = (M * 6 + i) * 4, c = D[o5], sn = D[o5 + 1], a = D[o5 + 2];
+    var o5 = (M * 5 + i) * 4, c = D[o5], sn = D[o5 + 1], a = D[o5 + 2];
     var g1x = c * gx + sn * gy, g1y = -sn * gx + c * gy, px = c * x1 + sn * y1, py = -sn * x1 + c * y1;
-    var ph = Math.atan2(py, px), f = 1 + D[o6] * Math.cos(ph) + D[o6 + 1] * Math.sin(ph) + D[o6 + 2] * Math.cos(3 * ph) + D[o6 + 3] * Math.sin(3 * ph);
-    var df = -D[o6] * Math.sin(ph) + D[o6 + 1] * Math.cos(ph) - 3 * D[o6 + 2] * Math.sin(3 * ph) + 3 * D[o6 + 3] * Math.cos(3 * ph);
+    var ph = Math.atan2(py, px), fd = shapeF(D, M, i, ph), f = fd[0], df = fd[1];
     var qx = px * f, qy = py * f, q2 = Math.max(qx * qx + qy * qy, 1e-12), dq = qx * g1x + qy * g1y;
     var g2x = g1x / f - df * -qy * dq / (q2 * f * f), g2y = g1y / f - df * qx * dq / (q2 * f * f);
     g2x /= 1 + a; g2y *= 1 + a;
@@ -39,9 +53,13 @@
     var M = P.MAX_SPH || (window.PuffRenderer && PuffRenderer.MAX_SPH) || 4096;
     var W = P.W, Hh = P.H, asp = Hh / W, T = P.T, T2 = T * 4, cap = P.cap, dissolve = P.dissolve || 0, dot = P.dotSize || 1;
     // the dither threshold at this texel (gl_FragCoord = texel + 0.5), for the dissolve of dispersing puffs
-    var BAY = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-    var bq = Math.floor((x + 0.5) / dot) + 7, bqy = Math.floor((y + 0.5) / dot) + 7, bay = BAY[(((bqy % 4) + 4) % 4) * 4 + (((bq % 4) + 4) % 4)] / 16 - 0.5 + 0.5;
-    function dissolved(i) { var dis = D[(M + i) * 4 + 3]; return dis > 0.001 && bay < dissolve * dis; }
+    function fr(v) { return v - Math.floor(v); }
+    function bayer8(x, y) { x = ((x % 8) + 8) % 8; y = ((y % 8) + 8) % 8; var v = 0; for (var b = 0; b < 3; b++) v = v * 4 + ((x >> (2 - b)) & 1) * 2 + (((x ^ y) >> (2 - b)) & 1); return v / 64 - 0.5; }
+    function h21(x, y) { var h = (Math.imul(x | 0, 73856093) ^ Math.imul(y | 0, 19349663)) >>> 0; h = Math.imul(h, 2654435761) >>> 0; h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 2246822519) >>> 0; return (h >>> 8) / 16777216; }
+    function vnoise(x, y) { var ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy); return mix(mix(h21(ix, iy), h21(ix + 1, iy), fx), mix(h21(ix, iy + 1), h21(ix + 1, iy + 1), fx), fy); }
+    var bq = Math.floor((x + 0.5) / dot), bqy = Math.floor((y + 0.5) / dot), b8 = bayer8(bq, bqy) + 0.5, evapScale = P.evapScale || 3, ref = P.ref || 0.1;
+    function dissolved(i) { var dis = D[(M + i) * 4 + 3]; if (dis <= 0.001) return false; var o2d = (M * 2 + i) * 4, pid = D[(M * 4 + i) * 4 + 1], ph = h21(Math.floor(pid * 64), 7);
+      var n = vnoise((px - D[o2d]) / ref * evapScale + ph * 37.1, (py - D[o2d + 1]) / ref * evapScale + ph * 11.7); return dissolve * dis > 0.85 * n + 0.15 * b8; }
     // p = vec2(vUv.x, (1 - vUv.y) * uAspect) at the texel centre
     var px = (x + 0.5) / W, py = (1 - (y + 0.5) / Hh) * asp;
     var i, o0, o1, o2, o3, o4, dx, dy, r, st, prim, pa, q, len, d2, u, h, along, across;

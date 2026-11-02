@@ -46,11 +46,19 @@
     <div class="seg" id="shapeSeed"></div>
     <h3>Puff rim</h3>
     <div class="seg" id="puffRim"></div>
+    <h3>Angular</h3>
+    <div class="seg" id="angular"></div>
+    <h3>Disperse (then Evaporation)</h3>
+    <div class="seg" id="disperse"></div>
+    <div class="seg" id="dissolve"></div>
+    <h3>Stipple / Edge breakup</h3>
+    <div class="seg" id="stipple"></div>
+    <div class="seg" id="breakup"></div>
     <p class="hint">Geometry is fixed sphere records fed straight to PuffRenderer (no ThermalSim, no children, no noise). Coordinates are final renderer units: x and y over the width, y down, positive z0 nearer.</p>
   </div>
 </div>
-<script src="src/puffs.js?v=lab19"></script>
-<script src="lab-ref.js?v=8"></script>
+<script src="src/puffs.js?v=lab24"></script>
+<script src="lab-ref.js?v=11"></script>
 <script>
 (function () {
   'use strict';
@@ -76,7 +84,7 @@
   var LOOK0 = Object.freeze({ prim: 'sphere', primAmt: 1, zoom: 1, panX: 0, panY: 0, depth: 1, softness: 0.30, cap: 0, children: 0, levels: 1, ratio: 0.42, life: 0, embed: 0.78, roll: 1,
     rim: 0, puffRim: 0, smooth: 0, depthFall: 0, noise: 0, noiseScale: 1, noise2: 0, noise2Scale: 4, noiseBias: 0, noiseBias2: 0, flow: 0, anchor: 1, shear: 0, shearBias: 0, wind: 0, lean: 0,
     haze: 0, atmos: 0, contact: 0, cavity: 0, cavityReach: 8, baseShade: 0, stackShade: 0, dissolve: 0, dither: 0, grain: 0, cirrus: 0, veil: 0, far: 1,
-    shapeVar: 0, stretchVar: 1, contourVar: 1, shapeSeed: 1,
+    shapeVar: 0, stretchVar: 1, contourVar: 1, shapeSeed: 1, angular: 0, sides: 5, evapScale: 3, stipple: 0, stippleBias: 0, breakup: 0, breakupReach: 6, patternLock: 1,
     sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, pixelated: true, pixel: 1, diag: 1 });
   var look = {};
 
@@ -90,7 +98,7 @@
       B[o] = rec[0]; B[o + 1] = rec[1]; B[o + 2] = rec[2]; B[o + 3] = rec[5] !== undefined ? rec[5] : i + 1;   // x, y, r, seed (the id)
       A[o] = 0; A[o + 1] = 0.5 + rec[3] / (2 * REF); A[o + 2] = 0; A[o + 3] = 1;   // -, depth 0..1, -, link
       S[o] = 0; S[o + 1] = 0; S[o + 2] = 1; S[o + 3] = 0;   // spin axis z, angle 0
-      Dt[i] = 1;   // fresh: never dispersing
+      Dt[i] = 1 - (state.disperse || 0);   // fresh (1): never dispersing; Disperse sets every record's dispersal
       P[i] = rec[4] !== undefined ? rec[4] : -1;   // parent id: all one family unless the fixture says otherwise
     }
     return { blobs: B, aux: A, spin: S, detail: Dt, parent: P, stretch: null, blobCount: n, baseStart: n, baseY: 0.75, topY: 0, cx: 0.5, refRadius: REF, swx: 0, swy: 0, time: 0 };
@@ -130,6 +138,11 @@
   seg('shapeVar', [0, 0.5, 1], null, function () { return look.shapeVar; }, function (v) { look.shapeVar = v; });
   seg('shapeSeed', [1, 2, 3], null, function () { return look.shapeSeed; }, function (v) { look.shapeSeed = v; });
   seg('puffRim', [0, 0.5, 1], null, function () { return look.puffRim; }, function (v) { look.puffRim = v; });
+  seg('angular', [0, 0.5, 1], null, function () { return look.angular; }, function (v) { look.angular = v; });
+  seg('disperse', [0, 0.5, 1], ['fresh', 'disperse .5', 'disperse 1'], function () { return state.disperse || 0; }, function (v) { state.disperse = v; });
+  seg('dissolve', [0, 0.3, 0.6, 0.9], ['evap 0', '.3', '.6', '.9'], function () { return look.dissolve; }, function (v) { look.dissolve = v; });
+  seg('stipple', [0, 0.5, 1], ['stipple 0', '.5', '1'], function () { return look.stipple; }, function (v) { look.stipple = v; });
+  seg('breakup', [0, 0.5, 1], ['breakup 0', '.5', '1'], function () { return look.breakup; }, function (v) { look.breakup = v; });
   function sync() {
     segs.forEach(function (f) { f(); });
     $('btnSwap').classList.toggle('on', state.swap); $('btnShift').classList.toggle('on', state.shift); $('btnPlay').classList.toggle('on', state.playing);
@@ -197,7 +210,7 @@
     gl.readBuffer(gl.COLOR_ATTACHMENT0); gl.readPixels(x0, y0, ww, hh, gl.RGBA, gl.FLOAT, hp);
     gl.readBuffer(gl.COLOR_ATTACHMENT3); gl.readPixels(x0, y0, ww, hh, gl.RGBA, gl.FLOAT, gp);
     gl.readBuffer(gl.COLOR_ATTACHMENT0); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    var P = { W: fw, H: fh, T: Math.max(0.002, REF * look.zoom * 0.08 * look.softness), cap: look.cap, dissolve: look.dissolve || 0, dotSize: 1,  MAX_SPH: PuffRenderer.MAX_SPH };
+    var P = refParams();
     var eH = 0, eM = 0, eG = 0, bad = [], n = 0, nv = 0, total = 0;
     for (var j = 4; j < hh; j += step) for (var i = 4; i < ww; i += step) {
       var o = (j * ww + i) * 4, ref = fieldRef(renderer._sphData, renderer.count, P, x0 + i, y0 + j); total++;
@@ -220,7 +233,7 @@
     return window.labCheck;
   }
   btnCheck.addEventListener('click', checkRef);
-  function refParams() { return { W: renderer._w, H: renderer._h, T: Math.max(0.002, REF * look.zoom * 0.08 * look.softness), cap: look.cap, dissolve: look.dissolve || 0, dotSize: 1, MAX_SPH: PuffRenderer.MAX_SPH }; }
+  function refParams() { return { W: renderer._w, H: renderer._h, T: Math.max(0.002, REF * look.zoom * 0.08 * look.softness), cap: look.cap, dissolve: look.dissolve || 0, dotSize: 1, evapScale: look.evapScale, ref: REF * look.zoom, MAX_SPH: PuffRenderer.MAX_SPH }; }
   // the click probe: which puff contributes at this texel, and why (lab-ref.js probe)
   canvas.addEventListener('click', function (e) {
     var rect = canvas.getBoundingClientRect(), x = Math.floor((e.clientX - rect.left) / state.mag), yTop = Math.floor((e.clientY - rect.top) / state.mag), y = H - 1 - yTop;
@@ -278,10 +291,32 @@
     function lobe(a, b) { var m = 0; for (var yy = 340; yy < 380; yy++) for (var xx = 528; xx < 548; xx++) { var k = ((H - 1 - yy) * W + xx) * 4; m = Math.max(m, Math.abs(a[k] - b[k])); } return m; }   // the small lobe's left rim, inside the big puff
     res.silRimActs = maxDiff(g00, g10) > 10; res.puffRimActs = lobe(g00, g01) > 10; res.rimsIndependent = lobe(g00, g10) === 0;
     Object.assign(look, L0);
-    ok = res.unattachedCrisp && res.attachedBlended && res.coverageKept && res.varZeroSame && res.sameSeedSame && res.varChanges && res.reseedChanges && res.reorderSame && res.deformedRef && res.childrenAttached && res.rimKeepsCoverage && res.silRimActs && res.puffRimActs && res.rimsIndependent;
+    // the three dither effects. Stipple keeps coverage (the mask view and the sky pixels are the same at 0 and 1) and acts;
+    // edge breakup removes coverage only within Breakup reach of the outline and only ever removes; evaporation of a
+    // dispersing puff only grows with the strength (no mark reshuffles) and removes nothing from a fresh puff
+    function skyMask(a) { var m = new Uint8Array(a.length / 4); for (var k = 0; k < a.length; k += 4) m[k / 4] = (a[k] === 19 && a[k + 1] === 115 && a[k + 2] === 147) ? 0 : 1; return m; }   // 1 = cloud pixel
+    function subset(a, b) { var extra = 0; for (var k = 0; k < a.length; k++) if (a[k] && !b[k]) extra++; return extra; }   // cloud pixels of a that are sky in b
+    state.fixture = 'D Small foreground lobe'; look.diag = 0; look.stipple = 0; var s0 = snap(); look.stipple = 1; look.stippleBias = -1; var s1 = snap(); look.stipple = 0; look.stippleBias = 0;
+    var c0 = skyMask(s0), c1 = skyMask(s1); res.stippleKeepsCoverage = subset(c0, c1) === 0 && subset(c1, c0) === 0; res.stippleActs = maxDiff(s0, s1) > 10;
+    look.breakup = 1; var b1 = snap(); look.breakup = 0; var cb = skyMask(b1); res.breakupOnlyRemoves = subset(cb, c0) === 0; var removed = subset(c0, cb), far = 0;
+    P = refParams(); D = renderer._sphData; n = renderer.count; for (var k2 = 0; k2 < cb.length; k2++) if (c0[k2] && !cb[k2]) { var xx = k2 % W, yy = Math.floor(k2 / W); var fr2 = fieldRef(D, n, P, xx, yy); if ((fr2.mask - 1) / 10 > look.breakupReach / W + 1e-6) far++; }
+    res.breakupRemoved = removed; res.breakupNearEdge = removed > 100 && far === 0;   // (mask - 1) / 10 is the distance inside the outline past the ramp, in field units
+    state.disperse = 1; look.dissolve = 0; var e0 = snap(); look.dissolve = 0.3; var e3 = snap(); look.dissolve = 0.6; var e6 = snap(); look.dissolve = 0; state.disperse = 0;
+    var m0 = skyMask(e0), m3 = skyMask(e3), m6 = skyMask(e6); res.evapMonotone = subset(m3, m0) === 0 && subset(m6, m3) === 0 && subset(m0, m3) > 100 && subset(m3, m6) > 100; res.evapRemovedAt3 = subset(m0, m3); res.evapRemovedAt6 = subset(m0, m6);
+    res.evapFreshKept = maxDiff(snap(), s0) === 0;   // disperse 0 again, evaporation 0: the frame is the untouched one
+    Object.assign(look, L0);
+    // the angular profile: the GPU against the reference at full angle (no visible mismatch, finite), nudge continuity,
+    // and the outline inscribed (coverage within the round footprint, and smaller)
+    look.angular = 1; look.sides = 5; state.fixture = 'A Single'; var aA = checkRef(); state.fixture = 'H Child at the silhouette'; var aH = checkRef();
+    res.angularRef = aA.visible === 0 && aH.visible === 0; res.angularMismatches = aA.mismatches + aH.mismatches; res.angularNudge = Math.max(aA.jump, aH.jump);
+    state.fixture = 'A Single'; look.diag = 4; var mr = snap(); look.angular = 0; var mc = snap(); var cr = skyMask(mr), cc = skyMask(mc); res.angularInscribed = subset(cr, cc) === 0 && subset(cc, cr) > 100;
+    Object.assign(look, L0);
+    ok = res.unattachedCrisp && res.attachedBlended && res.coverageKept && res.varZeroSame && res.sameSeedSame && res.varChanges && res.reseedChanges && res.reorderSame && res.deformedRef && res.childrenAttached && res.rimKeepsCoverage && res.silRimActs && res.puffRimActs && res.rimsIndependent && res.stippleKeepsCoverage && res.stippleActs && res.breakupOnlyRemoves && res.breakupNearEdge && res.evapMonotone && res.evapFreshKept && res.angularRef && res.angularInscribed;
     var line = 'check rules: ' + (ok ? 'PASS' : 'FAIL') + '   unattached crisp ' + res.unattachedCrisp + ' (Gx ' + res.gF.join(' ') + ')   attached blended ' + res.attachedBlended + ' (Gx ' + res.gB.join(' ') + ')   coverage at Dissolve 0 ' + res.coverageKept + ' (' + holes + ' holes / ' + tested + ')' +
       '\n  shape: var 0 same ' + res.varZeroSame + '   same seed same ' + res.sameSeedSame + '   var changes ' + res.varChanges + '   reseed changes ' + res.reseedChanges + '   reorder same ' + res.reorderSame + ' (max ' + res.reorderDiff + ')   deformed vs ref ' + res.deformedRef + ' (' + res.deformedMismatches + ' mismatches, ' + res.deformedVisible + ' visible, nudge max ' + res.deformedNudge + ')   children attached ' + res.childrenAttached + ' (' + nch + ')' +
-      '\n  rims: keep coverage ' + res.rimKeepsCoverage + '   silhouette rim acts ' + res.silRimActs + '   puff rim acts ' + res.puffRimActs + '   independent ' + res.rimsIndependent;
+      '\n  rims: keep coverage ' + res.rimKeepsCoverage + '   silhouette rim acts ' + res.silRimActs + '   puff rim acts ' + res.puffRimActs + '   independent ' + res.rimsIndependent +
+      '\n  dither: stipple keeps coverage ' + res.stippleKeepsCoverage + '   stipple acts ' + res.stippleActs + '   breakup only removes ' + res.breakupOnlyRemoves + '   near the edge ' + res.breakupNearEdge + ' (' + res.breakupRemoved + ' px)   evaporation monotone ' + res.evapMonotone + ' (' + res.evapRemovedAt3 + ' / ' + res.evapRemovedAt6 + ' px at .3 / .6)   fresh kept ' + res.evapFreshKept +
+      '\n  angular: vs ref ' + res.angularRef + ' (' + res.angularMismatches + ' mismatches, nudge max ' + res.angularNudge + ')   inscribed ' + res.angularInscribed;
     state.fixture = DEFAULT_FIXTURE; sync(); draw(); hud.textContent += '\n' + line; console.log(line, res); window.labRules = res;
   });
 })();
