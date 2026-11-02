@@ -573,8 +573,11 @@
         queue.push({ id: id, F: F, x: rx, y: ry, r: r, z: z0, zr: zr, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: stack0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band, zp: F.cam ? zp : 0 });
       }
     }
-    // plan the budget: how many puffs each deeper level wants; the deepest level that does not fit
-    // fades out (its radii scale down with the shortfall) rather than being cut mid-way
+    // plan the budget: how many puffs each deeper level wants; the deepest level that does not fit is
+    // thinned in whole children (integer slots): each parent keeps floor(fd * children + its own hash)
+    // of them, so as the budget tightens parents give up one child at a time in a fixed order, and a
+    // budget that wobbles by a few puffs a frame changes nothing (a dead band of 1/64 on fd). The old
+    // fractional child (one per parent at a scaled radius) swelled and shrank with every frame's count
     // a parent whose children would be smaller than a field texel gets none (they would be invisible),
     // and the biggest parents on screen are served first, so the budget goes to the near clouds that show it
     var minR = 1.0 / Math.max(1, this._w), k;
@@ -582,22 +585,23 @@
     queue.sort(function (a, b) { return b.r - a.r; });
     var l1 = 0, l2 = 0;
     for (k = 0; k < queue.length; k++) { F = queue[k].F; if (F.levels >= 2) l1 += F.children; if (F.levels >= 3) l2 += F.children * F.children; }
-    var fade = [1, 1, 1];
-    if (n + l1 > MAX_SPH) { fade[1] = Math.max(0, (MAX_SPH - n) / Math.max(1, l1)); fade[2] = 0; }
-    else if (n + l1 + l2 > MAX_SPH) fade[2] = Math.max(0, (MAX_SPH - n - l1) / Math.max(1, l2));
+    var fade = [1, 1, 1], cap = Math.min(MAX_SPH, this.budget || MAX_SPH);   // budget: a smaller cap for testing the thinning
+    if (n + l1 > cap) { fade[1] = Math.max(0, (cap - n) / Math.max(1, l1)); fade[2] = 0; }
+    else if (n + l1 + l2 > cap) fade[2] = Math.max(0, (cap - n - l1) / Math.max(1, l2));
+    var last = this._fade || [1, 1, 1];
+    for (k = 1; k < 3; k++) { if (fade[k] < 1 && last[k] < 1 && Math.abs(fade[k] - last[k]) < 1 / 64) fade[k] = last[k]; }
+    this._fade = fade;
     this.degrade = fade[2] < 1 ? fade[2] : fade[1];
     for (var level = 0; level < 2 && queue.length; level++) {
       var next = [], fd = fade[level + 1];
       if (fd <= 0) break;
-      // fade: keep the first floor(fd * children) children of every parent in full, the next one
-      // at the fractional radius, drop the rest (continuous in fd)
-      for (k = 0; k < queue.length && n < MAX_SPH; k++) {
+      // fd below 1 is taken with a 2% margin, since the hash rounding scatters the total by a few
+      for (k = 0; k < queue.length && n < cap; k++) {
         q = queue[k]; F = q.F;
         if (F.levels < level + 2) continue;
-        var keep = fd * F.children, kf = Math.floor(keep), kr = keep - kf;
-        for (j = 0; j < F.children && n < MAX_SPH; j++) {
-          var cf = j < kf ? 1 : (j === kf ? kr : 0);
-          if (cf <= 0.02) continue;
+        var keep = fd >= 1 ? F.children : Math.floor(fd * 0.98 * F.children + hash(q.seed + 77.7));
+        for (j = 0; j < keep && n < cap; j++) {
+          var cf = 1;
           var rate = 0.7 + 0.6 * hash(q.seed + 4.7 + j * 41.3);
           var cyc = 1.2 + 1.0 * hash(q.seed + 12.3 + j * 29.7);
           var sraw = (q.angle * rate + time * 0.05) * F.life + hash(q.seed + 5.5 + j * 7.1) * cyc;
