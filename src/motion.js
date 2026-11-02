@@ -204,7 +204,7 @@
     // parcel over the count starts dying now, not one per step (the fade itself stays a few seconds).
     // Formation and recycling never take this path, so their pace is unchanged
     if ((P.count | 0) !== this.lastCount) { this.lastCount = P.count | 0; this.catchUp = Math.max(0, want - alive - this.waiting); }
-    if (this.catchUp > 0) { var k = Math.min(this.catchUp, Math.ceil(this.catchUp * dt * 3)); this.catchUp -= k; while (k-- > 0 && this.parcels.length < MAX - 1) this.parcels.push(this._spawn(false, null)); }
+    if (this.catchUp > 0) { var k = Math.min(this.catchUp, Math.ceil(this.catchUp * dt * 3)); this.catchUp -= k; while (k-- > 0 && this.parcels.length < MAX - 1 && this.parcels.length < want + this.waiting) this.parcels.push(this._spawn(false, null)); }
     if (alive > want) { var over = alive - want; for (i = this.parcels.length - 1; i >= 0 && over > 0; i--) if (!this.parcels[i].dying) { this.parcels[i].dying = true; over--; } }
     // the reservoir follows Parcels and Base share live (the neck's three entries stay)
     var nbWant = 3 + Math.round((P.count | 0) * (P.reservoir || 0) * 0.6);

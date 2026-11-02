@@ -72,6 +72,7 @@
     this.reseat();
     var n = this.params.mode === 'streak' ? 0 : (this.params.count | 0);
     for (var i = 0; i < n; i++) this.parcels.push(this._spawn(true, i));
+    this.lastCount = this.params.mode === 'streak' ? -1 : n; this.catchUp = 0;   // the count's last value, and what a change of it still owes
     if (this.params.mode === 'streak' && this.params.source !== 'line') for (i = 0; i < (this.params.heads | 0); i++) this.parcels.push(this._spawn(true, i));
     this._emit();
   };
@@ -130,15 +131,26 @@
     } else if (P.mode === 'streak') {
       if (this.parcels.length < (P.heads | 0) && rng() < dt * 0.5) this.parcels.push(this._spawn(false, 0));
     } else if (this.parcels.length < (P.count | 0) && rng() < dt * 2) this.parcels.push(this._spawn(false, 0));
+    // the count reconciles live: a change of it fills the shortfall at about three per second per parcel
+    // short and retires the surplus from the end of the list (a retired parcel fades and is not replaced)
+    if (P.mode !== 'streak') {
+      var want = P.count | 0;
+      if (want !== this.lastCount) {
+        this.lastCount = want; this.catchUp = Math.max(0, want - this.parcels.length);
+        var over = this.parcels.length - want;
+        for (i = this.parcels.length - 1; i >= 0 && over > 0; i--) if (!this.parcels[i].retire) { this.parcels[i].retire = true; over--; }
+      }
+      if (this.catchUp > 0) { var k = Math.min(this.catchUp, Math.ceil(this.catchUp * dt * 3)); this.catchUp -= k; while (k-- > 0 && this.parcels.length < want) this.parcels.push(this._spawn(false, this.parcels.length)); }
+    }
     for (i = 0; i < this.parcels.length; i++) {
       p = this.parcels[i];
       p.age += dt;
       if (P.mode !== 'cells' && !P.fixed) { p.x += P.drift * wx * dt; p.y += P.drift * wy * dt * 0.3; }
       if (P.fixed) { p.x += P.drift * dt; if (p.x > P.width * 0.5) p.x -= P.width; }   // air flows through a standing shape
       // life: grow in, live, fade out, then recycle
-      var dying = p.age > p.life && !(P.mode === 'streak' && P.source === 'line');
+      var dying = p.retire || (p.age > p.life && !(P.mode === 'streak' && P.source === 'line'));
       if (dying) p.link = Math.max(0, p.link - dt / 4); else p.link = Math.min(1, p.link + dt / 5);
-      if (dying && p.link <= 0) { this.parcels[i] = this._spawn(false, p.i); continue; }   // replaced at once: the layer never thins out
+      if (dying && p.link <= 0) { if (p.retire) { this.parcels.splice(i, 1); i--; } else this.parcels[i] = this._spawn(false, p.i); continue; }   // replaced at once (the layer never thins out) unless retired by the count
       // the band's ends fade (a sheet is wider than the frame; cells recycle round the lattice)
       if (P.mode === 'sheet' && Math.abs(p.x) > P.width * 0.5 + 0.05) { var q = this._spawn(false, p.i); q.x = -Math.sign(p.x) * P.width * 0.5; this.parcels[i] = q; continue; }   // drifted off the end: re-enter at the other
     }
