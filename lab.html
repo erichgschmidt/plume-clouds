@@ -27,7 +27,7 @@
     <div class="seg"><button class="btn" id="btnPlay">Play</button><button class="btn" id="btnReset">Reset</button></div>
     <h3>View (diag)</h3>
     <div class="seg" id="views"></div>
-    <p class="hint">0 production, 1 grey lighting, 2 height contours, 3 normal RGB, 4 coverage mask, 5 accepted normal neighbours (red = none)</p>
+    <p class="hint">0 production, 1 grey lighting, 2 height contours, 3 normal RGB, 4 coverage mask, 5 accepted normal neighbours (red = none), 6 the owning group as colour. Click a pixel for its contributors.</p>
     <h3>Magnify</h3>
     <div class="seg" id="mag"></div>
     <h3>Depth multiplier</h3>
@@ -43,8 +43,8 @@
     <p class="hint">Geometry is fixed sphere records fed straight to PuffRenderer (no ThermalSim, no children, no noise). Coordinates are final renderer units: x and y over the width, y down, positive z0 nearer.</p>
   </div>
 </div>
-<script src="src/puffs.js?v=lab11"></script>
-<script src="lab-ref.js?v=6"></script>
+<script src="src/puffs.js?v=lab15"></script>
+<script src="lab-ref.js?v=7"></script>
 <script>
 (function () {
   'use strict';
@@ -111,7 +111,7 @@
     segs.push(function () { bs.forEach(function (b, i) { b.classList.toggle('on', get() === values[i]); }); });
   }
   seg('fixtures', Object.keys(FIXTURES), null, function () { return state.fixture; }, function (v) { state.fixture = v; });
-  seg('views', [0, 1, 2, 3, 4, 5], null, function () { return look.diag; }, function (v) { look.diag = v; });
+  seg('views', [0, 1, 2, 3, 4, 5, 6], null, function () { return look.diag; }, function (v) { look.diag = v; });
   seg('mag', [1, 2, 4], ['1x', '2x', '4x'], function () { return state.mag; }, function (v) { state.mag = v; });
   seg('depth', [0, 0.5, 1, 2], null, function () { return look.depth; }, function (v) { look.depth = v; });
   seg('softness', [0.3, 1, 4], null, function () { return look.softness; }, function (v) { look.softness = v; });
@@ -203,6 +203,39 @@
     hud.textContent += '\n' + line;
     console.log(line, bad);
     window.labCheck = { dH: eH, dMask: eM, dG: eG, mismatches: n, total: total, first: bad, jump: jump, jumps: jumps };
+  });
+  function refParams() { return { W: renderer._w, H: renderer._h, T: Math.max(0.002, REF * look.zoom * 0.08 * look.softness), cap: look.cap, dissolve: look.dissolve || 0, dotSize: 1, MAX_SPH: PuffRenderer.MAX_SPH }; }
+  // the click probe: which puff contributes at this texel, and why (lab-ref.js probe)
+  canvas.addEventListener('click', function (e) {
+    var rect = canvas.getBoundingClientRect(), x = Math.floor((e.clientX - rect.left) / state.mag), yTop = Math.floor((e.clientY - rect.top) / state.mag), y = H - 1 - yTop;
+    var pr = probe(renderer._sphData, renderer.count, refParams(), x, y), ref = fieldRef(renderer._sphData, renderer.count, refParams(), x, y);
+    var lines = ['probe ' + x + ',' + yTop + ': H ' + ref.H.toFixed(4) + '  mask ' + ref.mask.toFixed(3) + '  G ' + ref.Gx.toFixed(2) + ',' + ref.Gy.toFixed(2) + '  ins ' + pr.ins.toFixed(2) + '  HI ' + (pr.HI > -1e8 ? pr.HI.toFixed(4) : 'none') + '  HO ' + (pr.HO > -1e8 ? pr.HO.toFixed(4) : 'none')];
+    pr.rows.forEach(function (q) { lines.push('  #' + q.i + ' id ' + q.id + ' parent ' + q.parent + '  u ' + q.u.toFixed(3) + '  h ' + q.h.toFixed(4) + '  ' + (q.inside ? 'inside' : 'skirt') + '  share ' + q.share.toFixed(3) + (q.note ? '  ' + q.note : '')); });
+    hud.textContent += '\n' + lines.join('\n'); console.table(pr.rows); window.labProbe = pr;
+  });
+  // Check rules: behaviour, not equations. Unattached puffs never blend (fixture F: at the crease the two
+  // gradients face away from each other, one puff each side, no averaged slope); attached ones do (fixture B:
+  // the crease is a blended valley, the slope near zero); and with Dissolve 0 every texel well inside a
+  // record's footprint is covered
+  var btnRules = document.createElement('button'); btnRules.className = 'btn'; btnRules.id = 'btnRules'; btnRules.textContent = 'Check rules';
+  $('btnReset').parentNode.appendChild(btnRules);
+  btnRules.addEventListener('click', function () {
+    var res = {}, P, recs, D, n, ok;
+    function crease(fixture) { state.fixture = fixture; state.nudge = 0; sync(); draw(); P = refParams(); D = renderer._sphData; n = renderer.count; var yc = H - 1 - Math.round(0.375 * W); return [fieldRef(D, n, P, 509, yc).Gx, fieldRef(D, n, P, 512, yc).Gx, fieldRef(D, n, P, 515, yc).Gx]; }
+    var gF = crease('F Unattached pair'); res.unattachedCrisp = gF[0] < -0.3 && gF[2] > 0.3 && Math.abs(gF[1]) > 0.3; res.gF = gF.map(function (v) { return +v.toFixed(3); });
+    var gB = crease('B Equal-depth overlap'); res.attachedBlended = Math.abs(gB[1]) < 0.2 && Math.abs(gB[0]) < Math.abs(gF[0]); res.gB = gB.map(function (v) { return +v.toFixed(3); });
+    var saveDis = look.dissolve; look.dissolve = 0; var holes = 0, tested = 0;
+    Object.keys(FIXTURES).forEach(function (f) {
+      state.fixture = f; sync(); draw(); P = refParams(); D = renderer._sphData; n = renderer.count; recs = records();
+      for (var j = 8; j < H; j += 8) for (var i = 8; i < W; i += 8) {
+        var inAny = false; recs.forEach(function (r) { var dx = (i + 0.5) / W - r[0], dy = (j + 0.5) / W - r[1]; if (dx * dx + dy * dy < (r[2] - P.T) * (r[2] - P.T)) inAny = true; });
+        if (!inAny) continue; tested++; if (fieldRef(D, n, P, i, H - 1 - j).mask < 0.5) holes++;
+      }
+    });
+    look.dissolve = saveDis; res.coverageKept = holes === 0; res.coverageTested = tested; res.holes = holes;
+    ok = res.unattachedCrisp && res.attachedBlended && res.coverageKept;
+    var line = 'check rules: ' + (ok ? 'PASS' : 'FAIL') + '   unattached crisp ' + res.unattachedCrisp + ' (Gx ' + res.gF.join(' ') + ')   attached blended ' + res.attachedBlended + ' (Gx ' + res.gB.join(' ') + ')   coverage at Dissolve 0 ' + res.coverageKept + ' (' + holes + ' holes / ' + tested + ')';
+    state.fixture = DEFAULT_FIXTURE; sync(); draw(); hud.textContent += '\n' + line; console.log(line, res); window.labRules = res;
   });
 })();
 </script>

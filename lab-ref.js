@@ -119,4 +119,46 @@
   }
 
   window.fieldRef = fieldRef;
+
+  // probe(D, count, P, x, y): why the field at one texel is what it is. Every sphere that reaches the texel, with
+  // u = dist / r, its height, whether it contains the texel, its share of its set's log-sum-exp, its
+  // attachment weight (hidden by unattached puffs above it), and for the skirt set the clamp and the g weight
+  function probe(D, count, P, x, y) {
+    var M = P.MAX_SPH || (window.PuffRenderer && PuffRenderer.MAX_SPH) || 4096;
+    var W = P.W, Hh = P.H, asp = Hh / W, T = P.T, cap = P.cap;
+    var px = (x + 0.5) / W, py = (1 - (y + 0.5) / Hh) * asp, rows = [], i, ins = 0;
+    for (i = 0; i < count; i++) {
+      var o0 = i * 4, o2 = (M * 2 + i) * 4, o3 = (M * 3 + i) * 4, o4 = (M * 4 + i) * 4;
+      var dx = px - D[o0], dy = py - D[o0 + 1], r = D[o0 + 2], st = D[o2 + 2];
+      var rr = r * Math.max(1, st);
+      if (dx * dx + dy * dy > rr * rr * 2.5) continue;
+      if (st !== 1) { var along = dx * D[o3] + dy * D[o3 + 1], across = dx * D[o3 + 1] - dy * D[o3]; dx = along / st; dy = across * Math.sqrt(st); }
+      var prim = Math.floor(D[o2 + 3] + 0.01), pa = (D[o2 + 3] - Math.floor(D[o2 + 3] + 0.01)) * 2, q, len;
+      if (prim === 1) dy *= 1 + 1.5 * pa;
+      else if (prim === 2) dx *= 1 + 2 * pa * Math.max(0, -dy) / r;
+      else if (prim === 3) { q = Math.sqrt(Math.sqrt(dx * dx * dx * dx + dy * dy * dy * dy)) / Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6); len = mix(1, q, pa); dx *= len; dy *= len; }
+      else if (prim === 4) { q = (Math.abs(dx) + Math.abs(dy)) / Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6); len = mix(1, q, pa); dx *= len; dy *= len; }
+      var d2 = dx * dx + dy * dy;
+      if (d2 > r * r * 2.25) continue;
+      var dist = Math.sqrt(d2), u = dist / r, tt = clamp((dist - r) / (0.5 * r), 0, 0.995), pen = r * tt * tt / (1 - tt);
+      var sph = u < 1 ? Math.sqrt(1 - u * u) : -(u - 1) * 2.0647, par = u < 1 ? 1 - u * u : -2 * (u - 1);
+      var h = D[o0 + 3] + r * mix(sph, par, cap) - pen, inside = d2 < r * r;
+      if (inside) ins = Math.max(ins, smoothstep(0, T, r - dist));
+      rows.push({ i: i, id: D[o4], parent: D[o4 + 1], u: u, h: h, inside: inside, wa: 1, share: 0, note: '' });
+    }
+    // attachment: hidden by every unattached containing puff above it
+    var inn = rows.filter(function (q) { return q.inside; });
+    inn.forEach(function (a) { inn.forEach(function (b) { var att = a.id === b.id || a.parent === b.parent || a.parent === b.id || a.id === b.parent; if (!att) a.wa *= smoothstep(-0.25 * T, 0, a.h - b.h); }); });
+    // shares of the two log-sum-exp sets, then the skirt set's clamp and g weight
+    var mI = -1e9, mO = -1e9, accI = 0, accO = 0;
+    rows.forEach(function (q) { if (q.inside) mI = Math.max(mI, q.h); else mO = Math.max(mO, q.h); });
+    rows.forEach(function (q) { if (q.inside) accI += q.wa * Math.exp((q.h - mI) / T); else accO += Math.exp((q.h - mO) / T); });
+    rows.forEach(function (q) { q.share = q.inside ? q.wa * Math.exp((q.h - mI) / T) / Math.max(accI, 1e-30) : Math.exp((q.h - mO) / T) / Math.max(accO, 1e-30); });
+    var HI = accI > 0 ? mI + T * Math.log(accI) : -1e9, HO = accO > 0 ? mO + T * Math.log(accO) : -1e9, g = 1 - ins, clampBy = 0;
+    if (HI > -1e8 && HO > -1e8) clampBy = ins * Math.max(0, HO - (HI - 2 * T));
+    rows.forEach(function (q) { if (!q.inside) q.note = 'skirt set: clamped ' + clampBy.toFixed(4) + ', g ' + g.toFixed(3) + (g <= 1e-4 ? ' (dropped)' : ''); else if (q.wa < 0.999) q.note = 'hidden by an unattached puff above (wa ' + q.wa.toFixed(3) + ')'; });
+    rows.sort(function (a, b) { return b.h - a.h; });
+    return { rows: rows, HI: HI, HO: HO, ins: ins };
+  }
+  window.probe = probe;
 })();

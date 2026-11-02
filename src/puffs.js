@@ -320,6 +320,8 @@
   '  if(f.a < 0.5){ fragColor = vec4(sky(uv), 1.0); return; }   // the dissolve of a dispersing puff happens in the field pass now\n' +
   '  // diagnostic view 4: the coverage mask (the field alpha, ramp included), before the mask test drops the outside\n' +
   '  if(uDiag > 3.5 && uDiag < 4.5){ fragColor = vec4(vec3(min(f.a, 1.0)), 1.0); return; }\n' +
+  '  // diagnostic view 6: the owner\'s group (its parent id, the boundary the smoothing respects) as a colour\n' +
+  '  if(uDiag > 5.5 && uDiag < 6.5){ float gid = texelFetch(uAux3, ivec2(uv / uTexel), 0).w; fragColor = vec4(fract(sin(gid * 12.9898) * 43758.5453), fract(sin(gid * 78.233) * 43758.5453), fract(sin(gid * 39.425) * 43758.5453), 1.0); return; }\n' +
   '  // depth weight: 1 near .. 0 far. Far volumes: softer normal, weaker shadow, less noise, bluer\n' +
   '  float dw = clamp(bx.g, 0.0, 1.0), far = uDepthFall * (1.0 - dw);\n' +
   '  float s = 1.0 + far * 3.0;   // normal footprint in texels (Normal smooth no longer widens it: a wide\n' +
