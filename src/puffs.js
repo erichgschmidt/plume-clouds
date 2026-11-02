@@ -41,9 +41,7 @@
   '// so the holes show the cloud behind it (the shade pass used to drop the pixel to sky instead)\n' +
   'uniform float uDissolve, uDotSize;\n' +
   'float bayer(vec2 p){ vec2 q = mod(floor(p), 4.0); float m[16]; m[0]=0.;m[1]=8.;m[2]=2.;m[3]=10.;m[4]=12.;m[5]=4.;m[6]=14.;m[7]=6.;m[8]=3.;m[9]=11.;m[10]=1.;m[11]=9.;m[12]=15.;m[13]=7.;m[14]=13.;m[15]=5.; return m[int(q.y) * 4 + int(q.x)] / 16.0 - 0.5; }\n' +
-  'bool dissolved(int i){ float dis = texelFetch(uSph, ivec2(i, 1), 0).w; if(dis <= 0.001) return false;\n' +
-  '  float id = texelFetch(uSph, ivec2(i, 4), 0).x, hx = fract(sin(id * 12.9898) * 43758.5453), hy = fract(sin(id * 78.233) * 43758.5453);   // the pattern shifted per puff (by its persistent id), so stacked puffs open different holes\n' +
-  '  return bayer(floor(gl_FragCoord.xy / uDotSize) + 7.0 + floor(vec2(hx, hy) * 4.0)) + 0.5 < uDissolve * dis; }\n' +
+  'bool dissolved(int i){ float dis = texelFetch(uSph, ivec2(i, 1), 0).w; return dis > 0.001 && bayer(floor(gl_FragCoord.xy / uDotSize) + 7.0) + 0.5 < uDissolve * dis; }\n' +
   'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3; layout(location = 3) out vec4 o4;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +

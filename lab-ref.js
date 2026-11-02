@@ -22,10 +22,8 @@
     var W = P.W, Hh = P.H, asp = Hh / W, T = P.T, T2 = T * 4, cap = P.cap, dissolve = P.dissolve || 0, dot = P.dotSize || 1;
     // the dither threshold at this texel (gl_FragCoord = texel + 0.5), for the dissolve of dispersing puffs
     var BAY = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-    var bq = Math.floor((x + 0.5) / dot) + 7, bqy = Math.floor((y + 0.5) / dot) + 7;
-    function fr(v) { return v - Math.floor(v); }
-    function dissolved(i) { var dis = D[(M + i) * 4 + 3]; if (dis <= 0.001) return false; var id = D[(M * 4 + i) * 4], hx = fr(Math.sin(id * 12.9898) * 43758.5453), hy = fr(Math.sin(id * 78.233) * 43758.5453);
-      var qx = bq + Math.floor(hx * 4), qy = bqy + Math.floor(hy * 4), bay = BAY[(((qy % 4) + 4) % 4) * 4 + (((qx % 4) + 4) % 4)] / 16 - 0.5 + 0.5; return bay < dissolve * dis; }
+    var bq = Math.floor((x + 0.5) / dot) + 7, bqy = Math.floor((y + 0.5) / dot) + 7, bay = BAY[(((bqy % 4) + 4) % 4) * 4 + (((bq % 4) + 4) % 4)] / 16 - 0.5 + 0.5;
+    function dissolved(i) { var dis = D[(M + i) * 4 + 3]; return dis > 0.001 && bay < dissolve * dis; }
     // p = vec2(vUv.x, (1 - vUv.y) * uAspect) at the texel centre
     var px = (x + 0.5) / W, py = (1 - (y + 0.5) / Hh) * asp;
     var i, o0, o1, o2, o3, o4, dx, dy, r, st, prim, pa, q, len, d2, u, h, along, across;
