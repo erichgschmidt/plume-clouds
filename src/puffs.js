@@ -693,6 +693,7 @@
     // accumulated per root id (in reference radii, bounded softly at 2 so a lobe stretches away but stays with its cloud)
     // and varied by a broad gust pattern that travels with the wind through the cloud (the surface detail travels with the
     // puff; this pattern moves through it, and only drives the slow drift, never the picture). Entries of parcels gone are dropped
+    var back = this._wTime !== undefined && time < this._wTime;   // the clock went back (a reset or a scrub): forget the past
     var drift = this._drift || new Map(), driftNow = new Map(), dtW = clamp(time - (this._wTime === undefined ? time : this._wTime), 0, 0.1); this._wTime = time;
     // wind erosion (step 2): an amount per root id that the same exposure and gusts raise (0.15 per second at Erosion 1 on a fully
     // exposed lobe in a full gust, so the crown wears through in 20 to 40 s) and that falls where exposure times gust is
@@ -706,7 +707,7 @@
     // fraying as they go (their own erosion amount rises) and retiring at zero size. Roots without children, of the lobe's
     // family, so they blend with it while they overlap and part on their own once clear. Keyed by the lobe's id
     var wisps = this._wisps || new Map();
-    if (time < this._wTime) { drift = new Map(); wear = new Map(); wisps = new Map(); }   // the clock went back (a reset): forget the past
+    if (back) { drift = new Map(); wear = new Map(); wisps = new Map(); this._born = undefined; this._hTop = undefined; }
     // roots
     for (c = 0; c < clouds.length; c++) {
       F = form(clouds[c], c);

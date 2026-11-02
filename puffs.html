@@ -38,6 +38,7 @@
     <div class="seg" id="looks" style="margin-top:4px"></div>
     <div class="row" style="margin-top:4px"><input id="lookName" placeholder="preset name" style="flex:1;min-width:0"><button class="btn" id="btnSave">Save</button><button class="btn" id="btnDel">Delete</button></div>
     <div class="row" style="margin-top:6px"><button class="btn" id="btnPlay">Pause</button><button class="btn" id="btnReset">Reset</button><label style="width:auto">Seed</label><input id="seed" type="number" value="1" style="width:56px"></div>
+    <div class="row" style="margin-top:4px" title="Replays a fresh run of the current type, seed, forces and look to this time, in fixed steps: the same time always gives the same picture"><label style="width:auto">Scrub</label><input id="scrub" type="range" min="0" max="120" step="0.5" value="0" style="flex:1"><span id="scrubT" style="width:34px;text-align:right">0s</span></div>
     <h3>Shape</h3>
     <div class="row"><label>Layout</label><select id="shapes" style="flex:1"></select></div>
     <div class="row"><label>Primitive</label><select id="prims" style="flex:1"></select></div>
@@ -45,11 +46,11 @@
     <div id="groups"></div>
   </div>
 </div>
-<script src="src/sim.js?v=193"></script>
-<script src="src/puffs.js?v=193"></script>
-<script src="src/motion.js?v=193"></script>
-<script src="src/layer.js?v=193"></script>
-<script src="src/presets.js?v=193"></script>
+<script src="src/sim.js?v=194"></script>
+<script src="src/puffs.js?v=194"></script>
+<script src="src/motion.js?v=194"></script>
+<script src="src/layer.js?v=194"></script>
+<script src="src/presets.js?v=194"></script>
 <script>
 (function () {
   'use strict';
@@ -307,6 +308,23 @@
   $('shapes').addEventListener('change', function () { sim.setShape(this.value); refresh(); });
   $('prims').addEventListener('change', function () { look.prim = this.value; });
   $('btnPlay').addEventListener('click', function () { setPlaying(!playing); });
+  // the scrub (for testing): a fresh sim of the current type, seed, forces and look, replayed from 0 to t in fixed steps with a
+  // render per step, so the renderer's slow state (child births, wind drift, erosion, wisps) is played through as well; the
+  // same t always gives the same picture. Pauses; Play continues from there
+  function replay(t) {
+    var T = CLOUD_PRESETS[typeName], seed = +$('seed').value | 0, P = sim.params, shape = sim.shape, k;
+    sim = makeSim(engine, T.preset, seed, shape); window.sim = sim;
+    if (engine === 'veil') { sim.params.count = 0; sim.parcels = []; sim._emit(); }
+    for (k in P) sim.params[k] = P[k]; sim.reseat();
+    if (T.extra) { extraSim = makeSim(T.extra.engine, T.extra.preset, seed + 1, 'ring'); extraSim.parcels.forEach(function (q) { q.link = 0; q.age = 0; }); extraSim._emit(); }
+    sim.aspect = canvas.height / canvas.width;
+    renderer.render(frameList(), 0, look);
+    for (var s = 0; s < t - 1e-6; s += 0.1) { stepAll(0.1); renderer.render(frameList(), sim.time, look); }
+  }
+  var scrubbing = false;
+  $('scrub').addEventListener('pointerdown', function () { scrubbing = true; });
+  $('scrub').addEventListener('input', function () { scrubbing = true; $('scrubT').textContent = (+this.value).toFixed(1) + 's'; });
+  $('scrub').addEventListener('change', function () { setPlaying(false); replay(+this.value); scrubbing = false; });
   // drag in the canvas to move the eye: every parcel shifts by its depth (an unlocked parallax); double-click recentres
   var drag = null;
   canvas.addEventListener('pointerdown', function (e) { drag = { x: e.clientX, y: e.clientY, ex: sim.eyeX || 0, ey: sim.eyeY || 0 }; canvas.setPointerCapture(e.pointerId); });
@@ -317,14 +335,22 @@
   $('seed').addEventListener('change', function () { applyType(typeName); });
 
   window.sim = sim; window.look = look; window.renderer = renderer;
+  function stepAll(dt) {
+    sim.step(dt);
+    if (extraSim) { extraSim.aspect = sim.aspect; extraSim.params.level = (sim.topY + (CLOUD_PRESETS[typeName].extra.dy || 0)) / sim.aspect; extraSim.params.wind = look.wind; if (sim.time >= 0.6 * (sim.params.formTime || 0)) extraSim.step(dt); }
+  }
+  function frameList() {
+    var list = [{ sim: sim, look: look }];
+    if (extraSim) { for (var ek in look) if (!(ek in CLOUD_PRESETS[typeName].extra.look)) extraLook[ek] = look[ek]; list.push({ sim: extraSim, look: extraLook }); }
+    return list;
+  }
   var last = performance.now(), fpsT = 0, frames = 0, fps = 0;
   function loop(now) {
     var dt = Math.min(0.1, (now - last) / 1000); last = now;
     sim.aspect = canvas.height / canvas.width;
-    if (playing) { sim.step(dt); if (extraSim) { extraSim.aspect = sim.aspect; extraSim.params.level = (sim.topY + (CLOUD_PRESETS[typeName].extra.dy || 0)) / sim.aspect; extraSim.params.wind = look.wind; if (sim.time >= 0.6 * (sim.params.formTime || 0)) extraSim.step(dt); } }
-    var list = [{ sim: sim, look: look }];
-    if (extraSim) { for (var ek in look) if (!(ek in CLOUD_PRESETS[typeName].extra.look)) extraLook[ek] = look[ek]; list.push({ sim: extraSim, look: extraLook }); }
-    renderer.render(list, sim.time, look);
+    if (playing) stepAll(dt);
+    renderer.render(frameList(), sim.time, look);
+    if (!scrubbing) { $('scrub').value = Math.min(120, sim.time); $('scrubT').textContent = sim.time.toFixed(1) + 's'; }
     frames++; fpsT += dt;
     if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
     hud.textContent = (window.PLUME_BUILD ? 'build ' + PLUME_BUILD.commit + ' ' + PLUME_BUILD.date + '   ' : '') + 'fps ' + fps + '   ' + typeName + '   parcels ' + sim.blobCount + (extraSim ? '+' + extraSim.blobCount : '') + '   puffs ' + renderer.count + '   t ' + sim.time.toFixed(0) + 's';
