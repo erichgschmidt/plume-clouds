@@ -486,21 +486,26 @@
   '    vec2 lxy = vec2(Lv.x, -Lv.y); float ll = length(lxy);   // toward the light in uv (world y is down, uv y is up)\n' +
   '    if(ll > 1e-3){\n' +
   '      vec2 ld = lxy / ll; float slope = Lv.z / ll, stepW = uTexel.x * 1.5;\n' +
-  '      ivec2 c0 = ivec2(uv / uTexel); float h0 = texelFetch(uField, c0, 0).r;\n' +
+  '      // the receiver too is read per texel and weighted by its coverage confidence below, so a skirt pixel on the outline\n' +
+  '      // (its height a mix) is not shaded by the confident puff just inside it\n' +
+  '      ivec2 c0 = ivec2(uv / uTexel); vec4 f0 = texelFetch(uField, c0, 0); float h0 = f0.r, tol = uTexel.x * 0.25;\n' +
   '      for(int k = 1; k <= 8; k++){\n' +
   '        float dW = stepW * float(k);\n' +
   '        // the blocker\'s height read per texel, unfiltered (a filtered read at a silhouette mixed the background\'s\n' +
   '        // height in), and weighted by its coverage confidence (the alpha past the mask ramp) instead of a threshold,\n' +
   '        // so a step fades in across the outline instead of switching on. Any puff may be the blocker\n' +
   '        ivec2 ck = ivec2((uv + vec2(ld.x, ld.y / uAspect) * dW) / uTexel); vec4 fk = texelFetch(uField, ck, 0);\n' +
+  '        // the slope over the snapped texel\'s real distance (the nominal one was off by up to half a texel, enough for a flat\n' +
+  '        // face to shade itself), with a quarter texel of rise allowed before anything counts as shadow\n' +
+  '        vec2 dv = vec2(ck - c0) * uTexel; dv.y *= uAspect; float dk = max(length(dv), uTexel.x * 0.5);\n' +
   '        float conf = smoothstep(0.5, 1.0, fk.a);\n' +
   '        // penumbra: a blocker close by casts a full shadow, one at the end of the march a faint one, so the\n' +
   '        // shadow falls off away from the occluding puff instead of being one flat band\n' +
-  '        occ = max(occ, conf * smoothstep(0.0, 1.5, (fk.r - h0) / dW - slope) * (1.0 - 0.85 * float(k - 1) / 7.0));\n' +
+  '        occ = max(occ, conf * smoothstep(0.0, 1.5, (fk.r - h0 - tol) / dk - slope) * (1.0 - 0.85 * float(k - 1) / 7.0));\n' +
   '      }\n' +
   '    }\n' +
   '  }\n' +
-  '  float contact = uContact * occ;\n' +
+  '  float contact = uContact * occ * smoothstep(0.5, 1.0, texelFetch(uField, ivec2(uv / uTexel), 0).a);\n' +
   '  // cavity: the surface below the mean of its surroundings a few texels out is a valley between puffs;\n' +
   '  // its cancelling slopes face the viewer and would catch full light, so less reaches it\n' +
   '  float cav = 0.0;\n' +
@@ -511,6 +516,8 @@
   '    // confidence of both samples (the alpha past the mask ramp) and by a Gaussian in the radius, then combined as\n' +
   '    // a power mean of order eight (near the strongest pair, but smooth): nothing switches on at a threshold or a ring. Three rings\n' +
   '    // with a hard coverage test, filtered reads and the strongest direction left repeated bands along a silhouette\n' +
+  '    // normalised by the full weight (every pair fully supported), not the weight present: a pair with a lost sample then\n' +
+  '    // lowers the result as its confidence goes (divided by the weight present, a lone faint pair counted in full and dropped out at zero)\n' +
   '    float reach = uCavityReach, wsum = 0.0, acc = 0.0; ivec2 c0 = ivec2(uv / uTexel); float h0 = texelFetch(uField, c0, 0).r;\n' +
   '    for(int ring = 1; ring <= 4; ring++){\n' +
   '      float cs = reach * float(ring) / 4.0, wr = exp(-2.0 * float(ring * ring) / 16.0);\n' +
@@ -519,10 +526,10 @@
   '        ivec2 oa = ivec2(round(o)); vec4 fa = texelFetch(uField, c0 + oa, 0), fb = texelFetch(uField, c0 - oa, 0);\n' +
   '        float w = wr * smoothstep(0.5, 1.0, fa.a) * smoothstep(0.5, 1.0, fb.a);\n' +
   '        float cv = smoothstep(0.0, 1.0, (min(fa.r, fb.r) - h0) / (uTexel.x * cs * 1.5));\n' +
-  '        float c4 = cv * cv * cv * cv; acc += w * c4 * c4; wsum += w;\n' +
+  '        float c4 = cv * cv * cv * cv; acc += w * c4 * c4; wsum += wr;\n' +
   '      }\n' +
   '    }\n' +
-  '    cav = wsum > 0.0 ? pow(acc / wsum, 0.125) : 0.0;\n' +
+  '    cav = pow(acc / wsum, 0.125);\n' +
   '  }\n' +
   '  float cavity = uCavity * cav;\n' +
   '  // Cavity in light: how much of the cavity darkening reaches the direct light on a lit face (the ambient cut is the\n' +
@@ -693,28 +700,31 @@
     // accumulated per root id (in reference radii, bounded softly at 2 so a lobe stretches away but stays with its cloud)
     // and varied by a broad gust pattern that travels with the wind through the cloud (the surface detail travels with the
     // puff; this pattern moves through it, and only drives the slow drift, never the picture). Entries of parcels gone are dropped
-    var back = this._wTime !== undefined && time < this._wTime;   // the clock went back (a reset or a scrub): forget the past
-    var drift = this._drift || new Map(), driftNow = new Map(), dtW = clamp(time - (this._wTime === undefined ? time : this._wTime), 0, 0.1); this._wTime = time;
+    // The state is kept per cloud and runs on the cloud's own clock (its sim's accumulated time: the sky steps each sim at its
+    // own rate, so the shared frame clock would run the drift, erosion, wisps and child cycles at another pace than the
+    // cloud itself); a clock that goes back (a reset, a scrub, a cloud re-formed far away) starts the cloud's state afresh
+    var WS = this._wind = this._wind || [];
     // wind erosion (step 2): an amount per root id that the same exposure and gusts raise (0.15 per second at Erosion 1 on a fully
     // exposed lobe in a full gust, so the crown wears through in 20 to 40 s) and that falls where exposure times gust is
     // under 0.15, so a sheltered lobe never erodes and a worn one mends slowly once the gust passes; never a scrolling
     // threshold, so nothing flickers. Up to
     // 3.4: the field pass scales the lobe's radius per pixel by 1 - amount * (0.3 + 0.7 noise), so the last specks go at 3.34;
     // the children carry their root's amount
-    var wear = this._wear || new Map(), wearNow = new Map();
     // wisps (step 3): when a lobe has worn past 1 (its connection thinning), a bounded number per cloud of elongated puffs
     // separate: one per lobe, born at its downwind edge with its motion, stretching along the wind, speeding up to the wind,
     // fraying as they go (their own erosion amount rises) and retiring at zero size. Roots without children, of the lobe's
     // family, so they blend with it while they overlap and part on their own once clear. Keyed by the lobe's id
-    var wisps = this._wisps || new Map();
-    if (back) { drift = new Map(); wear = new Map(); wisps = new Map(); this._born = undefined; this._hTop = undefined; }
     // roots
     for (c = 0; c < clouds.length; c++) {
       F = form(clouds[c], c);
       var sim = F.sim, B = sim.blobs, A = sim.aux, S = sim.spin, Dt = sim.detail, STR = sim.stretch || null;
       var count = Math.min(sim.blobCount | 0, 128), baseStart = num(sim.baseStart, count);
+      var ct = sim.time !== undefined ? sim.time : time, W = WS[c];
+      if (!W || ct < W.t) W = WS[c] = { t: ct, drift: new Map(), wear: new Map(), wisps: new Map(), hT: undefined, fresh: true };
+      var dtW = clamp(ct - W.t, 0, 0.1); W.t = ct; F.t = ct; F.reborn = W.fresh; W.fresh = false;   // reborn: this frame's child births are now
+      var drift = W.drift, driftNow = new Map(), wear = W.wear, wearNow = new Map(), wisps = W.wisps;
       var hTop = 1e-3; for (var i0 = 0; i0 < count; i0++) if (B[i0 * 4 + 2] > 1e-4 && A[i0 * 4 + 3] > 1e-6) hTop = Math.max(hTop, (F.pivY - B[i0 * 4 + 1]) / F.spanY);
-      this._hTop = this._hTop || []; var hT = this._hTop[c]; hT = hT === undefined ? hTop : hT + (hTop - hT) * Math.min(1, dtW * 0.5); this._hTop[c] = hT;   // the cloud's top, eased, so a crown parcel dying does not re-expose the rest at once
+      var hT = W.hT; hT = hT === undefined ? hTop : hT + (hTop - hT) * Math.min(1, dtW * 0.5); W.hT = hT;   // the cloud's top, eased, so a crown parcel dying does not re-expose the rest at once
       for (var i = 0; i < count; i++) {
         var o = i * 4, r = B[o + 2], link = A[o + 3];
         if (r <= 1e-4 || link <= 1e-6) continue;
@@ -760,7 +770,7 @@
         var wer = 0;
         if (F.windSpeed > 0 || F.erosion > 0) {
           var ex = Math.pow(clamp(hf, 0, 1), 1 + 4 * F.top), vs = F.windSpeed * 0.2, gs = F.ref * 4 * F.gust;
-          var gx = (rx - F.wx * time * vs * F.ref) / gs, gy = (ry - F.wy * time * vs * F.ref) / gs;   // the gust pattern travels downwind at the wind speed
+          var gx = (rx - F.wx * ct * vs * F.ref) / gs, gy = (ry - F.wy * ct * vs * F.ref) / gs;   // the gust pattern travels downwind at the wind speed
           var g = vnoise2(gx, gy), g2 = vnoise2(gx + 31.7, gy + 17.3), dr = drift.get(id) || { x: 0, y: 0 };
           var ua = 0.3 + 0.7 * g, uc = 0.4 * (g2 - 0.5);   // along the wind, gusting; a little across, wandering
           if (F.windSpeed > 0) {
@@ -788,6 +798,7 @@
         var env = smoothstep(0, 0.15, u) * (1 - smoothstep(0.45, 1, u)), ws = 1.5 + 2.5 * u, wwear = 0.8 + 2.2 * u;   // swells in, stretches and frays out
         put(w.x, w.y, w.r * env, w.z, 0, 0.3, 0, 1, ws, w.x, w.y, F.primPacked, F.wx, F.wy, w.band, w.dw, w.id, w.pid, vary(F.vary, w.id), wwear);
       });
+      W.drift = driftNow; W.wear = wearNow;   // entries of parcels gone are dropped
     }
     // plan the budget: how many puffs each deeper level wants; the deepest level that does not fit is
     // thinned in whole children (integer slots): each parent keeps floor(fd * children + its own hash)
@@ -827,10 +838,10 @@
           var cyc = 1.2 + 1.0 * hash(q.seed + 12.3 + j * 29.7);
           // the child's age runs on the sim clock alone (0.12 per second at Life 1: about the old default turnover); it used to
           // run on the parent's roll too, so a high Roll gain made every child cycle fast whatever Life said
-          var sraw = time * 0.12 * F.life + hash(q.seed + 5.5 + j * 7.1) * cyc;
+          var sraw = q.F.t * 0.12 * F.life + hash(q.seed + 5.5 + j * 7.1) * cyc;
           var ci = Math.floor(sraw / cyc), ph = sraw / cyc - ci;
           var cs = q.seed + ci * 101.3 + level * 17.9;   // reseeded every life
-          var ck = cs + j * 3.1, b0 = born.get(ck); if (b0 === undefined) b0 = q.angle; bornNow.set(ck, b0);
+          var ck = cs + j * 3.1, b0 = q.F.reborn ? undefined : born.get(ck); if (b0 === undefined) b0 = q.angle; bornNow.set(ck, b0);
           var jit = hash(cs + j * 31.7) - 0.5;
           var zz = (1 - 2 * (j + 0.5 + jit * 0.55) / F.children) * 0.9;
           var azm = hash(cs + 1.3 + j * 13.9) * 6.2832;
@@ -878,7 +889,7 @@
       }
       queue = next.filter(function (q) { return thinR(q) >= minR; }).sort(function (a, b) { return b.r - a.r; });
     }
-    this._born = bornNow; this._drift = driftNow; this._wear = wearNow; this._wisps = wisps;
+    this._born = bornNow;
     this.count = n;
     var gl = this.gl;
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
