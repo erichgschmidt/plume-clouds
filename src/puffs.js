@@ -190,7 +190,7 @@
   '  o = vec4(H, dSum * ia, sSum * ia, mask + 10.0 * max(0.0, sil - 0.5 * T));\n' +
   '  o2 = vec4(acc2 > 0.0 ? fSum * ia : 1.0, xSum * ia, anc * ia);\n' +
   '  o3 = vec4(bSum * ia, acc2 > 0.0 ? wSum * ia : 1.0, cIdx, rSum * ia);\n' +
-  '  o4 = vec4(G, 0.0, 0.0);\n' +
+  '  o4 = vec4(G, sil, 0.0);   // z: the signed distance to the silhouette line, field units (the rim weight distance)\n' +
   '}';
 
   var SHADE_FS = '#version 300 es\nprecision highp float;\n' +
@@ -200,7 +200,7 @@
   'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
   'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow, uDissolve, uDotSize, uVeil;\n' +
   'uniform vec3 uSkyColor;\n' +
-  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach, uGrain, uDiag;\n' +
+  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach, uGrain, uDiag, uT;\n' +
   'uniform vec4 uCam;   // camera x, camera z, horizon (field y), cirrus altitude; w <= 0: no camera (the flat veil)\n' +
   'in vec2 vUv; out vec4 fragColor;\n' +
   // simplex-ish 2D noise (Ashima-style, compact)
@@ -285,7 +285,10 @@
   '// no fallback that could face a strip toward the viewer. A far footprint (Depth falloff) averages the\n' +
   '// gradient over same-surface neighbours. The noise displacement is smooth, so it is differenced plainly.\n' +
   'vec3 normalAt(vec2 uv, vec2 dx, vec2 dy, float wx, float wy, float bias, float bias2, float namp, out float edge){\n' +
-  '  edge = 1.0 - smoothstep(0.0, 2.0 * dx.x, max(0.0, texture(uField, uv).a - 1.0) * 0.1);   // rim weight: distance from the outline\n' +
+  '  // rim weight: a smooth fall-off with the distance from the silhouette line, over the blend width T or two\n' +
+  '  // texels, whichever is wider (it used to be full across the whole mask ramp and then drop within two\n' +
+  '  // texels: at high Softness a flat lifted band ending in a step, a ring)\n' +
+  '  edge = 1.0 - smoothstep(0.0, max(2.0 * dx.x, uT), max(0.0, texture(uAux3, uv).z));\n' +
   '  vec2 G = texture(uAux3, uv).xy;\n' +
   '  if(dx.x > uTexel.x * 1.5){\n' +
   '    float gn = 1.0;\n' +
@@ -433,7 +436,7 @@
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTiles', 'uAspect', 'uT', 'uCap', 'uDissolve', 'uDotSize']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain', 'uDiag']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain', 'uDiag', 'uT']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 5);   // five rows: the fifth is (puff id, parent id)
     this._sphTex = gl.createTexture();
     // tile lists: a head texture (offset, count) per 16-texel tile, sized in resize, and a flat index list
@@ -715,7 +718,8 @@
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this._tileHead); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this._tileList);
     gl.uniform1i(this._fu.uSph, 0); gl.uniform1i(this._fu.uTileHead, 1); gl.uniform1i(this._fu.uTileList, 2); gl.uniform1f(this._fu.uTexW, this._w); gl.uniform2i(this._fu.uTiles, this._tx, this._ty); gl.uniform1f(this._fu.uAspect, asp);
-    gl.uniform1f(this._fu.uT, Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4))); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0), 0, 1)); gl.uniform1f(this._fu.uDissolve, clamp(num(sky.dissolve, 0.7), 0, 1)); gl.uniform1f(this._fu.uDotSize, Math.max(1, Math.round(num(sky.dotSize, 1))));
+    var T = Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4)); this._T = T;
+    gl.uniform1f(this._fu.uT, T); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0), 0, 1)); gl.uniform1f(this._fu.uDissolve, clamp(num(sky.dissolve, 0.7), 0, 1)); gl.uniform1f(this._fu.uDotSize, Math.max(1, Math.round(num(sky.dotSize, 1))));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // shade
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);
@@ -750,7 +754,7 @@
     gl.uniform4fv(su.uStyleA, SA); gl.uniform4fv(su.uStyleB, SB);
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);
     gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);
-    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0));
+    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0)); gl.uniform1f(su.uT, this._T);
     var cam = sky.cam; gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   };
