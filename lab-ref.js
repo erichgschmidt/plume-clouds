@@ -58,8 +58,8 @@
     function h21(x, y) { var h = (Math.imul(x | 0, 73856093) ^ Math.imul(y | 0, 19349663)) >>> 0; h = Math.imul(h, 2654435761) >>> 0; h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 2246822519) >>> 0; return (h >>> 8) / 16777216; }
     function vnoise(x, y) { var ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy); return mix(mix(h21(ix, iy), h21(ix + 1, iy), fx), mix(h21(ix, iy + 1), h21(ix + 1, iy + 1), fx), fy); }
     var bq = Math.floor((x + 0.5) / dot), bqy = Math.floor((y + 0.5) / dot), b8 = bayer8(bq, bqy) + 0.5, evapScale = P.evapScale || 3, ref = P.ref || 0.1;
-    function erode(i) { var dis = D[(M + i) * 4 + 3]; if (dis <= 0.001) return 1; var o2d = (M * 2 + i) * 4, pid = D[(M * 4 + i) * 4 + 1], ph = h21(Math.floor(pid * 64), 7);
-      var n = vnoise((px - D[o2d]) / ref * evapScale + ph * 37.1, (py - D[o2d + 1]) / ref * evapScale + ph * 11.7); return Math.max(0, 1 - dissolve * dis * (0.3 + 0.7 * n)); }
+    function erode(i) { var dis = D[(M + i) * 4 + 3], amt = dissolve * dis + D[(M * 7 + i) * 4 + 2]; if (amt <= 0.001) return 1; var o2d = (M * 2 + i) * 4, pid = D[(M * 4 + i) * 4 + 1], ph = h21(Math.floor(pid * 64), 7);
+      var n = vnoise((px - D[o2d]) / ref * evapScale + ph * 37.1, (py - D[o2d + 1]) / ref * evapScale + ph * 11.7); return Math.max(0, 1 - amt * (0.3 + 0.7 * n)); }
     // p = vec2(vUv.x, (1 - vUv.y) * uAspect) at the texel centre
     var px = (x + 0.5) / W, py = (1 - (y + 0.5) / Hh) * asp;
     var i, o0, o1, o2, o3, o4, dx, dy, r, st, prim, pa, q, len, d2, u, h, along, across;

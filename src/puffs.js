@@ -70,11 +70,13 @@
   '// used to remove interior patches, which read as holes punched through the puff.) The noise also warps the dome\n' +
   '// a little where it varies inside; the stored gradient leaves that out, a small error in direction only. Monotone in\n' +
   '// the strength: a rising value only takes more\n' +
-  'float erode(int i){ float dis = texelFetch(uSph, ivec2(i, 1), 0).w; if(dis <= 0.001) return 1.0;\n' +
+  '// ... plus the wind erosion amount (row 7 z: accumulated per lobe by the tree, step 2 of the wind erosion), the same\n' +
+  '// ragged retreat from the outline, so an eroded lobe reveals what is behind it (the union sees the smaller radius)\n' +
+  'float erode(int i){ float dis = texelFetch(uSph, ivec2(i, 1), 0).w; float amt = uDissolve * dis + texelFetch(uSph, ivec2(i, 7), 0).z; if(amt <= 0.001) return 1.0;\n' +
   '  vec2 anc = texelFetch(uSph, ivec2(i, 2), 0).xy; float pid = texelFetch(uSph, ivec2(i, 4), 0).y;\n' +
   '  vec2 p = vec2(gl_FragCoord.x, uTexW * uAspect - gl_FragCoord.y) / uTexW;   // the field position (vUv is declared below this function)\n' +
   '  float n = vnoise((p - anc) / uRef * uEvapScale + hash21(vec2(floor(pid * 64.0), 7.0)) * vec2(37.1, 11.7));\n' +
-  '  return max(0.0, 1.0 - uDissolve * dis * (0.3 + 0.7 * n)); }\n' +
+  '  return max(0.0, 1.0 - amt * (0.3 + 0.7 * n)); }\n' +
   '// the contour factor f(phi) of the shape variation and its derivative: the harmonics (row 6) times the angular factor\n' +
   '// (row 7: amount, sides): a regular polygon inscribed in the circle, cos(pi/n) / cos(t) over each sector, its corners\n' +
   '// rounded by blending to the circle over the outer 35 % of the sector (C1, so no crease runs out to a corner)\n' +
@@ -625,6 +627,8 @@
       // wind drift (wind erosion, step 1): speed in fifths of a reference radius per second at full exposure, gust size in
       // reference radii, top emphasis: how much the exposure concentrates toward the crown
       windSpeed: Math.max(0, num(look.windSpeed, 0)), gust: Math.max(0.2, num(look.gustSize, 1.5)), top: clamp(num(look.topEmphasis, 0.5), 0, 1),
+      erosion: Math.max(0, num(look.erosion, 0)),   // wind erosion, step 2: how fast an exposed lobe wears away
+      spanY: Math.max(1e-3, baseY - topY),   // the sim's height range (base to nominal top), for the exposure
       prim: prim, pa: clamp(num(look.primAmt, 1), 0, 1), primPacked: prim + clamp(num(look.primAmt, 1), 0, 1) * 0.5,
       children: Math.max(0, Math.round(num(look.children, 4))), ratio: clamp(num(look.ratio, 0.42), 0.1, 0.8),
       levels: clamp(Math.round(num(look.levels, 3)), 1, 3), life: Math.max(0, num(look.life, 1)), embed: clamp(num(look.embed, 0.78), 0.3, 1),
@@ -667,11 +671,11 @@
       qx *= f * (1 + v.a); qy *= f / (1 + v.a);
       return [v.c * qx - v.s * qy, v.s * qx + v.c * qy];
     }
-    function put(x, y, r, z0, stack, detail, fresh, dis, stretch, anx, any, primPacked, wx, wy, band, dw, id, pid, v) {
+    function put(x, y, r, z0, stack, detail, fresh, dis, stretch, anx, any, primPacked, wx, wy, band, dw, id, pid, v, wer) {
       if (n >= MAX_SPH || r <= 1e-4) return false;
       var o = n * 4, o2 = (MAX_SPH + n) * 4, o3 = (MAX_SPH * 2 + n) * 4, o4 = (MAX_SPH * 3 + n) * 4, o5 = (MAX_SPH * 4 + n) * 4, o6 = (MAX_SPH * 5 + n) * 4, o7 = (MAX_SPH * 6 + n) * 4;
       D[o6] = v.c; D[o6 + 1] = v.s; D[o6 + 2] = v.a; D[o6 + 3] = v.b; D[o7] = v.A1; D[o7 + 1] = v.B1; D[o7 + 2] = v.A3; D[o7 + 3] = v.B3;
-      var o8 = (MAX_SPH * 7 + n) * 4; D[o8] = v.ang; D[o8 + 1] = v.n; D[o8 + 2] = 0; D[o8 + 3] = 0;
+      var o8 = (MAX_SPH * 7 + n) * 4; D[o8] = v.ang; D[o8 + 1] = v.n; D[o8 + 2] = wer || 0; D[o8 + 3] = 0;   // z: the wind erosion amount
       D[o5] = id; D[o5 + 1] = pid; D[o5 + 2] = 0; D[o5 + 3] = 0;   // ownership: the puff's id (1-based upload index) and its parent's (roots: a virtual core per cloud, -(cloud + 1), or sim.parent[i] when the sim gives one)
       D[o] = x; D[o + 1] = y; D[o + 2] = r; D[o + 3] = z0;
       D[o2] = stack; D[o2 + 1] = detail; D[o2 + 2] = fresh; D[o2 + 3] = dis;
@@ -685,11 +689,20 @@
     // and varied by a broad gust pattern that travels with the wind through the cloud (the surface detail travels with the
     // puff; this pattern moves through it, and only drives the slow drift, never the picture). Entries of parcels gone are dropped
     var drift = this._drift || new Map(), driftNow = new Map(), dtW = clamp(time - (this._wTime === undefined ? time : this._wTime), 0, 0.1); this._wTime = time;
+    // wind erosion (step 2): an amount per root id that the same exposure and gusts raise (0.15 per second at Erosion 1 on a fully
+    // exposed lobe in a full gust, so the crown wears through in 20 to 40 s) and that falls where exposure times gust is
+    // under 0.15, so a sheltered lobe never erodes and a worn one mends slowly once the gust passes; never a scrolling
+    // threshold, so nothing flickers. Up to
+    // 3.4: the field pass scales the lobe's radius per pixel by 1 - amount * (0.3 + 0.7 noise), so the last specks go at 3.34;
+    // the children carry their root's amount
+    var wear = this._wear || new Map(), wearNow = new Map();
     // roots
     for (c = 0; c < clouds.length; c++) {
       F = form(clouds[c], c);
       var sim = F.sim, B = sim.blobs, A = sim.aux, S = sim.spin, Dt = sim.detail, STR = sim.stretch || null;
       var count = Math.min(sim.blobCount | 0, 128), baseStart = num(sim.baseStart, count);
+      var hTop = 1e-3; for (var i0 = 0; i0 < count; i0++) if (B[i0 * 4 + 2] > 1e-4 && A[i0 * 4 + 3] > 1e-6) hTop = Math.max(hTop, (F.pivY - B[i0 * 4 + 1]) / F.spanY);
+      this._hTop = this._hTop || []; var hT = this._hTop[c]; hT = hT === undefined ? hTop : hT + (hTop - hT) * Math.min(1, dtW * 0.5); this._hTop[c] = hT;   // the cloud's top, eased, so a crown parcel dying does not re-expose the rest at once
       for (var i = 0; i < count; i++) {
         var o = i * 4, r = B[o + 2], link = A[o + 3];
         if (r <= 1e-4 || link <= 1e-6) continue;
@@ -711,13 +724,13 @@
         // the shear follows the mixing only: a newborn, its link still rising, used to count as fully dispersed and came in as a
         // long spike (dis keeps the link for the shader: a parcel evaporating out is a dispersing one)
         var stretch = (1 + F.shear * (1 - mixed) * (1 + F.shearBias * (2 * pdw - 1))) * (STR ? Math.max(0.2, STR[i]) : 1);   // the sim may stretch a parcel itself (streets, trails)
-        var rx, ry, hgt, band, hf;
+        var rx, ry, hgt, band, hf = (F.pivY - B[o + 1]) / F.spanY / hT;   // exposure: height over the cloud's own top
         if (F.cam) {
           var C = F.cam, dy = F.pivY - B[o + 1], zp = Math.max(0.05, C.z + C.flat * dy * C.k), sc = C.f / zp;
           rx = 0.5 + (C.x + (B[o] - F.pivX) * C.s) * sc; ry = C.hor - (C.h + (1 - C.flat) * dy * C.s) * sc;
           hgt = Math.max(0, (1 - C.flat) * dy * C.s * sc) * F.lean; rx += F.wx * hgt; ry += F.wy * hgt;
           r *= C.s * sc;
-          hf = dy / C.spanS; band = smoothstep(0, F.baseFall, 1 - hf);
+          band = smoothstep(0, F.baseFall, 1 - dy / C.spanS);
           // the camera's sway is a translation: a puff nearer than the cloud's centre shifts more. Its depth in
           // the field (screen units) is a world depth of (z0 - zOff) * z / f, so the sway term is re-projected
           // at the puff's own distance; children get the same from their own depth below
@@ -727,24 +740,28 @@
           rx = F.pivX + (B[o] - F.pivX) * F.zoom; ry = F.pivY + (B[o + 1] - F.pivY) * F.zoom;
           hgt = Math.max(0, F.pivY - ry) * F.lean; rx += F.wx * hgt + F.panX; ry += F.wy * hgt + F.panY;
           r *= F.zoom;
-          hf = (F.baseT - ry) / F.spanT; band = smoothstep(0, F.baseFall, 1 - hf);
+          band = smoothstep(0, F.baseFall, 1 - (F.baseT - ry) / F.spanT);
         }
         if (r <= 1e-4) continue;   // a parcel still too small to draw: skip it, never stop the loop (put() fails for the budget too, and that break hid every later parcel)
         var stack0 = 0;   // a root puff carries no stack shade; children add their parent's underside
         var id = B[o + 3], pid = sim.parent ? sim.parent[i] : -(c + 1);   // the id is the parcel's seed: persistent across frames, unlike an upload index
-        if (F.windSpeed > 0) {
+        var wer = 0;
+        if (F.windSpeed > 0 || F.erosion > 0) {
           var ex = Math.pow(clamp(hf, 0, 1), 1 + 4 * F.top), vs = F.windSpeed * 0.2, gs = F.ref * 4 * F.gust;
           var gx = (rx - F.wx * time * vs * F.ref) / gs, gy = (ry - F.wy * time * vs * F.ref) / gs;   // the gust pattern travels downwind at the wind speed
           var g = vnoise2(gx, gy), g2 = vnoise2(gx + 31.7, gy + 17.3), dr = drift.get(id) || { x: 0, y: 0 };
           var ua = 0.3 + 0.7 * g, uc = 0.4 * (g2 - 0.5);   // along the wind, gusting; a little across, wandering
-          dr = { x: dr.x + (F.wx * ua - F.wy * uc) * vs * ex * dtW, y: dr.y + (F.wy * ua + F.wx * uc) * vs * ex * dtW };
-          driftNow.set(id, dr);
-          var al = Math.sqrt(dr.x * dr.x + dr.y * dr.y), sf = al > 1e-6 ? 2 * Math.tanh(al / 2) / al : 0;
-          rx += dr.x * sf * F.ref; ry += dr.y * sf * F.ref; stretch *= 1 + 0.5 * al * sf;
+          if (F.windSpeed > 0) {
+            dr = { x: dr.x + (F.wx * ua - F.wy * uc) * vs * ex * dtW, y: dr.y + (F.wy * ua + F.wx * uc) * vs * ex * dtW };
+            driftNow.set(id, dr);
+            var al = Math.sqrt(dr.x * dr.x + dr.y * dr.y), sf = al > 1e-6 ? 2 * Math.tanh(al / 2) / al : 0;
+            rx += dr.x * sf * F.ref; ry += dr.y * sf * F.ref; stretch *= 1 + 0.5 * al * sf;
+          }
+          if (F.erosion > 0) { wer = clamp((wear.get(id) || 0) + F.erosion * (ex * ua - 0.15) * 0.15 * dtW, 0, 3.4); wearNow.set(id, wer); }
         }
         var vv = vary(F.vary, id);
-        if (!put(rx, ry, r, z0, stack0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp, id, pid, vv)) break;
-        queue.push({ id: id, v: vv, F: F, x: rx, y: ry, r: r, z: z0, zr: zr, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: stack0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band, zp: F.cam ? zp : 0 });
+        if (!put(rx, ry, r, z0, stack0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp, id, pid, vv, wer)) break;
+        queue.push({ id: id, v: vv, F: F, x: rx, y: ry, r: r, z: z0, zr: zr, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: stack0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band, zp: F.cam ? zp : 0, wer: wer });
       }
     }
     // plan the budget: how many puffs each deeper level wants; the deepest level that does not fit is
@@ -830,13 +847,13 @@
           // the child's id: from its seed, scattered by a hash so that cousins never share one (seeds are linear in j, and a
           // grandchild of child 0 had the id of another of child 1); persistent for the child's life, so its shape is too
           var cid = cs + j * 3.1 + 1.7 + 1000 * hash(cs * 0.37 + j * 5.9), cv = vary(F.vary, cid);
-          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id, cv);
-          next.push({ id: cid, v: cv, F: F, x: x, y: y, r: cr, z: z, zr: zr2, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2, zp: q.zp });
+          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id, cv, q.wer);
+          next.push({ id: cid, v: cv, F: F, x: x, y: y, r: cr, z: z, zr: zr2, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2, zp: q.zp, wer: q.wer });
         }
       }
       queue = next.filter(function (q) { return thinR(q) >= minR; }).sort(function (a, b) { return b.r - a.r; });
     }
-    this._born = bornNow; this._drift = driftNow;
+    this._born = bornNow; this._drift = driftNow; this._wear = wearNow;
     this.count = n;
     var gl = this.gl;
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
