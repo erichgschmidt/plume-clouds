@@ -25,6 +25,11 @@
   var PRIMS = ['sphere', 'disc', 'drop', 'box', 'diamond'];
 
   function hash(x) { var s = Math.sin(x * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); }
+  function vnoise2(x, y) {   // value noise on the unit lattice, smooth, 0..1 (the wind's gust pattern)
+    var ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+    var a = hash(ix + iy * 57.17), b = hash(ix + 1 + iy * 57.17), c = hash(ix + (iy + 1) * 57.17), d = hash(ix + 1 + (iy + 1) * 57.17);
+    return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+  }
   function smoothstep(a, b, x) { var t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
   function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
   function num(v, d) { return typeof v === 'number' && isFinite(v) ? v : d; }
@@ -617,6 +622,9 @@
       sim: sim, idx: Math.min(31, idx | 0), zoom: zoom, pivX: num(sim.cx, 0.5), pivY: baseY, panX: num(look.panX, 0), panY: num(look.panY, 0),
       ref: (sim.refRadius || 0.08) * zoom,
       shear: Math.max(0, num(look.shear, 0)), shearBias: clamp(num(look.shearBias, 0), -1, 1), wx: Math.cos(wa), wy: -Math.sin(wa), lean: num(look.lean, 0),
+      // wind drift (wind erosion, step 1): speed in fifths of a reference radius per second at full exposure, gust size in
+      // reference radii, top emphasis: how much the exposure concentrates toward the crown
+      windSpeed: Math.max(0, num(look.windSpeed, 0)), gust: Math.max(0.2, num(look.gustSize, 1.5)), top: clamp(num(look.topEmphasis, 0.5), 0, 1),
       prim: prim, pa: clamp(num(look.primAmt, 1), 0, 1), primPacked: prim + clamp(num(look.primAmt, 1), 0, 1) * 0.5,
       children: Math.max(0, Math.round(num(look.children, 4))), ratio: clamp(num(look.ratio, 0.42), 0.1, 0.8),
       levels: clamp(Math.round(num(look.levels, 3)), 1, 3), life: Math.max(0, num(look.life, 1)), embed: clamp(num(look.embed, 0.78), 0.3, 1),
@@ -672,6 +680,11 @@
       n++; return true;
     }
     var queue = [], q, j, c, F;
+    // wind drift: an exposed lobe drifts downwind, the crown most and the body hardly, stretching as it goes. The drift is
+    // accumulated per root id (in reference radii, bounded softly at 2 so a lobe stretches away but stays with its cloud)
+    // and varied by a broad gust pattern that travels with the wind through the cloud (the surface detail travels with the
+    // puff; this pattern moves through it, and only drives the slow drift, never the picture). Entries of parcels gone are dropped
+    var drift = this._drift || new Map(), driftNow = new Map(), dtW = clamp(time - (this._wTime === undefined ? time : this._wTime), 0, 0.1); this._wTime = time;
     // roots
     for (c = 0; c < clouds.length; c++) {
       F = form(clouds[c], c);
@@ -698,13 +711,13 @@
         // the shear follows the mixing only: a newborn, its link still rising, used to count as fully dispersed and came in as a
         // long spike (dis keeps the link for the shader: a parcel evaporating out is a dispersing one)
         var stretch = (1 + F.shear * (1 - mixed) * (1 + F.shearBias * (2 * pdw - 1))) * (STR ? Math.max(0.2, STR[i]) : 1);   // the sim may stretch a parcel itself (streets, trails)
-        var rx, ry, hgt, band;
+        var rx, ry, hgt, band, hf;
         if (F.cam) {
           var C = F.cam, dy = F.pivY - B[o + 1], zp = Math.max(0.05, C.z + C.flat * dy * C.k), sc = C.f / zp;
           rx = 0.5 + (C.x + (B[o] - F.pivX) * C.s) * sc; ry = C.hor - (C.h + (1 - C.flat) * dy * C.s) * sc;
           hgt = Math.max(0, (1 - C.flat) * dy * C.s * sc) * F.lean; rx += F.wx * hgt; ry += F.wy * hgt;
           r *= C.s * sc;
-          band = smoothstep(0, F.baseFall, 1 - dy / C.spanS);
+          hf = dy / C.spanS; band = smoothstep(0, F.baseFall, 1 - hf);
           // the camera's sway is a translation: a puff nearer than the cloud's centre shifts more. Its depth in
           // the field (screen units) is a world depth of (z0 - zOff) * z / f, so the sway term is re-projected
           // at the puff's own distance; children get the same from their own depth below
@@ -714,11 +727,21 @@
           rx = F.pivX + (B[o] - F.pivX) * F.zoom; ry = F.pivY + (B[o + 1] - F.pivY) * F.zoom;
           hgt = Math.max(0, F.pivY - ry) * F.lean; rx += F.wx * hgt + F.panX; ry += F.wy * hgt + F.panY;
           r *= F.zoom;
-          band = smoothstep(0, F.baseFall, 1 - (F.baseT - ry) / F.spanT);
+          hf = (F.baseT - ry) / F.spanT; band = smoothstep(0, F.baseFall, 1 - hf);
         }
         if (r <= 1e-4) continue;   // a parcel still too small to draw: skip it, never stop the loop (put() fails for the budget too, and that break hid every later parcel)
         var stack0 = 0;   // a root puff carries no stack shade; children add their parent's underside
         var id = B[o + 3], pid = sim.parent ? sim.parent[i] : -(c + 1);   // the id is the parcel's seed: persistent across frames, unlike an upload index
+        if (F.windSpeed > 0) {
+          var ex = Math.pow(clamp(hf, 0, 1), 1 + 4 * F.top), vs = F.windSpeed * 0.2, gs = F.ref * 4 * F.gust;
+          var gx = (rx - F.wx * time * vs * F.ref) / gs, gy = (ry - F.wy * time * vs * F.ref) / gs;   // the gust pattern travels downwind at the wind speed
+          var g = vnoise2(gx, gy), g2 = vnoise2(gx + 31.7, gy + 17.3), dr = drift.get(id) || { x: 0, y: 0 };
+          var ua = 0.3 + 0.7 * g, uc = 0.4 * (g2 - 0.5);   // along the wind, gusting; a little across, wandering
+          dr = { x: dr.x + (F.wx * ua - F.wy * uc) * vs * ex * dtW, y: dr.y + (F.wy * ua + F.wx * uc) * vs * ex * dtW };
+          driftNow.set(id, dr);
+          var al = Math.sqrt(dr.x * dr.x + dr.y * dr.y), sf = al > 1e-6 ? 2 * Math.tanh(al / 2) / al : 0;
+          rx += dr.x * sf * F.ref; ry += dr.y * sf * F.ref; stretch *= 1 + 0.5 * al * sf;
+        }
         var vv = vary(F.vary, id);
         if (!put(rx, ry, r, z0, stack0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp, id, pid, vv)) break;
         queue.push({ id: id, v: vv, F: F, x: rx, y: ry, r: r, z: z0, zr: zr, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: stack0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band, zp: F.cam ? zp : 0 });
@@ -813,7 +836,7 @@
       }
       queue = next.filter(function (q) { return thinR(q) >= minR; }).sort(function (a, b) { return b.r - a.r; });
     }
-    this._born = bornNow;
+    this._born = bornNow; this._drift = driftNow;
     this.count = n;
     var gl = this.gl;
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
