@@ -244,7 +244,7 @@
     renderer.render(list, sim.time, look);
     frames++; fpsT += dt;
     if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
-    hud.textContent = 'fps ' + fps + '   ' + typeName + '   parcels ' + sim.blobCount + (extraSim ? '+' + extraSim.blobCount : '') + '   puffs ' + renderer.count + '   t ' + sim.time.toFixed(0) + 's';
+    hud.textContent = (window.PLUME_BUILD ? 'build ' + PLUME_BUILD.commit + ' ' + PLUME_BUILD.date + '   ' : '') + 'fps ' + fps + '   ' + typeName + '   parcels ' + sim.blobCount + (extraSim ? '+' + extraSim.blobCount : '') + '   puffs ' + renderer.count + '   t ' + sim.time.toFixed(0) + 's';
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);

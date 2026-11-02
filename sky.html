@@ -218,7 +218,7 @@
     renderer.render(flat, t, sky);
     frames++; fpsT += dt;
     if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
-    hud.textContent = 'fps ' + fps + '   clouds ' + clouds.length + '   puffs ' + renderer.count + (renderer.degrade < 1 ? '  (deepest level at ' + Math.round(renderer.degrade * 100) + '%)' : '') + '   t ' + t.toFixed(0) + 's';
+    hud.textContent = (window.PLUME_BUILD ? 'build ' + PLUME_BUILD.commit + ' ' + PLUME_BUILD.date + '   ' : '') + 'fps ' + fps + '   clouds ' + clouds.length + '   puffs ' + renderer.count + (renderer.degrade < 1 ? '  (deepest level at ' + Math.round(renderer.degrade * 100) + '%)' : '') + '   t ' + t.toFixed(0) + 's';
     requestAnimationFrame(loop);
     } catch (err) { hud.textContent = 'ERR ' + err.stack; }
   }
