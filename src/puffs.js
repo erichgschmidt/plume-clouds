@@ -59,15 +59,17 @@
   'float hash21(vec2 p){ uint h = (uint(int(p.x)) * 73856093u) ^ (uint(int(p.y)) * 19349663u); h *= 2654435761u; h ^= h >> 13u; h *= 2246822519u; return float(h >> 8u) / 16777216.0; }\n' +
   'float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(hash21(i), hash21(i + vec2(1.0, 0.0)), f.x), mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), f.x), f.y); }\n' +
   'float bayer(vec2 p){ vec2 q = mod(floor(p), 4.0); float m[16]; m[0]=0.;m[1]=8.;m[2]=2.;m[3]=10.;m[4]=12.;m[5]=4.;m[6]=14.;m[7]=6.;m[8]=3.;m[9]=11.;m[10]=1.;m[11]=9.;m[12]=15.;m[13]=7.;m[14]=13.;m[15]=5.; return m[int(q.y) * 4 + int(q.x)] / 16.0 - 0.5; }\n' +
-  '// evaporation: a dispersing puff (attribute w) loses texels where Dissolve * dispersal exceeds a threshold that is mostly a\n' +
-  '// broad noise riding with the puff\'s parcel (so whole patches go, coherent per family: the noise is phased by the parent\n' +
-  '// id) and a small part the screen pattern (so the patch edges are stippled over a narrow band: a larger share drew the ordered lattice across whole puffs). The threshold is fixed per texel, so a rising\n' +
-  '// strength only removes more: no mark reshuffles\n' +
-  'bool dissolved(int i){ float dis = texelFetch(uSph, ivec2(i, 1), 0).w; if(dis <= 0.001) return false;\n' +
+  '// evaporation: a dispersing puff (attribute w) is eroded from its outline inward: its radius at this pixel is scaled by\n' +
+  '// 1 - Dissolve * dispersal * (0.3 + 0.7 n), n a broad value noise riding with the puff\'s parcel and phased by its family,\n' +
+  '// so the edge retreats raggedly, more where n is high, and the interior stays whole until the edge reaches it. (It\n' +
+  '// used to remove interior patches, which read as holes punched through the puff.) The noise also warps the dome\n' +
+  '// a little where it varies inside; the stored gradient leaves that out, a small error in direction only. Monotone in\n' +
+  '// the strength: a rising value only takes more\n' +
+  'float erode(int i){ float dis = texelFetch(uSph, ivec2(i, 1), 0).w; if(dis <= 0.001) return 1.0;\n' +
   '  vec2 anc = texelFetch(uSph, ivec2(i, 2), 0).xy; float pid = texelFetch(uSph, ivec2(i, 4), 0).y;\n' +
   '  vec2 p = vec2(gl_FragCoord.x, uTexW * uAspect - gl_FragCoord.y) / uTexW;   // the field position (vUv is declared below this function)\n' +
   '  float n = vnoise((p - anc) / uRef * uEvapScale + hash21(vec2(floor(pid * 64.0), 7.0)) * vec2(37.1, 11.7));\n' +
-  '  return uDissolve * dis > 0.85 * n + 0.15 * (bayer8(floor(gl_FragCoord.xy / uDotSize)) + 0.5); }\n' +
+  '  return max(0.0, 1.0 - uDissolve * dis * (0.3 + 0.7 * n)); }\n' +
   '// the contour factor f(phi) of the shape variation and its derivative: the harmonics (row 6) times the angular factor\n' +
   '// (row 7: amount, sides): a regular polygon inscribed in the circle, cos(pi/n) / cos(t) over each sector, its corners\n' +
   '// rounded by blending to the circle over the outer 35 % of the sector (C1, so no crease runs out to a corner)\n' +
@@ -133,7 +135,7 @@
   '  for(int k = 0; k < 4096; k++){\n' +
   '    if(k >= tcnt) break;\n' +
   '    int i = int(texelFetch(uTileList, ivec2((toff + k) & 4095, (toff + k) >> 12), 0).x);\n' +
-  '    vec4 s = texelFetch(uSph, ivec2(i, 0), 0); vec2 d = p - s.xy; float r = s.z;\n' +
+  '    vec4 s = texelFetch(uSph, ivec2(i, 0), 0); vec2 d = p - s.xy; float r = s.z * erode(i); if(r <= 1e-5) continue;\n' +
   '    vec4 sh = texelFetch(uSph, ivec2(i, 2), 0), vr = texelFetch(uSph, ivec2(i, 5), 0);\n' +
   '    float rr = r * max(max(1.0, sh.z), inversesqrt(max(sh.z, 1e-4))) * vr.w;\n' +
   '    if(dot(d, d) > rr * rr) continue;\n' +
@@ -146,7 +148,6 @@
   '    else if(prim == 3){ vec2 q = d * d; d *= mix(1.0, sqrt(sqrt(dot(q, q))) / max(length(d), 1e-6), pa); }\n' +
   '    else if(prim == 4) d *= mix(1.0, (abs(d.x) + abs(d.y)) / max(length(d), 1e-6), pa);\n' +
   '    float d2 = dot(d, d); if(d2 >= r * r) continue;\n' +
-  '    if(dissolved(i)) continue;\n' +
   '    float u = sqrt(d2) / r;\n' +
   '    float h = s.w + r * mix(sqrt(1.0 - u * u), 1.0 - u * u, uCap);\n' +
   '    vec4 idp = texelFetch(uSph, ivec2(i, 4), 0);\n' +
@@ -158,7 +159,7 @@
   '    if(k >= tcnt) break;\n' +
   '    int i = int(texelFetch(uTileList, ivec2((toff + k) & 4095, (toff + k) >> 12), 0).x);\n' +
   '    vec4 s = texelFetch(uSph, ivec2(i, 0), 0);\n' +
-  '    vec2 d = p - s.xy; float r = s.z;\n' +
+  '    vec2 d = p - s.xy; float r = s.z * erode(i); if(r <= 1e-5) continue;\n' +
   '    vec4 sh = texelFetch(uSph, ivec2(i, 2), 0), vr = texelFetch(uSph, ivec2(i, 5), 0);   // anchor.xy, stretch, prim; the shape variation\n' +
   '    float rr = r * max(1.0, sh.z) * vr.w;   // coarse reject (the stretch can reach sh.z radii along the wind, the variation vr.w more)\n' +
   '    if(dot(d, d) > rr * rr * 2.5) continue;\n' +
@@ -172,7 +173,6 @@
   '    else if(prim == 4) d *= mix(1.0, (abs(d.x) + abs(d.y)) / max(length(d), 1e-6), pa);\n' +
   '    float d2 = dot(d, d);\n' +
   '    if(d2 > r * r * 2.25) continue;\n' +
-  '    if(dissolved(i)) continue;\n' +
   '    float dist = sqrt(d2);\n' +
   '    // the skirt outside the radius dies off continuously before the 1.5 r cutoff (a penalty that diverges\n' +
   '    // there), so nothing is lost abruptly at the boundary: a skirt still above a neighbour used to drop\n' +

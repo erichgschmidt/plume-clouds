@@ -58,8 +58,8 @@
     function h21(x, y) { var h = (Math.imul(x | 0, 73856093) ^ Math.imul(y | 0, 19349663)) >>> 0; h = Math.imul(h, 2654435761) >>> 0; h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 2246822519) >>> 0; return (h >>> 8) / 16777216; }
     function vnoise(x, y) { var ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy); return mix(mix(h21(ix, iy), h21(ix + 1, iy), fx), mix(h21(ix, iy + 1), h21(ix + 1, iy + 1), fx), fy); }
     var bq = Math.floor((x + 0.5) / dot), bqy = Math.floor((y + 0.5) / dot), b8 = bayer8(bq, bqy) + 0.5, evapScale = P.evapScale || 3, ref = P.ref || 0.1;
-    function dissolved(i) { var dis = D[(M + i) * 4 + 3]; if (dis <= 0.001) return false; var o2d = (M * 2 + i) * 4, pid = D[(M * 4 + i) * 4 + 1], ph = h21(Math.floor(pid * 64), 7);
-      var n = vnoise((px - D[o2d]) / ref * evapScale + ph * 37.1, (py - D[o2d + 1]) / ref * evapScale + ph * 11.7); return dissolve * dis > 0.85 * n + 0.15 * b8; }
+    function erode(i) { var dis = D[(M + i) * 4 + 3]; if (dis <= 0.001) return 1; var o2d = (M * 2 + i) * 4, pid = D[(M * 4 + i) * 4 + 1], ph = h21(Math.floor(pid * 64), 7);
+      var n = vnoise((px - D[o2d]) / ref * evapScale + ph * 37.1, (py - D[o2d + 1]) / ref * evapScale + ph * 11.7); return Math.max(0, 1 - dissolve * dis * (0.3 + 0.7 * n)); }
     // p = vec2(vUv.x, (1 - vUv.y) * uAspect) at the texel centre
     var px = (x + 0.5) / W, py = (1 - (y + 0.5) / Hh) * asp;
     var i, o0, o1, o2, o3, o4, dx, dy, r, st, prim, pa, q, len, d2, u, h, along, across;
@@ -68,7 +68,7 @@
     var winId = -1, winPid = -2, winH = -1e9, ph = [], pidA = [], ppA = [];
     for (i = 0; i < count; i++) {
       o0 = i * 4; o2 = (M * 2 + i) * 4; o3 = (M * 3 + i) * 4; o4 = (M * 4 + i) * 4;
-      dx = px - D[o0]; dy = py - D[o0 + 1]; r = D[o0 + 2]; st = D[o2 + 2];
+      dx = px - D[o0]; dy = py - D[o0 + 1]; r = D[o0 + 2] * erode(i); st = D[o2 + 2]; if (r <= 1e-5) continue;
       var vb = D[(M * 5 + i) * 4 + 3], rr = r * Math.max(Math.max(1, st), 1 / Math.sqrt(Math.max(st, 1e-4))) * vb;
       if (dx * dx + dy * dy > rr * rr) continue;
       if (st !== 1) { along = dx * D[o3] + dy * D[o3 + 1]; across = dx * D[o3 + 1] - dy * D[o3]; dx = along / st; dy = across * Math.sqrt(st); }
@@ -79,7 +79,6 @@
       else if (prim === 3) { q = Math.sqrt(Math.sqrt(dx * dx * dx * dx + dy * dy * dy * dy)) / Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6); len = mix(1, q, pa); dx *= len; dy *= len; }
       else if (prim === 4) { q = (Math.abs(dx) + Math.abs(dy)) / Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6); len = mix(1, q, pa); dx *= len; dy *= len; }
       d2 = dx * dx + dy * dy; if (d2 >= r * r) continue;
-      if (dissolved(i)) continue;
       u = Math.sqrt(d2) / r;
       h = D[o0 + 3] + r * mix(Math.sqrt(1 - u * u), 1 - u * u, cap);
       if (ph.length < 8) { ph.push(h); pidA.push(D[o4]); ppA.push(D[o4 + 1]); }
@@ -93,7 +92,7 @@
     var GIx = 0, GIy = 0, GOx = 0, GOy = 0, RI = 0;
     for (i = 0; i < count; i++) {
       o0 = i * 4; o1 = (M + i) * 4; o2 = (M * 2 + i) * 4; o3 = (M * 3 + i) * 4; o4 = (M * 4 + i) * 4;
-      dx = px - D[o0]; dy = py - D[o0 + 1]; r = D[o0 + 2]; st = D[o2 + 2];
+      dx = px - D[o0]; dy = py - D[o0 + 1]; r = D[o0 + 2] * erode(i); st = D[o2 + 2]; if (r <= 1e-5) continue;
       var vb2 = D[(M * 5 + i) * 4 + 3], rr2 = r * Math.max(1, st) * vb2;
       if (dx * dx + dy * dy > rr2 * rr2 * 2.5) continue;
       var wx = D[o3], wy = D[o3 + 1];
@@ -106,7 +105,6 @@
       else if (prim === 4) { q = (Math.abs(dx) + Math.abs(dy)) / Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6); len = mix(1, q, pa); dx *= len; dy *= len; }
       d2 = dx * dx + dy * dy;
       if (d2 > r * r * 2.25) continue;
-      if (dissolved(i)) continue;
       var dist = Math.sqrt(d2);
       var tt = clamp((dist - r) / (0.5 * r), 0, 0.995), pen = r * tt * tt / (1 - tt);
       var d1x = dx / Math.max(dist, 1e-6), d1y = dy / Math.max(dist, 1e-6), gn = 1;
@@ -170,7 +168,7 @@
     var px = (x + 0.5) / W, py = (1 - (y + 0.5) / Hh) * asp, rows = [], i, ins = 0;
     for (i = 0; i < count; i++) {
       var o0 = i * 4, o2 = (M * 2 + i) * 4, o3 = (M * 3 + i) * 4, o4 = (M * 4 + i) * 4;
-      var dx = px - D[o0], dy = py - D[o0 + 1], r = D[o0 + 2], st = D[o2 + 2];
+      var dx = px - D[o0], dy = py - D[o0 + 1], r = D[o0 + 2], st = D[o2 + 2];   // (no erosion in the probe: it lists the records as uploaded)
       var vb = D[(M * 5 + i) * 4 + 3], rr = r * Math.max(1, st) * vb;
       if (dx * dx + dy * dy > rr * rr * 2.5) continue;
       if (st !== 1) { var along = dx * D[o3] + dy * D[o3 + 1], across = dx * D[o3 + 1] - dy * D[o3]; dx = along / st; dy = across * Math.sqrt(st); }

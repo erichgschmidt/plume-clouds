@@ -39,11 +39,11 @@
     <div id="groups"></div>
   </div>
 </div>
-<script src="src/sim.js?v=187"></script>
-<script src="src/puffs.js?v=187"></script>
-<script src="src/motion.js?v=187"></script>
-<script src="src/layer.js?v=187"></script>
-<script src="src/presets.js?v=187"></script>
+<script src="src/sim.js?v=188"></script>
+<script src="src/puffs.js?v=188"></script>
+<script src="src/motion.js?v=188"></script>
+<script src="src/layer.js?v=188"></script>
+<script src="src/presets.js?v=188"></script>
 <script>
 (function () {
   'use strict';
@@ -145,8 +145,8 @@
   var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['overhead', 'Overhead', 0, 1, 0.01], ['shadow', 'Shadow', 0, 1, 0.01], ['contact', 'Contact', 0, 1, 0.01], ['cavity', 'Cavity', 0, 1, 0.01], ['cavityReach', 'Cavity reach', 2, 24, 1], ['cavityLit', 'Cavity in light', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['baseFall', 'Base falloff', 0.1, 1.5, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
   var CIRRUS = [['cirrus', 'Cirrus', 0, 1, 0.01], ['cirrusScale', 'Scale', 0.5, 6, 0.1], ['cirrusAngle', 'Angle (deg)', -45, 45, 1], ['cirrusFlow', 'Flow', 0, 0.1, 0.001]];
   var TIPS = { dither: 'Dispersing puffs keep a hard, stippled edge instead of a hazy fade (per type). It does not remove pixels: that is Evaporation (Dissolve), tone is Stipple, ragged outlines are Edge breakup.',
-    dissolve: 'Evaporation: how much of a dispersing puff is removed, in coherent patches that ride with the parcel, their edges stippled on the screen grid. A rising value only removes more.', dotSize: 'Cell size of the stipple, breakup and evaporation patterns in texels.',
-    evapScale: 'Size of the evaporation patches (higher: smaller patches).', stipple: 'Tone stippling: pixels choose between the two neighbouring palette colours by an ordered pattern, up to half a band. Coverage is untouched.', stippleBias: 'Where the stippling lives: -1 only in shadow, +1 only in light.',
+    dissolve: 'Evaporation: how far a dispersing puff is eroded from its outline inward, raggedly, by a broad noise riding with the parcel (no interior holes). A rising value only takes more.', dotSize: 'Cell size of the stipple, breakup and evaporation patterns in texels.',
+    evapScale: 'Size of the erosion\'s ragged bites (higher: smaller).', stipple: 'Tone stippling: pixels choose between the two neighbouring palette colours by an ordered pattern, up to half a band. Coverage is untouched.', stippleBias: 'Where the stippling lives: -1 only in shadow, +1 only in light.',
     breakup: 'Edge breakup: coverage removed near the exposed silhouette by the ordered pattern (powdery, ragged outline). Shading inside is untouched.', breakupReach: 'How far in from the outline (field texels) the breakup reaches.', patternLock: 'Where the stipple and breakup patterns sit: 1 on the screen grid (a print), 0 riding with each parcel (material).',
     angular: 'Angular profile: each puff\'s outline pulled toward a regular polygon with rounded corners (0: round). Independent of Shape variation.', sides: 'Sides of the angular profile polygon.',
     clouds: 'How many clouds the sky holds (regenerates).', near: 'Size of a cloud at distance 1 (regenerates).', travel: 'Forward glide of the camera; a cloud that passes overhead re-forms far away.', drift: 'Sideways wind in world units; near clouds cross faster.',
