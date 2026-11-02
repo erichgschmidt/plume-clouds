@@ -32,7 +32,20 @@
   var VS = '#version 300 es\nprecision highp float;\nout vec2 vUv;\nvoid main(){ vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); vUv = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }';
 
   // sphere texture rows: 0 (x, y, r, z0); 1 (stack, detail, fresh, dispersal);
-  // 2 (anchor x, anchor y, stretch, prim id + amt/2); 3 (wind x, wind y, band, depth weight: cloud dw + puff dw / 4 packed as floor + fract)
+  // 2 (anchor x, anchor y, stretch, prim id + amt/2); 3 (wind x, wind y, band, depth weight: cloud dw + puff dw / 4 packed as floor + fract);
+  // 4 (id, parent id); 5 (cos, sin of the shape orientation, aspect a, bound); 6 (A1, B1, A3, B3: the contour harmonics)
+  //
+  // Shape variation (one evaluator, varyIn / varyGrad below, the CPU port in lab-ref.js and the inverse in _tree): the
+  // puff's unit space is reached from the field through the wind stretch, then this per-puff warp, then the primitive:
+  //   q  = R(-theta) d                       (into the puff's own frame)
+  //   q' = (q.x / (1 + a), q.y * (1 + a))    (an ellipse: semi-axes r (1 + a) and r / (1 + a), area kept)
+  //   d1 = R(theta) q' / f(phi)              f(phi) = 1 + A1 cos phi + B1 sin phi + A3 cos 3phi + B3 sin 3phi, phi = angle of q'
+  // so the footprint is r f(phi) along each ray: star-shaped about the centre, a bijection of the plane while f > 0 (it
+  // is bounded away from zero: |A1| + |B1| + |A3| + |B3| <= 0.3), so nothing folds or self-intersects. The height, the inside
+  // test, the skirt and the silhouette all run on |d1|; the gradient is pulled back through the warp's Jacobian; the
+  // silhouette distance is divided by the pull-back's length, so the rim width stays a true distance (a warped field
+  // is not a distance field). bound = (1 + a) f_max expands the coarse rejects and the tile reach. Identity rows
+  // (a = 0, harmonics 0, bound 1) skip the warp, so Shape variation 0 is the original puff to the bit
   var FIELD_FS = '#version 300 es\nprecision highp float; precision highp sampler2D;\n' +
   'uniform sampler2D uSph; uniform float uAspect; uniform float uT, uCap;\n' +
   '// tiles: the spheres whose reach touches a 16-texel tile, as a list per tile (uTileHead: offset, count; uTileList: indices)\n' +
@@ -42,6 +55,27 @@
   'uniform float uDissolve, uDotSize;\n' +
   'float bayer(vec2 p){ vec2 q = mod(floor(p), 4.0); float m[16]; m[0]=0.;m[1]=8.;m[2]=2.;m[3]=10.;m[4]=12.;m[5]=4.;m[6]=14.;m[7]=6.;m[8]=3.;m[9]=11.;m[10]=1.;m[11]=9.;m[12]=15.;m[13]=7.;m[14]=13.;m[15]=5.; return m[int(q.y) * 4 + int(q.x)] / 16.0 - 0.5; }\n' +
   'bool dissolved(int i){ float dis = texelFetch(uSph, ivec2(i, 1), 0).w; return dis > 0.001 && bayer(floor(gl_FragCoord.xy / uDotSize) + 7.0) + 0.5 < uDissolve * dis; }\n' +
+  '// shape variation: the field offset d into the puff\'s unit space (vr: row 5, vh: row 6)\n' +
+  'vec2 varyIn(vec2 d, vec4 vr, vec4 vh){\n' +
+  '  vec2 q = vec2(vr.x * d.x + vr.y * d.y, -vr.y * d.x + vr.x * d.y);\n' +
+  '  q = vec2(q.x / (1.0 + vr.z), q.y * (1.0 + vr.z));\n' +
+  '  float ph = atan(q.y, q.x), f = 1.0 + vh.x * cos(ph) + vh.y * sin(ph) + vh.z * cos(3.0 * ph) + vh.w * sin(3.0 * ph);\n' +
+  '  q /= f;\n' +
+  '  return vec2(vr.x * q.x - vr.y * q.y, vr.y * q.x + vr.x * q.y);\n' +
+  '}\n' +
+  '// the pull-back of a gradient g (in unit space, at unit point d1 = varyIn(d)) to the field: J^T g\n' +
+  'vec2 varyGrad(vec2 g, vec2 d1, vec4 vr, vec4 vh){\n' +
+  '  // into the puff frame: g1 = R(-theta) g, p = R(-theta) d1 = q\' / f\n' +
+  '  vec2 g1 = vec2(vr.x * g.x + vr.y * g.y, -vr.y * g.x + vr.x * g.y), pq = vec2(vr.x * d1.x + vr.y * d1.y, -vr.y * d1.x + vr.x * d1.y);\n' +
+  '  float ph = atan(pq.y, pq.x), f = 1.0 + vh.x * cos(ph) + vh.y * sin(ph) + vh.z * cos(3.0 * ph) + vh.w * sin(3.0 * ph);\n' +
+  '  float df = -vh.x * sin(ph) + vh.y * cos(ph) - 3.0 * vh.z * sin(3.0 * ph) + 3.0 * vh.w * cos(3.0 * ph);\n' +
+  '  // star: d1 = q\' / f(phi);  J^T g = g / f - grad f (q\' . g) / f^2,  grad f = df * (-q\'.y, q\'.x) / |q\'|^2,  q\' = p f\n' +
+  '  vec2 qp = pq * f; float q2 = max(dot(qp, qp), 1e-12);\n' +
+  '  vec2 g2 = g1 / f - df * vec2(-qp.y, qp.x) * dot(qp, g1) / (q2 * f * f);\n' +
+  '  // ellipse: q\' = (q.x / (1 + a), q.y (1 + a))\n' +
+  '  g2 = vec2(g2.x / (1.0 + vr.z), g2.y * (1.0 + vr.z));\n' +
+  '  return vec2(vr.x * g2.x - vr.y * g2.y, vr.y * g2.x + vr.x * g2.y);\n' +
+  '}\n' +
   'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3; layout(location = 3) out vec4 o4;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
@@ -52,10 +86,11 @@
   '  // the per-puff attributes blend over a band four times wider than the height union: where one dome\n' +
   '  // crosses another the shape stays crisp, but stack, band, freshness and depth weight no longer jump\n' +
   '  // along the crease (that jump drew a ring round every puff)\n' +
-  '  float m2 = -1e9, acc2 = 0.0, dSum = 0.0, sSum = 0.0, fSum = 0.0, xSum = 0.0, bSum = 0.0, wSum = 0.0, rSum = 0.0; vec2 anc = vec2(0.0);\n' +
-  '  float m2O = -1e9, acc2O = 0.0, dSumO = 0.0, sSumO = 0.0, fSumO = 0.0, xSumO = 0.0, bSumO = 0.0, wSumO = 0.0, rSumO = 0.0; vec2 ancO = vec2(0.0);\n' +
+  '  float m2 = -1e9, acc2 = 0.0, dSum = 0.0, sSum = 0.0, fSum = 0.0, xSum = 0.0, bSum = 0.0, wSum = 0.0; vec2 anc = vec2(0.0);\n' +
+  '  float m2O = -1e9, acc2O = 0.0, dSumO = 0.0, sSumO = 0.0, fSumO = 0.0, xSumO = 0.0, bSumO = 0.0, wSumO = 0.0; vec2 ancO = vec2(0.0);\n' +
   '  float sm = -1e9, sacc = 0.0;                            // silhouette (soft union of r - dist)\n' +
   '  vec2 GI = vec2(0.0), GO = vec2(0.0);                   // gradient sums of the two sets, weighted like acc / accO\n' +
+  '  float RI = 0.0;                                        // the puffs\' own rims, in the inside union (a skirt\'s is 1)\n' +
   '  float T = uT, T2 = uT * 4.0;\n' +
   '  // ownership (docs/core-audit.md): a containing puff is hidden by every unattached containing puff above it\n' +
   '  // (not the same parent, nor its parent or child), fading out a quarter T below each: a crisp overlap with the\n' +
@@ -71,11 +106,12 @@
   '    if(k >= tcnt) break;\n' +
   '    int i = int(texelFetch(uTileList, ivec2((toff + k) & 4095, (toff + k) >> 12), 0).x);\n' +
   '    vec4 s = texelFetch(uSph, ivec2(i, 0), 0); vec2 d = p - s.xy; float r = s.z;\n' +
-  '    vec4 sh = texelFetch(uSph, ivec2(i, 2), 0);\n' +
-  '    float rr = r * max(max(1.0, sh.z), inversesqrt(max(sh.z, 1e-4)));\n' +
+  '    vec4 sh = texelFetch(uSph, ivec2(i, 2), 0), vr = texelFetch(uSph, ivec2(i, 5), 0);\n' +
+  '    float rr = r * max(max(1.0, sh.z), inversesqrt(max(sh.z, 1e-4))) * vr.w;\n' +
   '    if(dot(d, d) > rr * rr) continue;\n' +
   '    vec4 wd = texelFetch(uSph, ivec2(i, 3), 0);\n' +
   '    if(sh.z != 1.0){ float along = dot(d, wd.xy), across = d.x * wd.y - d.y * wd.x; d = vec2(along / sh.z, across * sqrt(sh.z)); }\n' +
+  '    if(vr.w != 1.0) d = varyIn(d, vr, texelFetch(uSph, ivec2(i, 6), 0));\n' +
   '    int prim = int(floor(sh.w + 0.01)); float pa = (sh.w - floor(sh.w + 0.01)) * 2.0;\n' +
   '    if(prim == 1) d.y *= 1.0 + 1.5 * pa;\n' +
   '    else if(prim == 2) d.x *= 1.0 + 2.0 * pa * max(0.0, -d.y) / r;\n' +
@@ -95,11 +131,12 @@
   '    int i = int(texelFetch(uTileList, ivec2((toff + k) & 4095, (toff + k) >> 12), 0).x);\n' +
   '    vec4 s = texelFetch(uSph, ivec2(i, 0), 0);\n' +
   '    vec2 d = p - s.xy; float r = s.z;\n' +
-  '    vec4 sh = texelFetch(uSph, ivec2(i, 2), 0);   // anchor.xy, stretch, prim\n' +
-  '    float rr = r * max(1.0, sh.z);   // coarse reject (the stretch can reach sh.z radii along the wind)\n' +
+  '    vec4 sh = texelFetch(uSph, ivec2(i, 2), 0), vr = texelFetch(uSph, ivec2(i, 5), 0);   // anchor.xy, stretch, prim; the shape variation\n' +
+  '    float rr = r * max(1.0, sh.z) * vr.w;   // coarse reject (the stretch can reach sh.z radii along the wind, the variation vr.w more)\n' +
   '    if(dot(d, d) > rr * rr * 2.5) continue;\n' +
   '    vec4 wd = texelFetch(uSph, ivec2(i, 3), 0);   // wind.xy, band, depth weight\n' +
   '    if(sh.z != 1.0){ float along = dot(d, wd.xy), across = d.x * wd.y - d.y * wd.x; d = vec2(along / sh.z, across * sqrt(sh.z)); }\n' +
+  '    vec4 vh = vec4(0.0); if(vr.w != 1.0){ vh = texelFetch(uSph, ivec2(i, 6), 0); d = varyIn(d, vr, vh); }\n' +
   '    int prim = int(floor(sh.w + 0.01)); float pa = (sh.w - floor(sh.w + 0.01)) * 2.0;\n' +
   '    if(prim == 1) d.y *= 1.0 + 1.5 * pa;\n' +
   '    else if(prim == 2) d.x *= 1.0 + 2.0 * pa * max(0.0, -d.y) / r;\n' +
@@ -113,7 +150,10 @@
   '    // there), so nothing is lost abruptly at the boundary: a skirt still above a neighbour used to drop\n' +
   '    // out at the cutoff and leave a second circular ledge round the puff\n' +
   '    float tt = clamp((dist - r) / (0.5 * r), 0.0, 0.995), pen = r * tt * tt / (1.0 - tt);\n' +
-  '    float e = (r - dist - pen) / T;\n' +
+  '    // the warp\'s pull-back of the outward unit vector: its length is how fast |d1| grows per field unit here, so\n' +
+  '    // (r - dist) / gn is the distance to the footprint in the field (1 without variation)\n' +
+  '    vec2 dir1 = d / max(dist, 1e-6), vg = vr.w != 1.0 ? varyGrad(dir1, d, vr, vh) : dir1; float gn = max(length(vg), 1e-3);\n' +
+  '    float e = (r - dist - pen) / (T * gn);\n' +
   '    if(e > sm){ sacc = sacc * exp(sm - e) + 1.0; sm = e; } else sacc += exp(e - sm);\n' +
   '    bool inside = d2 < r * r;\n' +
   '    vec4 a = texelFetch(uSph, ivec2(i, 1), 0);\n' +
@@ -134,20 +174,24 @@
   '    float dpen = (tt > 0.0 && tt < 0.995) ? min(20.0, 2.0 * (2.0 * tt - tt * tt) / ((1.0 - tt) * (1.0 - tt))) : (tt > 0.0 ? 20.0 : 0.0);\n' +
   '    vec2 dirp = d / max(dist, 1e-6);   // the outward direction, mapped back to the field plane\n' +
   '    if(prim == 1) dirp.y *= 1.0 + 1.5 * pa;\n' +
+  '    if(vr.w != 1.0) dirp = varyGrad(dirp, d, vr, vh);\n' +
   '    if(sh.z != 1.0) dirp = dirp.x * wd.xy / sh.z + dirp.y * vec2(wd.y, -wd.x) * sqrt(sh.z);\n' +
   '    vec2 gd = (mix(dsph, dpar, uCap) - dpen) * dirp;\n' +
   '    if(inside) ins = max(ins, smoothstep(0.0, T, r - dist));\n' +
   '    float wa = 1.0;   // hidden by every unattached containing puff above it\n' +
   '    if(inside){ vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); for(int q = 0; q < 8; q++){ if(q >= pn) break; if(!(idp.x == pidA[q] || idp.y == ppA[q] || idp.y == pidA[q] || idp.x == ppA[q])) wa *= smoothstep(-0.25 * T, 0.0, h - ph[q]); } }\n' +
-  '    float w, rim = 1.0 - smoothstep(0.0, 0.3, 1.0 - dist / r);   // this puff\'s own rim: 1 at the edge, 0 a third of a radius in\n' +
+  '    // this puff\'s own rim: 1 at the edge, 0 a third of a radius in. It rides in the height union (width T, with the\n' +
+  '    // ownership weight), not the wider attribute blend: a puff\'s rim shows only by its share of the surface, so\n' +
+  '    // the rim of a puff buried a few T below cannot draw a ring inside the puff over it\n' +
+  '    float w, rim = 1.0 - smoothstep(0.0, 0.3, 1.0 - dist / r);\n' +
   '    if(inside){\n' +
-  '      if(h > m){ float wq = exp((m - h) / T); acc = acc * wq + wa; GI = GI * wq + wa * gd; cIdx = floor(wd.w); m = h; } else { float wq = wa * exp((h - m) / T); acc += wq; GI += wq * gd; }\n' +
-  '      if(h > m2){ w = exp((m2 - h) / T2); acc2 = acc2 * w + wa; dSum = dSum * w + wa * a.y; sSum = sSum * w + wa * a.x; fSum = fSum * w + wa * a.z; xSum = xSum * w + wa * a.w; anc = anc * w + wa * sh.xy; bSum = bSum * w + wa * wd.z; wSum = wSum * w + wa * fract(wd.w) * 4.0; rSum = rSum * w + wa * rim; m2 = h; }\n' +
-  '      else { w = wa * exp((h - m2) / T2); acc2 += w; dSum += w * a.y; sSum += w * a.x; fSum += w * a.z; xSum += w * a.w; anc += w * sh.xy; bSum += w * wd.z; wSum += w * fract(wd.w) * 4.0; rSum += w * rim; }\n' +
+  '      if(h > m){ float wq = exp((m - h) / T); acc = acc * wq + wa; GI = GI * wq + wa * gd; RI = RI * wq + wa * rim; cIdx = floor(wd.w); m = h; } else { float wq = wa * exp((h - m) / T); acc += wq; GI += wq * gd; RI += wq * rim; }\n' +
+  '      if(h > m2){ w = exp((m2 - h) / T2); acc2 = acc2 * w + wa; dSum = dSum * w + wa * a.y; sSum = sSum * w + wa * a.x; fSum = fSum * w + wa * a.z; xSum = xSum * w + wa * a.w; anc = anc * w + wa * sh.xy; bSum = bSum * w + wa * wd.z; wSum = wSum * w + wa * fract(wd.w) * 4.0; m2 = h; }\n' +
+  '      else { w = wa * exp((h - m2) / T2); acc2 += w; dSum += w * a.y; sSum += w * a.x; fSum += w * a.z; xSum += w * a.w; anc += w * sh.xy; bSum += w * wd.z; wSum += w * fract(wd.w) * 4.0; }\n' +
   '    } else {\n' +
   '      if(h > mO){ float wq = exp((mO - h) / T); accO = accO * wq + 1.0; GO = GO * wq + gd; cIdxO = floor(wd.w); mO = h; } else { float wq = exp((h - mO) / T); accO += wq; GO += wq * gd; }\n' +
-  '      if(h > m2O){ w = exp((m2O - h) / T2); acc2O = acc2O * w + 1.0; dSumO = dSumO * w + a.y; sSumO = sSumO * w + a.x; fSumO = fSumO * w + a.z; xSumO = xSumO * w + a.w; ancO = ancO * w + sh.xy; bSumO = bSumO * w + wd.z; wSumO = wSumO * w + fract(wd.w) * 4.0; rSumO = rSumO * w + rim; m2O = h; }\n' +
-  '      else { w = exp((h - m2O) / T2); acc2O += w; dSumO += w * a.y; sSumO += w * a.x; fSumO += w * a.z; xSumO += w * a.w; ancO += w * sh.xy; bSumO += w * wd.z; wSumO += w * fract(wd.w) * 4.0; rSumO += w * rim; }\n' +
+  '      if(h > m2O){ w = exp((m2O - h) / T2); acc2O = acc2O * w + 1.0; dSumO = dSumO * w + a.y; sSumO = sSumO * w + a.x; fSumO = fSumO * w + a.z; xSumO = xSumO * w + a.w; ancO = ancO * w + sh.xy; bSumO = bSumO * w + wd.z; wSumO = wSumO * w + fract(wd.w) * 4.0; m2O = h; }\n' +
+  '      else { w = exp((h - m2O) / T2); acc2O += w; dSumO += w * a.y; sSumO += w * a.x; fSumO += w * a.z; xSumO += w * a.w; ancO += w * sh.xy; bSumO += w * wd.z; wSumO += w * fract(wd.w) * 4.0; }\n' +
   '    }\n' +
   '  }\n' +
   '  // combine. Over a surface that contains the pixel (ins > 0) a skirt may only fill in BELOW that surface: a\n' +
@@ -178,13 +222,13 @@
   '  // a footprint edge where a neighbour\'s skirt is cut off, is left without a slope: it is an occluding\n' +
   '  // edge, as the old slope test treated it, not a wall to light (lit, it drew a thin arc along the outline)\n' +
   '  if(HI > -1e8 && HO0 > -1e8 && HO0 > HI - 2.0 * T) gO = mix(gO, gI, ins);\n' +
-  '  vec2 G = vec2(0.0);\n' +
-  '  if(acc > 0.0) G += gI * exp(max(-40.0, (HI - H) / T));\n' +
-  '  if(accO > 0.0) G += gO * exp(max(-40.0, (HO - H) / T));\n' +
+  '  vec2 G = vec2(0.0); float rimW = 0.0;   // the puff rim weight, the same shares as the gradient (skirts: rim 1)\n' +
+  '  if(acc > 0.0){ float sI = exp(max(-40.0, (HI - H) / T)); G += gI * sI; rimW += RI / acc * sI; }\n' +
+  '  if(accO > 0.0){ float sO = exp(max(-40.0, (HO - H) / T)); G += gO * sO; rimW += sO; }\n' +
   '  if(acc2O > 0.0 && g > 1e-4){\n' +
   '    float wO = acc2 > 0.0 ? g * exp(clamp((m2O - m2) / T2, -30.0, 30.0)) : 1.0;\n' +
   '    if(acc2 <= 0.0){ m2 = m2O; }\n' +
-  '    acc2 += wO * acc2O; dSum += wO * dSumO; sSum += wO * sSumO; fSum += wO * fSumO; xSum += wO * xSumO; anc += wO * ancO; bSum += wO * bSumO; wSum += wO * wSumO; rSum += wO * rSumO;\n' +
+  '    acc2 += wO * acc2O; dSum += wO * dSumO; sSum += wO * sSumO; fSum += wO * fSumO; xSum += wO * xSumO; anc += wO * ancO; bSum += wO * bSumO; wSum += wO * wSumO;\n' +
   '  }\n' +
   '  // the silhouette union gains at most T log 2 over the nearest puff (a pair blends as before; a pile of\n' +
   '  // overlapping skirts no longer pushes the outline T log n beyond the domes that are shaded)\n' +
@@ -195,7 +239,7 @@
   '  // shade pass has a smooth distance from the outline (every mask test is < 0.5 or clamps, so it still works)\n' +
   '  o = vec4(H, dSum * ia, sSum * ia, mask + 10.0 * max(0.0, sil - 0.5 * T));\n' +
   '  o2 = vec4(acc2 > 0.0 ? fSum * ia : 1.0, xSum * ia, anc * ia);\n' +
-  '  o3 = vec4(bSum * ia, acc2 > 0.0 ? wSum * ia : 1.0, cIdx, rSum * ia);\n' +
+  '  o3 = vec4(bSum * ia, acc2 > 0.0 ? wSum * ia : 1.0, cIdx, clamp(rimW, 0.0, 1.0));\n' +
   '  o4 = vec4(G, sil, winPid);   // z: the signed distance to the silhouette line (field units); w: the owner\'s group (its parent id)\n' +
   '}';
 
@@ -356,9 +400,11 @@
   '    }\n' +
   '    n = normalize(nacc);\n' +
   '  }\n' +
-  '  // the rim turns toward the viewer: the dome edge is otherwise a dark ring that reads as an outline;\n' +
-  '  // the same at a puff\'s own rim inside the cloud, where one dome falls steeply over the puff behind it\n' +
-  '  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), max(uRim * edge, max(uPuffRim, uRim) * bx.a)));   // the own rim at least at Rim soften strength (the true limb needs it)\n' +
+  '  // the rim turns toward the viewer: the dome edge is otherwise a dark ring that reads as an outline. Two controls,\n' +
+  '  // independent: Rim soften by the distance to the exposed silhouette (edge), Puff rim by each puff\'s own rim weight\n' +
+  '  // inside the cloud (bx.a, by its share of the surface). Where a lobe rim meets the silhouette the larger of the two\n' +
+  '  // lifts, continuous and never over 1: no double application, no mask. Neither geometry nor coverage changes\n' +
+  '  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), max(uRim * edge, uPuffRim * bx.a)));\n' +
   '  // diagnostic views (Diag): 1 continuous grey lighting of the final normal (after Rim soften and Puff rim), 2 height, 3 the normal as RGB,\n' +
   '  // 5 how many of the four normal-footprint neighbours the same-surface test accepts (red: none)\n' +
   '  if(uDiag > 0.5){\n' +
@@ -447,14 +493,14 @@
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTileSize', 'uTiles', 'uAspect', 'uT', 'uCap', 'uDissolve', 'uDotSize']);
     this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain', 'uDiag', 'uT']);
-    this._sphData = new Float32Array(MAX_SPH * 4 * 5);   // five rows: the fifth is (puff id, parent id)
+    this._sphData = new Float32Array(MAX_SPH * 4 * 7);   // seven rows: the fifth is (puff id, parent id), the sixth and seventh the shape variation
     this._sphTex = gl.createTexture();
     // tile lists: a head texture (offset, count) per 16-texel tile, sized in resize, and a flat index list
     this._tileHead = gl.createTexture(); this._tileList = gl.createTexture(); this._tileSize = 16;
     this._listRows = 0; this._maxListRows = 2048;   // the list grows (doubling rows) up to 8M entries; past that the tiles double instead
     this._growList(256);
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, MAX_SPH, 5, 0, gl.RGBA, gl.FLOAT, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, MAX_SPH, 7, 0, gl.RGBA, gl.FLOAT, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     this._fieldTex = gl.createTexture(); this._auxTex = gl.createTexture(); this._aux2Tex = gl.createTexture(); this._aux3Tex = gl.createTexture(); this._fbo = gl.createFramebuffer();
     this._w = 0; this._h = 0;
@@ -512,6 +558,9 @@
       // union); the sway of child puffs has its own scale, and a puff's depth weight (its fade) comes from its
       // unscaled depth, so Depth no longer changes either
       swayScale: num(look.swayScale, 1),
+      // shape variation (amplitude, the aspect and contour parts, the seed): every puff\'s own warp, from its persistent
+      // id and this seed alone (never the upload order or the sim\'s random sequence), so a puff keeps its shape for life
+      vary: { amp: clamp(num(look.shapeVar, 0), 0, 1), st: clamp(num(look.stretchVar, 1), 0, 1), ct: clamp(num(look.contourVar, 1), 0, 1), seed: num(look.shapeSeed, 0) },
       // band: crown (0) to base (1) in the cloud's own frame, after Scale and Pan
       baseT: baseY + num(look.panY, 0), spanT: Math.max(1e-3, (baseY - topY) * zoom), baseFall: Math.max(0.05, num(look.baseFall, 0.7)),
       dw: clamp(num(look.far, 1), 0, 1),   // depth weight: 1 near .. 0 far
@@ -524,9 +573,26 @@
   PuffRenderer.prototype._tree = function (clouds, time) {
     var D = this._sphData, n = 0;
     var LEVEL_DETAIL = [0.25, 0.6, 1.0];
-    function put(x, y, r, z0, stack, detail, fresh, dis, stretch, anx, any, primPacked, wx, wy, band, dw, id, pid) {
+    // the shape variation of one puff: rows 5 and 6 (see the field pass). The hashes are of the id and the seed only
+    function vary(V, id) {
+      if (V.amp <= 0) return { c: 1, s: 0, a: 0, b: 1, A1: 0, B1: 0, A3: 0, B3: 0 };
+      var k = id * 0.7311 + V.seed * 131.71, th = hash(k + 1.1) * Math.PI;
+      var a = 0.35 * V.amp * V.st * (2 * hash(k + 2.2) - 1);
+      var c1 = 0.2 * V.amp * V.ct * hash(k + 3.3), p1 = hash(k + 4.4) * 6.2832, c3 = 0.1 * V.amp * V.ct * hash(k + 5.5), p3 = hash(k + 6.6) * 6.2832;
+      return { c: Math.cos(th), s: Math.sin(th), a: a, b: (1 + Math.abs(a)) * (1 + c1 + c3), A1: c1 * Math.cos(p1), B1: c1 * Math.sin(p1), A3: c3 * Math.cos(p3), B3: c3 * Math.sin(p3) };
+    }
+    // the inverse warp: a point of the unit space (a child's seat on the shell) back to the field offset
+    function varyOut(v, x, y) {
+      if (v.b === 1) return [x, y];
+      var qx = v.c * x + v.s * y, qy = -v.s * x + v.c * y, ph = Math.atan2(qy, qx);
+      var f = 1 + v.A1 * Math.cos(ph) + v.B1 * Math.sin(ph) + v.A3 * Math.cos(3 * ph) + v.B3 * Math.sin(3 * ph);
+      qx *= f * (1 + v.a); qy *= f / (1 + v.a);
+      return [v.c * qx - v.s * qy, v.s * qx + v.c * qy];
+    }
+    function put(x, y, r, z0, stack, detail, fresh, dis, stretch, anx, any, primPacked, wx, wy, band, dw, id, pid, v) {
       if (n >= MAX_SPH || r <= 1e-4) return false;
-      var o = n * 4, o2 = (MAX_SPH + n) * 4, o3 = (MAX_SPH * 2 + n) * 4, o4 = (MAX_SPH * 3 + n) * 4, o5 = (MAX_SPH * 4 + n) * 4;
+      var o = n * 4, o2 = (MAX_SPH + n) * 4, o3 = (MAX_SPH * 2 + n) * 4, o4 = (MAX_SPH * 3 + n) * 4, o5 = (MAX_SPH * 4 + n) * 4, o6 = (MAX_SPH * 5 + n) * 4, o7 = (MAX_SPH * 6 + n) * 4;
+      D[o6] = v.c; D[o6 + 1] = v.s; D[o6 + 2] = v.a; D[o6 + 3] = v.b; D[o7] = v.A1; D[o7 + 1] = v.B1; D[o7 + 2] = v.A3; D[o7 + 3] = v.B3;
       D[o5] = id; D[o5 + 1] = pid; D[o5 + 2] = 0; D[o5 + 3] = 0;   // ownership: the puff's id (1-based upload index) and its parent's (roots: a virtual core per cloud, -(cloud + 1), or sim.parent[i] when the sim gives one)
       D[o] = x; D[o + 1] = y; D[o + 2] = r; D[o + 3] = z0;
       D[o2] = stack; D[o2 + 1] = detail; D[o2 + 2] = fresh; D[o2 + 3] = dis;
@@ -580,8 +646,9 @@
         if (r <= 1e-4) continue;   // a parcel still too small to draw: skip it, never stop the loop (put() fails for the budget too, and that break hid every later parcel)
         var stack0 = 0;   // a root puff carries no stack shade; children add their parent's underside
         var id = B[o + 3], pid = sim.parent ? sim.parent[i] : -(c + 1);   // the id is the parcel's seed: persistent across frames, unlike an upload index
-        if (!put(rx, ry, r, z0, stack0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp, id, pid)) break;
-        queue.push({ id: id, F: F, x: rx, y: ry, r: r, z: z0, zr: zr, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: stack0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band, zp: F.cam ? zp : 0 });
+        var vv = vary(F.vary, id);
+        if (!put(rx, ry, r, z0, stack0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp, id, pid, vv)) break;
+        queue.push({ id: id, v: vv, F: F, x: rx, y: ry, r: r, z: z0, zr: zr, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: stack0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band, zp: F.cam ? zp : 0 });
       }
     }
     // plan the budget: how many puffs each deeper level wants; the deepest level that does not fit is
@@ -638,6 +705,7 @@
           var ox = ux * shell, oy = uy * shell, pa = F.pa, prim = F.prim;
           if (prim === 1) oy /= 1 + 1.5 * pa; else if (prim === 2) ox /= 1 + 2 * pa * Math.max(0, -uy); else if (prim === 3) { var qx = ox * ox, qy = oy * oy, l4 = Math.sqrt(Math.sqrt(qx * qx + qy * qy)), ll = Math.sqrt(qx + qy) || 1e-6, kk = 1 + pa * (ll / l4 - 1); ox *= kk; oy *= kk; }
           else if (prim === 4) { var l1n = Math.abs(ox) + Math.abs(oy) || 1e-6, l2n = Math.sqrt(ox * ox + oy * oy), kd = 1 + pa * (l2n / l1n - 1); ox *= kd; oy *= kd; }
+          if (q.v.b !== 1) { var vo = varyOut(q.v, ox, oy); ox = vo[0]; oy = vo[1]; }   // ... and the parent's shape variation (the child sits on the deformed shell)
           if (q.st !== 1) { var al2 = ox * F.wx + oy * F.wy, ac2 = ox * F.wy - oy * F.wx, sa = al2 * q.st, sc = ac2 / Math.sqrt(q.st); ox = F.wx * sa + F.wy * sc; oy = F.wy * sa - F.wx * sc; }
           var x = q.x + ox, y = q.y + oy, z = q.z + uz * shell * F.depthScale, zr2 = q.zr + uz * shell;
           // parallax by the child's own depth: the sim swayed the root by its depth; the child sits uz * shell
@@ -652,9 +720,11 @@
           var stack = q.stack * 0.6 + 0.5 * smoothstep(-0.6, 0.9, uy);
           var band2 = F.cam ? q.band : smoothstep(0, F.baseFall, 1 - (F.baseT - y) / F.spanT);   // under the camera the band is the parent's (a sheet's rows are depth, not height)
           var pdw2 = clamp(0.5 + 0.5 * zr2 / (F.ref * 2), 0, 1) * F.dw, dwp2 = F.idx + pdw2 * 0.25;
-          var cid = cs + j * 3.1;   // the child's seed: persistent for its life
-          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id);
-          next.push({ id: cid, F: F, x: x, y: y, r: cr, z: z, zr: zr2, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2, zp: q.zp });
+          // the child's id: from its seed, scattered by a hash so that cousins never share one (seeds are linear in j, and a
+          // grandchild of child 0 had the id of another of child 1); persistent for the child's life, so its shape is too
+          var cid = cs + j * 3.1 + 1.7 + 1000 * hash(cs * 0.37 + j * 5.9), cv = vary(F.vary, cid);
+          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id, cv);
+          next.push({ id: cid, v: cv, F: F, x: x, y: y, r: cr, z: z, zr: zr2, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2, zp: q.zp });
         }
       }
       queue = next.filter(function (q) { return q.r * q.F.ratio >= minR; }).sort(function (a, b) { return b.r - a.r; });
@@ -663,7 +733,7 @@
     var gl = this.gl;
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, MAX_SPH);   // D is laid out MAX_SPH wide; upload only the used columns
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, Math.max(1, n), 5, gl.RGBA, gl.FLOAT, D, 0);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, Math.max(1, n), 7, gl.RGBA, gl.FLOAT, D, 0);
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
     this._bin();
   };
@@ -680,13 +750,13 @@
   };
 
   // Bin the spheres into tiles (16 texels, doubled when the list would exceed its ceiling) by their reach (the field pass's coarse reject: r * max(1, stretch,
-  // 1 / sqrt(stretch)) * 1.6, so every sphere a texel could accept is in its tile's list). Counting sort:
+  // 1 / sqrt(stretch)) * shape bound * 1.6, so every sphere a texel could accept is in its tile's list). Counting sort:
   // counts per tile, prefix offsets, then the indices; the list is one flat texture, 4096 wide
   PuffRenderer.prototype._bin = function () {
     var D = this._sphData, n = this.count, W = this._w, tx = this._tx, ty = this._ty, head = this._headData, list = this._tileData, cap = list.length, TS = this._tileSize;
     var cnt = new Int32Array(tx * ty), box = new Int32Array(n * 4), i, o, x0, x1, y0, y1, x, y;
     for (i = 0; i < n; i++) {
-      o = i * 4; var st = D[(MAX_SPH * 2 + i) * 4 + 2], reach = D[o + 2] * Math.max(1, st, 1 / Math.sqrt(Math.max(st, 1e-4))) * 1.6 * W / TS;
+      o = i * 4; var st = D[(MAX_SPH * 2 + i) * 4 + 2], reach = D[o + 2] * Math.max(1, st, 1 / Math.sqrt(Math.max(st, 1e-4))) * D[(MAX_SPH * 5 + i) * 4 + 3] * 1.6 * W / TS;
       var cx = D[o] * W / TS, cy = D[o + 1] * W / TS;
       x0 = Math.max(0, Math.floor(cx - reach)); x1 = Math.min(tx - 1, Math.floor(cx + reach)); y0 = Math.max(0, Math.floor(cy - reach)); y1 = Math.min(ty - 1, Math.floor(cy + reach));
       box[o] = x0; box[o + 1] = x1; box[o + 2] = y0; box[o + 3] = y1;
@@ -777,7 +847,8 @@
     gl.uniform4fv(su.uStyleA, SA); gl.uniform4fv(su.uStyleB, SB);
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);
     gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);
-    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0)); gl.uniform1f(su.uT, this._T);
+    // (puffRim default 0.5: before rimV 2 the shader floored it by Rim soften, whose default is 0.5; see puffs.html)
+    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0.5), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0)); gl.uniform1f(su.uT, this._T);
     var cam = sky.cam; gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   };

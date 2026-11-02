@@ -4,18 +4,36 @@
  * lab can check the GPU rows against it after every rule change. Classic script, no build.
  *
  * fieldRef(D, count, params, x, y)
- *   D       renderer._sphData (five rows of MAX_SPH vec4: (x,y,r,z0), attrs, (anchor.xy, stretch, prim),
- *           (wind.xy, band, depth weight), (id, parent id))
+ *   D       renderer._sphData (seven rows of MAX_SPH vec4: (x,y,r,z0), attrs, (anchor.xy, stretch, prim),
+ *           (wind.xy, band, depth weight), (id, parent id), (cos, sin, aspect, bound), (A1, B1, A3, B3))
  *   count   renderer.count
  *   params  { W, H: field texels; T: uT; cap: uCap; MAX_SPH (default PuffRenderer.MAX_SPH) }
  *   x, y    texel indices, GL convention (y up from the bottom row), as readPixels addresses them
- *   returns { H, mask, Gx, Gy } = the shader's o.r, o.a, o4.x, o4.y
+ *   returns { H, mask, Gx, Gy, rim } = the shader's o.r, o.a, o4.x, o4.y, o3.w
  */
 (function () {
   'use strict';
   function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
   function mix(a, b, t) { return a * (1 - t) + b * t; }
   function smoothstep(a, b, x) { var t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
+  // the shape variation (FIELD_FS varyIn / varyGrad): rows 5 and 6 of puff i
+  function varyIn(D, M, i, dx, dy) {
+    var o5 = (M * 5 + i) * 4, o6 = (M * 6 + i) * 4, c = D[o5], sn = D[o5 + 1], a = D[o5 + 2];
+    var qx = c * dx + sn * dy, qy = -sn * dx + c * dy; qx /= 1 + a; qy *= 1 + a;
+    var ph = Math.atan2(qy, qx), f = 1 + D[o6] * Math.cos(ph) + D[o6 + 1] * Math.sin(ph) + D[o6 + 2] * Math.cos(3 * ph) + D[o6 + 3] * Math.sin(3 * ph);
+    qx /= f; qy /= f;
+    return [c * qx - sn * qy, sn * qx + c * qy];
+  }
+  function varyGrad(D, M, i, gx, gy, x1, y1) {
+    var o5 = (M * 5 + i) * 4, o6 = (M * 6 + i) * 4, c = D[o5], sn = D[o5 + 1], a = D[o5 + 2];
+    var g1x = c * gx + sn * gy, g1y = -sn * gx + c * gy, px = c * x1 + sn * y1, py = -sn * x1 + c * y1;
+    var ph = Math.atan2(py, px), f = 1 + D[o6] * Math.cos(ph) + D[o6 + 1] * Math.sin(ph) + D[o6 + 2] * Math.cos(3 * ph) + D[o6 + 3] * Math.sin(3 * ph);
+    var df = -D[o6] * Math.sin(ph) + D[o6 + 1] * Math.cos(ph) - 3 * D[o6 + 2] * Math.sin(3 * ph) + 3 * D[o6 + 3] * Math.cos(3 * ph);
+    var qx = px * f, qy = py * f, q2 = Math.max(qx * qx + qy * qy, 1e-12), dq = qx * g1x + qy * g1y;
+    var g2x = g1x / f - df * -qy * dq / (q2 * f * f), g2y = g1y / f - df * qx * dq / (q2 * f * f);
+    g2x /= 1 + a; g2y *= 1 + a;
+    return [c * g2x - sn * g2y, sn * g2x + c * g2y];
+  }
 
   function fieldRef(D, count, P, x, y) {
     var M = P.MAX_SPH || (window.PuffRenderer && PuffRenderer.MAX_SPH) || 4096;
@@ -33,9 +51,10 @@
     for (i = 0; i < count; i++) {
       o0 = i * 4; o2 = (M * 2 + i) * 4; o3 = (M * 3 + i) * 4; o4 = (M * 4 + i) * 4;
       dx = px - D[o0]; dy = py - D[o0 + 1]; r = D[o0 + 2]; st = D[o2 + 2];
-      var rr = r * Math.max(Math.max(1, st), 1 / Math.sqrt(Math.max(st, 1e-4)));
+      var vb = D[(M * 5 + i) * 4 + 3], rr = r * Math.max(Math.max(1, st), 1 / Math.sqrt(Math.max(st, 1e-4))) * vb;
       if (dx * dx + dy * dy > rr * rr) continue;
       if (st !== 1) { along = dx * D[o3] + dy * D[o3 + 1]; across = dx * D[o3 + 1] - dy * D[o3]; dx = along / st; dy = across * Math.sqrt(st); }
+      if (vb !== 1) { var vv = varyIn(D, M, i, dx, dy); dx = vv[0]; dy = vv[1]; }
       prim = Math.floor(D[o2 + 3] + 0.01); pa = (D[o2 + 3] - Math.floor(D[o2 + 3] + 0.01)) * 2;
       if (prim === 1) dy *= 1 + 1.5 * pa;
       else if (prim === 2) dx *= 1 + 2 * pa * Math.max(0, -dy) / r;
@@ -53,14 +72,15 @@
     var m = -1e9, acc = 0, mO = -1e9, accO = 0, ins = 0;
     var m2 = -1e9, acc2 = 0, m2O = -1e9, acc2O = 0;
     var sm = -1e9, sacc = 0;
-    var GIx = 0, GIy = 0, GOx = 0, GOy = 0;
+    var GIx = 0, GIy = 0, GOx = 0, GOy = 0, RI = 0;
     for (i = 0; i < count; i++) {
       o0 = i * 4; o1 = (M + i) * 4; o2 = (M * 2 + i) * 4; o3 = (M * 3 + i) * 4; o4 = (M * 4 + i) * 4;
       dx = px - D[o0]; dy = py - D[o0 + 1]; r = D[o0 + 2]; st = D[o2 + 2];
-      var rr2 = r * Math.max(1, st);
+      var vb2 = D[(M * 5 + i) * 4 + 3], rr2 = r * Math.max(1, st) * vb2;
       if (dx * dx + dy * dy > rr2 * rr2 * 2.5) continue;
       var wx = D[o3], wy = D[o3 + 1];
       if (st !== 1) { along = dx * wx + dy * wy; across = dx * wy - dy * wx; dx = along / st; dy = across * Math.sqrt(st); }
+      if (vb2 !== 1) { var vv2 = varyIn(D, M, i, dx, dy); dx = vv2[0]; dy = vv2[1]; }
       prim = Math.floor(D[o2 + 3] + 0.01); pa = (D[o2 + 3] - Math.floor(D[o2 + 3] + 0.01)) * 2;
       if (prim === 1) dy *= 1 + 1.5 * pa;
       else if (prim === 2) dx *= 1 + 2 * pa * Math.max(0, -dy) / r;
@@ -71,7 +91,9 @@
       if (dissolved(i)) continue;
       var dist = Math.sqrt(d2);
       var tt = clamp((dist - r) / (0.5 * r), 0, 0.995), pen = r * tt * tt / (1 - tt);
-      var e = (r - dist - pen) / T;
+      var d1x = dx / Math.max(dist, 1e-6), d1y = dy / Math.max(dist, 1e-6), gn = 1;
+      if (vb2 !== 1) { var vg = varyGrad(D, M, i, d1x, d1y, dx, dy); gn = Math.max(Math.sqrt(vg[0] * vg[0] + vg[1] * vg[1]), 1e-3); }
+      var e = (r - dist - pen) / (T * gn);
       if (e > sm) { sacc = sacc * Math.exp(sm - e) + 1; sm = e; } else sacc += Math.exp(e - sm);
       var inside = d2 < r * r;
       u = dist / r;
@@ -83,15 +105,16 @@
       var dpen = (tt > 0 && tt < 0.995) ? Math.min(20, 2 * (2 * tt - tt * tt) / ((1 - tt) * (1 - tt))) : (tt > 0 ? 20 : 0);
       var dpx = dx / Math.max(dist, 1e-6), dpy = dy / Math.max(dist, 1e-6);
       if (prim === 1) dpy *= 1 + 1.5 * pa;
+      if (vb2 !== 1) { var vp = varyGrad(D, M, i, dpx, dpy, dx, dy); dpx = vp[0]; dpy = vp[1]; }
       if (st !== 1) { var ax = dpx * wx / st + dpy * wy * Math.sqrt(st), ay = dpx * wy / st + dpy * -wx * Math.sqrt(st); dpx = ax; dpy = ay; }
       var gs = mix(dsph, dpar, cap) - dpen, gdx = gs * dpx, gdy = gs * dpy;
       if (inside) ins = Math.max(ins, smoothstep(0, T, r - dist));
       var wa = 1;
       if (inside) { var id = D[o4], pid = D[o4 + 1]; for (var q2 = 0; q2 < ph.length; q2++) if (!(id === pidA[q2] || pid === ppA[q2] || pid === pidA[q2] || id === ppA[q2])) wa *= smoothstep(-0.25 * T, 0, h - ph[q2]); }
-      var w, wq;
+      var w, wq, rim = 1 - smoothstep(0, 0.3, 1 - dist / r);
       if (inside) {
-        if (h > m) { wq = Math.exp((m - h) / T); acc = acc * wq + wa; GIx = GIx * wq + wa * gdx; GIy = GIy * wq + wa * gdy; m = h; }
-        else { wq = wa * Math.exp((h - m) / T); acc += wq; GIx += wq * gdx; GIy += wq * gdy; }
+        if (h > m) { wq = Math.exp((m - h) / T); acc = acc * wq + wa; GIx = GIx * wq + wa * gdx; GIy = GIy * wq + wa * gdy; RI = RI * wq + wa * rim; m = h; }
+        else { wq = wa * Math.exp((h - m) / T); acc += wq; GIx += wq * gdx; GIy += wq * gdy; RI += wq * rim; }
         if (h > m2) { w = Math.exp((m2 - h) / T2); acc2 = acc2 * w + wa; m2 = h; } else { w = wa * Math.exp((h - m2) / T2); acc2 += w; }
       } else {
         if (h > mO) { wq = Math.exp((mO - h) / T); accO = accO * wq + 1; GOx = GOx * wq + gdx; GOy = GOy * wq + gdy; mO = h; }
@@ -110,15 +133,15 @@
     var Hf = Hm > -1e8 ? Hm + T * Math.log(Math.exp((HI - Hm) / T) + Math.exp((HO - Hm) / T)) : -1;
     var gIx = acc > 0 ? GIx / acc : 0, gIy = acc > 0 ? GIy / acc : 0, gOx = accO > 0 ? GOx / accO : 0, gOy = accO > 0 ? GOy / accO : 0;
     if (HI > -1e8 && HO0 > -1e8 && HO0 > HI - 2 * T) { gOx = mix(gOx, gIx, ins); gOy = mix(gOy, gIy, ins); }
-    var Gx = 0, Gy = 0, wI, wO;
-    if (acc > 0) { wI = Math.exp(Math.max(-40, (HI - Hf) / T)); Gx += gIx * wI; Gy += gIy * wI; }
-    if (accO > 0) { wO = Math.exp(Math.max(-40, (HO - Hf) / T)); Gx += gOx * wO; Gy += gOy * wO; }
+    var Gx = 0, Gy = 0, wI, wO, rimW = 0;
+    if (acc > 0) { wI = Math.exp(Math.max(-40, (HI - Hf) / T)); Gx += gIx * wI; Gy += gIy * wI; rimW += RI / acc * wI; }
+    if (accO > 0) { wO = Math.exp(Math.max(-40, (HO - Hf) / T)); Gx += gOx * wO; Gy += gOy * wO; rimW += wO; }
     var sil = sacc > 0 ? (sm + Math.log(Math.min(sacc, 2))) * T : -1;
     var mask = smoothstep(-0.5 * T, 0.5 * T, sil);
-    return { H: Hf, mask: mask + 10 * Math.max(0, sil - 0.5 * T), Gx: Gx, Gy: Gy };
+    return { H: Hf, mask: mask + 10 * Math.max(0, sil - 0.5 * T), Gx: Gx, Gy: Gy, rim: clamp(rimW, 0, 1) };
   }
 
-  window.fieldRef = fieldRef;
+  window.fieldRef = fieldRef; window.varyIn = varyIn;
 
   // probe(D, count, P, x, y): why the field at one texel is what it is. Every sphere that reaches the texel, with
   // u = dist / r, its height, whether it contains the texel, its share of its set's log-sum-exp, its
@@ -130,9 +153,10 @@
     for (i = 0; i < count; i++) {
       var o0 = i * 4, o2 = (M * 2 + i) * 4, o3 = (M * 3 + i) * 4, o4 = (M * 4 + i) * 4;
       var dx = px - D[o0], dy = py - D[o0 + 1], r = D[o0 + 2], st = D[o2 + 2];
-      var rr = r * Math.max(1, st);
+      var vb = D[(M * 5 + i) * 4 + 3], rr = r * Math.max(1, st) * vb;
       if (dx * dx + dy * dy > rr * rr * 2.5) continue;
       if (st !== 1) { var along = dx * D[o3] + dy * D[o3 + 1], across = dx * D[o3 + 1] - dy * D[o3]; dx = along / st; dy = across * Math.sqrt(st); }
+      if (vb !== 1) { var vv = varyIn(D, M, i, dx, dy); dx = vv[0]; dy = vv[1]; }
       var prim = Math.floor(D[o2 + 3] + 0.01), pa = (D[o2 + 3] - Math.floor(D[o2 + 3] + 0.01)) * 2, q, len;
       if (prim === 1) dy *= 1 + 1.5 * pa;
       else if (prim === 2) dx *= 1 + 2 * pa * Math.max(0, -dy) / r;

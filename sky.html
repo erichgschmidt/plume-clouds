@@ -38,11 +38,11 @@
     <div id="cirrus"></div>
   </div>
 </div>
-<script src="src/sim.js?v=167"></script>
-<script src="src/puffs.js?v=167"></script>
-<script src="src/motion.js?v=167"></script>
-<script src="src/layer.js?v=167"></script>
-<script src="src/presets.js?v=167"></script>
+<script src="src/sim.js?v=169"></script>
+<script src="src/puffs.js?v=169"></script>
+<script src="src/motion.js?v=169"></script>
+<script src="src/layer.js?v=169"></script>
+<script src="src/presets.js?v=169"></script>
 <script>
 (function () {
   'use strict';
@@ -56,7 +56,7 @@
   // the style of the whole sky (the shade pass): one look for every cloud
   var sky = { softness: 1.0, noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, noiseBias2: 0, flow: 0.04, anchor: 1, smooth: 0.5, haze: 0.4, dither: 0.3, dissolve: 0.7, dotSize: 1, grain: 1,
     atmos: 0.35, depthFall: 0.6, sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, baseShade: 0.5, stackShade: 0.4,
-    cirrus: 0.35, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, pixelated: true, pixel: 2, overhead: 0.7, rim: 0.5, puffRim: 0, cap: 0, contact: 0, cavity: 0, cavityReach: 8, baseFall: 0.7 };
+    cirrus: 0.35, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, pixelated: true, pixel: 2, overhead: 0.7, rim: 0.5, puffRim: 0.5, cap: 0, contact: 0, cavity: 0, cavityReach: 8, baseFall: 0.7 };
   // the sky's own parameters
   // the eye: dragged in the canvas (an unlocked parallax, on top of the sway); double-click recentres
   var eye = { x: 0, y: 0 }, drag = null;
@@ -69,17 +69,17 @@
   // species: the cloud types from src/presets.js (engine, sim preset, layout, primitive, form,
   // preferred depth range), plus any preset saved in the puff editor
   var SPECIES = {};
-  Object.keys(CLOUD_PRESETS).forEach(function (nm) { var T = CLOUD_PRESETS[nm]; if (T.engine !== 'veil') SPECIES[nm] = T; });
+  Object.keys(CLOUD_PRESETS).forEach(function (nm) { var T = CLOUD_PRESETS[nm]; if (T.engine !== 'veil' && T.engine !== 'single') SPECIES[nm] = T; });
   try {
     var saved = JSON.parse(localStorage.getItem('plume-puffs-looks') || '{}');
     Object.keys(saved).forEach(function (name) {
       var L = saved[name], base = CLOUD_PRESETS[L.type] || CLOUD_PRESETS.congestus;
-      if (base.engine === 'veil') return;
+      if (base.engine === 'veil' || (L.engine || base.engine) === 'single') return;
       SPECIES[name] = { type: L.type, engine: L.engine || base.engine, preset: L.simPreset || base.preset, shape: L.shape || base.shape, prim: L.prim || base.prim, primAmt: (L.look || {}).primAmt,
         forces: L.forces || {}, look: L.look || {}, extra: base.extra, depth: base.depth, scale: (L.look || {}).zoom || base.scale || 1 };
     });
   } catch (e) {}
-  var FORM_KEYS = ['children', 'ratio', 'levels', 'life', 'embed', 'depth', 'swayScale', 'shear', 'shearBias', 'wind', 'lean',
+  var FORM_KEYS = ['children', 'ratio', 'levels', 'life', 'embed', 'depth', 'swayScale', 'shear', 'shearBias', 'wind', 'lean', 'shapeVar', 'stretchVar', 'contourVar', 'shapeSeed',
     'haze', 'stackShade', 'dither', 'shadow', 'baseShade', 'noise', 'smooth'];   // the last row: per-type style the renderer applies over the sky's
 
   function mulberry(seed) { var a = seed >>> 0; return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
@@ -144,7 +144,7 @@
   var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['overhead', 'Overhead', 0, 1, 0.01], ['shadow', 'Shadow', 0, 1, 0.01], ['contact', 'Contact', 0, 1, 0.01], ['cavity', 'Cavity', 0, 1, 0.01], ['cavityReach', 'Cavity reach', 2, 24, 1], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['baseFall', 'Base falloff', 0.1, 1.5, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
   var CIRRUS = [['cirrus', 'Cirrus', 0, 1, 0.01], ['cirrusScale', 'Scale', 0.5, 6, 0.1], ['cirrusAngle', 'Angle (deg)', -45, 45, 1], ['cirrusFlow', 'Flow', 0, 0.1, 0.001]];
   var TIPS = { clouds: 'How many clouds the sky holds (regenerates).', near: 'Size of a cloud at distance 1 (regenerates).', travel: 'Forward glide of the camera; a cloud that passes overhead re-forms far away.', drift: 'Sideways wind in world units; near clouds cross faster.',
-    parallax: 'Sway of the camera; near clouds sway more.', horizon: 'Where the horizon line sits (fraction of the height); far clouds converge on it.', simSpeed: 'How fast every cloud evolves (1: the editor speed).', noiseBias2: 'Where noise 2 lives: -1 only in shadow, +1 only in light.', rim: 'Turns the normal toward the viewer at the silhouette, so the dome edge is not a dark ring.', cap: 'Puff profile: 0 a sphere (its rim goes vertical, a thin dark crescent on the far side), 1 a parabola (a broad soft shadow side).', cavity: 'Less light in a valley between puffs (the surface below its surroundings), where the blended slopes otherwise face the viewer and draw a bright seam.', cavityReach: 'How far (field texels) the cavity shading reaches up the walls of a valley.', grain: 'Faint ordered dither added to the light before the bands (the palette grain); 0 is clean bands.', contact: 'Shadow cast by a puff onto the puff behind it, along the light: a dome\'s dark rim continues into shadow instead of ending in a line.', baseFall: 'How far up the cloud the base shade reaches, as a fraction of its height.', puffRim: 'Turns the normal toward the viewer at each puff\'s own rim inside the cloud, where one dome falls over the puff behind it (a crescent line).', overhead: 'How much the sun turns with the view: clouds high in the frame are seen from below, lit from beyond.', pixel: 'Size of one drawn pixel in canvas pixels; the whole picture sits on that grid.', sway: 'Period of the sway in seconds.', atmos: 'How much far clouds take on the sky colour.', depthFall: 'How much far clouds lose shadow, noise and crispness.',
+    parallax: 'Sway of the camera; near clouds sway more.', horizon: 'Where the horizon line sits (fraction of the height); far clouds converge on it.', simSpeed: 'How fast every cloud evolves (1: the editor speed).', noiseBias2: 'Where noise 2 lives: -1 only in shadow, +1 only in light.', rim: 'Silhouette rim: turns the normal toward the viewer near the exposed outline of the cloud, so the dome edge is not a dark ring. Shading only; independent of Puff rim.', cap: 'Puff profile: 0 a sphere (its rim goes vertical, a thin dark crescent on the far side), 1 a parabola (a broad soft shadow side).', cavity: 'Less light in a valley between puffs (the surface below its surroundings), where the blended slopes otherwise face the viewer and draw a bright seam.', cavityReach: 'How far (field texels) the cavity shading reaches up the walls of a valley.', grain: 'Faint ordered dither added to the light before the bands (the palette grain); 0 is clean bands.', contact: 'Shadow cast by a puff onto the puff behind it, along the light: a dome\'s dark rim continues into shadow instead of ending in a line.', baseFall: 'How far up the cloud the base shade reaches, as a fraction of its height.', puffRim: 'Puff rim: turns the normal toward the viewer at each visible lobe\'s own rim inside the cloud, where one dome falls over the puff behind it (a crescent line). Shading only; independent of Rim soften.', overhead: 'How much the sun turns with the view: clouds high in the frame are seen from below, lit from beyond.', pixel: 'Size of one drawn pixel in canvas pixels; the whole picture sits on that grid.', sway: 'Period of the sway in seconds.', atmos: 'How much far clouds take on the sky colour.', depthFall: 'How much far clouds lose shadow, noise and crispness.',
     cirrus: 'Amount of high streak cloud behind everything.', cirrusScale: 'Size of the cirrus streaks.', cirrusAngle: 'Direction of the streaks.', cirrusFlow: 'Scroll speed of the streaks.' };
   var sliders = {};
   function slider(parent, target, spec, onChange) {

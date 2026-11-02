@@ -40,11 +40,17 @@
     <div class="seg" id="smooth"></div>
     <h3>Shadow</h3>
     <div class="seg" id="shadow"></div>
+    <h3>Shape variation</h3>
+    <div class="seg" id="shapeVar"></div>
+    <h3>Shape seed</h3>
+    <div class="seg" id="shapeSeed"></div>
+    <h3>Puff rim</h3>
+    <div class="seg" id="puffRim"></div>
     <p class="hint">Geometry is fixed sphere records fed straight to PuffRenderer (no ThermalSim, no children, no noise). Coordinates are final renderer units: x and y over the width, y down, positive z0 nearer.</p>
   </div>
 </div>
-<script src="src/puffs.js?v=lab15"></script>
-<script src="lab-ref.js?v=7"></script>
+<script src="src/puffs.js?v=lab19"></script>
+<script src="lab-ref.js?v=8"></script>
 <script>
 (function () {
   'use strict';
@@ -53,7 +59,7 @@
   var renderer = new PuffRenderer(canvas);
   var REF = 0.10;
 
-  // fixtures: [x, y, r, z0] in final renderer units
+  // fixtures: [x, y, r, z0, parent id, id] in final renderer units (parent and id optional: one family, id = position + 1)
   var FIXTURES = {
     'A Single': [[0.50, 0.375, 0.14, 0.00]],
     'B Equal-depth overlap': [[0.44, 0.375, 0.10, 0], [0.56, 0.375, 0.10, 0]],
@@ -61,7 +67,8 @@
     'D Small foreground lobe': [[0.48, 0.39, 0.16, -0.03], [0.59, 0.35, 0.07, 0.10]],
     'E Three-way junction': [[0.44, 0.40, 0.10, 0], [0.56, 0.40, 0.10, 0.06], [0.50, 0.296, 0.10, -0.06]],
     'F Unattached pair': [[0.44, 0.375, 0.10, 0, -10], [0.56, 0.375, 0.10, 0, -20]],   // B with different parents (5th value): the crease is a crisp overlap, not a T blend
-    'G Competing families': [[0.44, 0.375, 0.10, 0, -10], [0.56, 0.375, 0.10, 0, -20], [0.50, 0.33, 0.05, 0.04, 1]]   // F plus a child of the first root (parent 1 = its id): the two families cross under the child
+    'G Competing families': [[0.44, 0.375, 0.10, 0, -10], [0.56, 0.375, 0.10, 0, -20], [0.50, 0.33, 0.05, 0.04, 1]],   // F plus a child of the first root (parent 1 = its id): the two families cross under the child
+    'H Child at the silhouette': [[0.50, 0.375, 0.14, 0], [0.62, 0.33, 0.06, 0.03, 1]]   // a child of record 1 straddling the outer outline (with Shape variation on, a deformed child meets the silhouette)
   };
   var DEFAULT_FIXTURE = 'C Depth overlap';
 
@@ -69,6 +76,7 @@
   var LOOK0 = Object.freeze({ prim: 'sphere', primAmt: 1, zoom: 1, panX: 0, panY: 0, depth: 1, softness: 0.30, cap: 0, children: 0, levels: 1, ratio: 0.42, life: 0, embed: 0.78, roll: 1,
     rim: 0, puffRim: 0, smooth: 0, depthFall: 0, noise: 0, noiseScale: 1, noise2: 0, noise2Scale: 4, noiseBias: 0, noiseBias2: 0, flow: 0, anchor: 1, shear: 0, shearBias: 0, wind: 0, lean: 0,
     haze: 0, atmos: 0, contact: 0, cavity: 0, cavityReach: 8, baseShade: 0, stackShade: 0, dissolve: 0, dither: 0, grain: 0, cirrus: 0, veil: 0, far: 1,
+    shapeVar: 0, stretchVar: 1, contourVar: 1, shapeSeed: 1,
     sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, pixelated: true, pixel: 1, diag: 1 });
   var look = {};
 
@@ -79,7 +87,7 @@
     var n = records.length, B = new Float32Array(n * 4), A = new Float32Array(n * 4), S = new Float32Array(n * 4), Dt = new Float32Array(n), P = new Float32Array(n);
     for (var i = 0; i < n; i++) {
       var o = i * 4, rec = records[i];
-      B[o] = rec[0]; B[o + 1] = rec[1]; B[o + 2] = rec[2]; B[o + 3] = i + 1;   // x, y, r, seed
+      B[o] = rec[0]; B[o + 1] = rec[1]; B[o + 2] = rec[2]; B[o + 3] = rec[5] !== undefined ? rec[5] : i + 1;   // x, y, r, seed (the id)
       A[o] = 0; A[o + 1] = 0.5 + rec[3] / (2 * REF); A[o + 2] = 0; A[o + 3] = 1;   // -, depth 0..1, -, link
       S[o] = 0; S[o + 1] = 0; S[o + 2] = 1; S[o + 3] = 0;   // spin axis z, angle 0
       Dt[i] = 1;   // fresh: never dispersing
@@ -97,7 +105,8 @@
   }
   function records() {
     var sh = state.shift ? 0.25 / W : 0, sg = state.swap ? -1 : 1;
-    return FIXTURES[state.fixture].map(function (r, idx) { return [r[0] + sh, r[1], r[2], r[3] * sg + (idx === 1 ? (state.nudge || 0) : 0), r[4]]; });   // nudge: a tiny height change of the second record, for the continuity check
+    var recs = FIXTURES[state.fixture].map(function (r, idx) { return [r[0] + sh, r[1], r[2], r[3] * sg + (idx === 1 ? (state.nudge || 0) : 0), r[4], r[5] !== undefined ? r[5] : idx + 1]; });   // nudge: a tiny height change of the second record, for the continuity check
+    return state.reverse ? recs.slice().reverse() : recs;   // reverse: the upload order backwards, ids and parents kept (the picture must not change)
   }
 
   // controls: segmented buttons, one variable each; geometry is not regenerated, only the records re-read
@@ -118,6 +127,9 @@
   seg('rim', [0, 0.5, 1], null, function () { return look.rim; }, function (v) { look.rim = v; });
   seg('smooth', [0, 0.5, 1], null, function () { return look.smooth; }, function (v) { look.smooth = v; });
   seg('shadow', [0, 0.64, 1], null, function () { return look.shadow; }, function (v) { look.shadow = v; });
+  seg('shapeVar', [0, 0.5, 1], null, function () { return look.shapeVar; }, function (v) { look.shapeVar = v; });
+  seg('shapeSeed', [1, 2, 3], null, function () { return look.shapeSeed; }, function (v) { look.shapeSeed = v; });
+  seg('puffRim', [0, 0.5, 1], null, function () { return look.puffRim; }, function (v) { look.puffRim = v; });
   function sync() {
     segs.forEach(function (f) { f(); });
     $('btnSwap').classList.toggle('on', state.swap); $('btnShift').classList.toggle('on', state.shift); $('btnPlay').classList.toggle('on', state.playing);
@@ -130,7 +142,7 @@
 
   // the uploaded records must be the fixture: count and (x, y, r, z0 * depth) to float precision
   function assertRecords(recs) {
-    var D = renderer._sphData, ok = renderer.count === recs.length, i;
+    var D = renderer._sphData, ok = look.children === 0 ? renderer.count === recs.length : true, i;
     for (i = 0; i < recs.length && ok; i++) {
       var o = i * 4, want = [recs[i][0], recs[i][1], recs[i][2], recs[i][3] * look.depth];
       for (var k = 0; k < 4; k++) if (Math.abs(D[o + k] - want[k]) > 1e-6) ok = false;
@@ -177,7 +189,7 @@
   // few grey levels (a rule tied to a winning puff jumped by a whole contribution at a crossing)
   var btnCheck = document.createElement('button'); btnCheck.className = 'btn'; btnCheck.id = 'btnCheck'; btnCheck.textContent = 'Check ref';
   $('btnReset').parentNode.appendChild(btnCheck);
-  btnCheck.addEventListener('click', function () {
+  function checkRef() {
     draw();
     var gl = renderer.gl, fw = renderer._w, fh = renderer._h, ww = fw, hh = fh, x0 = 0, y0 = 0, step = 8;
     var hp = new Float32Array(ww * hh * 4), gp = new Float32Array(ww * hh * 4);
@@ -186,24 +198,28 @@
     gl.readBuffer(gl.COLOR_ATTACHMENT3); gl.readPixels(x0, y0, ww, hh, gl.RGBA, gl.FLOAT, gp);
     gl.readBuffer(gl.COLOR_ATTACHMENT0); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     var P = { W: fw, H: fh, T: Math.max(0.002, REF * look.zoom * 0.08 * look.softness), cap: look.cap, dissolve: look.dissolve || 0, dotSize: 1,  MAX_SPH: PuffRenderer.MAX_SPH };
-    var eH = 0, eM = 0, eG = 0, bad = [], n = 0, total = 0;
+    var eH = 0, eM = 0, eG = 0, bad = [], n = 0, nv = 0, total = 0;
     for (var j = 4; j < hh; j += step) for (var i = 4; i < ww; i += step) {
       var o = (j * ww + i) * 4, ref = fieldRef(renderer._sphData, renderer.count, P, x0 + i, y0 + j); total++;
       var vals = [hp[o], hp[o + 3], gp[o], gp[o + 1], ref.H, ref.mask, ref.Gx, ref.Gy], finite = vals.every(function (v) { return isFinite(v); });
       var dH = Math.abs(hp[o] - ref.H), dM = Math.abs(hp[o + 3] - ref.mask), dG = Math.max(Math.abs(gp[o] - ref.Gx), Math.abs(gp[o + 1] - ref.Gy));
       if (finite) { eH = Math.max(eH, dH); eM = Math.max(eM, dM); eG = Math.max(eG, dG); }
       var tolG = 5e-3 * Math.max(1, Math.abs(ref.Gx), Math.abs(ref.Gy));   // half float: relative, and the skirt slope reaches 20 at the fringe
-      if (!finite || dH > 1e-3 || dM > 1e-3 || dG > tolG) { n++; if (bad.length < 6) bad.push({ x: x0 + i, y: y0 + j, finite: finite, gpu: { H: hp[o], mask: hp[o + 3], Gx: gp[o], Gy: gp[o + 1] }, ref: ref }); }
+      var tolH = 1e-3 * Math.max(1, Math.abs(ref.H));   // relative too: far out in a skirt the penalty makes H tens of units and hypersensitive to the GPU's atan / sin (the warp)
+      var vis = ref.mask > 1e-3 || hp[o + 3] > 1e-3;   // a texel that is or could be visible (inside the mask ramp)
+      if (!finite || dH > tolH || dM > 1e-3 || dG > tolG) { n++; if (vis || !finite) nv++; if (bad.length < 6) bad.push({ x: x0 + i, y: y0 + j, finite: finite, visible: vis, gpu: { H: hp[o], mask: hp[o + 3], Gx: gp[o], Gy: gp[o + 1] }, ref: ref }); }
     }
-    var line = 'check ref: max |dH| ' + eH.toExponential(2) + '   |dMask| ' + eM.toExponential(2) + '   |dG| ' + eG.toExponential(2) + '   mismatches ' + n + '/' + total;
+    var line = 'check ref: max |dH| ' + eH.toExponential(2) + '   |dMask| ' + eM.toExponential(2) + '   |dG| ' + eG.toExponential(2) + '   mismatches ' + n + '/' + total + ' (' + nv + ' visible or non-finite)';
     // continuity: the frame before and after a 1e-6 nudge of the second record's height
     var before = new Uint8Array(pix); state.nudge = 1e-6; draw(); var after = new Uint8Array(pix); state.nudge = 0; draw();
     var jump = 0, jumps = 0; for (var k = 0; k < before.length; k += 4) { var dj = Math.abs(before[k] - after[k]); if (dj > jump) jump = dj; if (dj > 3) jumps++; }
     line += '   nudge 1e-6: max pixel change ' + jump + ' (' + jumps + ' pixels over 3)';
     hud.textContent += '\n' + line;
     console.log(line, bad);
-    window.labCheck = { dH: eH, dMask: eM, dG: eG, mismatches: n, total: total, first: bad, jump: jump, jumps: jumps };
-  });
+    window.labCheck = { dH: eH, dMask: eM, dG: eG, mismatches: n, visible: nv, total: total, first: bad, jump: jump, jumps: jumps };
+    return window.labCheck;
+  }
+  btnCheck.addEventListener('click', checkRef);
   function refParams() { return { W: renderer._w, H: renderer._h, T: Math.max(0.002, REF * look.zoom * 0.08 * look.softness), cap: look.cap, dissolve: look.dissolve || 0, dotSize: 1, MAX_SPH: PuffRenderer.MAX_SPH }; }
   // the click probe: which puff contributes at this texel, and why (lab-ref.js probe)
   canvas.addEventListener('click', function (e) {
@@ -233,8 +249,39 @@
       }
     });
     look.dissolve = saveDis; res.coverageKept = holes === 0; res.coverageTested = tested; res.holes = holes;
-    ok = res.unattachedCrisp && res.attachedBlended && res.coverageKept;
-    var line = 'check rules: ' + (ok ? 'PASS' : 'FAIL') + '   unattached crisp ' + res.unattachedCrisp + ' (Gx ' + res.gF.join(' ') + ')   attached blended ' + res.attachedBlended + ' (Gx ' + res.gB.join(' ') + ')   coverage at Dissolve 0 ' + res.coverageKept + ' (' + holes + ' holes / ' + tested + ')';
+    // shape variation. Frames compared as the max red difference (the grey view), so a changed summation order may
+    // round a level or two but never move a pixel
+    function snap() { draw(); return new Uint8Array(pix); }
+    function maxDiff(a, b) { var m = 0; for (var k = 0; k < a.length; k += 4) m = Math.max(m, Math.abs(a[k] - b[k])); return m; }
+    var L0 = Object.assign({}, look); state.fixture = 'H Child at the silhouette'; state.reverse = false;
+    look.shapeVar = 0; look.shapeSeed = 1; var v0a = snap(); look.shapeSeed = 3; var v0b = snap();
+    res.varZeroSame = maxDiff(v0a, v0b) === 0;   // variation 0: the seed changes nothing (the undeformed reference)
+    look.shapeVar = 1; look.shapeSeed = 1; var v1a = snap(), v1b = snap();
+    res.sameSeedSame = maxDiff(v1a, v1b) === 0; res.varChanges = maxDiff(v0a, v1a) > 20;   // the same seed repeats to the bit; variation 1 is a different picture
+    look.shapeSeed = 2; var v1c = snap(); res.reseedChanges = maxDiff(v1a, v1c) > 20; look.shapeSeed = 1;
+    state.reverse = true; var v1r = snap(); state.reverse = false; res.reorderDiff = maxDiff(v1a, v1r); res.reorderSame = res.reorderDiff <= 2;   // the upload order backwards
+    // the GPU against the reference at full variation (the tiles and the coarse rejects must hold the deformed footprint; every value finite)
+    var cA = checkRef(); state.fixture = 'A Single'; var cB = checkRef(); state.fixture = 'H Child at the silhouette';
+    res.deformedRef = cA.visible === 0 && cB.visible === 0; res.deformedMismatches = cA.mismatches + cB.mismatches; res.deformedVisible = cA.visible + cB.visible; res.deformedNudge = Math.max(cA.jump, cB.jump);
+    // the children of a deformed parent sit on its deformed shell: the child's offset mapped into the parent's unit
+    // space, with its depth offset, has length embed * r * (0.7 .. 1) (the shell, by the child's envelope)
+    state.fixture = 'A Single'; look.children = 4; look.levels = 2; look.life = 0; draw();
+    var D = renderer._sphData, M = PuffRenderer.MAX_SPH, bad = 0, nch = 0, px0 = D[0], py0 = D[1], pr = D[2];
+    for (var ci = 1; ci < renderer.count; ci++) { var o = ci * 4; if (D[(M * 4 + ci) * 4 + 1] !== D[(M * 4) * 4]) continue; nch++; var d1 = varyIn(D, M, 0, D[o] - px0, D[o + 1] - py0), dz = (D[o + 3] - D[3]) / look.depth, sl = Math.sqrt(d1[0] * d1[0] + d1[1] * d1[1] + dz * dz) / (pr * look.embed); if (sl < 0.69 || sl > 1.01) bad++; }   // the shell is a sphere: the seat's depth counts
+    res.childrenAttached = nch === 4 && bad === 0; res.childrenChecked = nch;
+    Object.assign(look, L0);
+    // the rim controls: neither changes coverage (the mask view is the same at 0 and 1 of both), each acts, and neither
+    // imposes a minimum on the other (Rim soften 1 leaves an internal lobe rim as at 0; Puff rim 1 changes it)
+    state.fixture = 'D Small foreground lobe'; look.diag = 4; look.rim = 0; look.puffRim = 0; var m00 = snap(); look.rim = 1; look.puffRim = 1; var m11 = snap();
+    res.rimKeepsCoverage = maxDiff(m00, m11) === 0;
+    look.diag = 1; look.rim = 0; look.puffRim = 0; var g00 = snap(); look.rim = 1; var g10 = snap(); look.rim = 0; look.puffRim = 1; var g01 = snap();
+    function lobe(a, b) { var m = 0; for (var yy = 340; yy < 380; yy++) for (var xx = 528; xx < 548; xx++) { var k = ((H - 1 - yy) * W + xx) * 4; m = Math.max(m, Math.abs(a[k] - b[k])); } return m; }   // the small lobe's left rim, inside the big puff
+    res.silRimActs = maxDiff(g00, g10) > 10; res.puffRimActs = lobe(g00, g01) > 10; res.rimsIndependent = lobe(g00, g10) === 0;
+    Object.assign(look, L0);
+    ok = res.unattachedCrisp && res.attachedBlended && res.coverageKept && res.varZeroSame && res.sameSeedSame && res.varChanges && res.reseedChanges && res.reorderSame && res.deformedRef && res.childrenAttached && res.rimKeepsCoverage && res.silRimActs && res.puffRimActs && res.rimsIndependent;
+    var line = 'check rules: ' + (ok ? 'PASS' : 'FAIL') + '   unattached crisp ' + res.unattachedCrisp + ' (Gx ' + res.gF.join(' ') + ')   attached blended ' + res.attachedBlended + ' (Gx ' + res.gB.join(' ') + ')   coverage at Dissolve 0 ' + res.coverageKept + ' (' + holes + ' holes / ' + tested + ')' +
+      '\n  shape: var 0 same ' + res.varZeroSame + '   same seed same ' + res.sameSeedSame + '   var changes ' + res.varChanges + '   reseed changes ' + res.reseedChanges + '   reorder same ' + res.reorderSame + ' (max ' + res.reorderDiff + ')   deformed vs ref ' + res.deformedRef + ' (' + res.deformedMismatches + ' mismatches, ' + res.deformedVisible + ' visible, nudge max ' + res.deformedNudge + ')   children attached ' + res.childrenAttached + ' (' + nch + ')' +
+      '\n  rims: keep coverage ' + res.rimKeepsCoverage + '   silhouette rim acts ' + res.silRimActs + '   puff rim acts ' + res.puffRimActs + '   independent ' + res.rimsIndependent;
     state.fixture = DEFAULT_FIXTURE; sync(); draw(); hud.textContent += '\n' + line; console.log(line, res); window.labRules = res;
   });
 })();

@@ -12,6 +12,12 @@
 (function () {
   'use strict';
   window.CLOUD_PRESETS = {
+    // one puff, placed and sized by hand, nothing simulated (SingleSim in puffs.html): for studying a shape and its
+    // children with every motion effect off. Not a sky species
+    single: { label: 'Single shape', engine: 'single', preset: '', shape: 'ring', prim: 'sphere', primAmt: 1,
+      forces: { size: 0.12 },
+      look: { children: 0, ratio: 0.5, levels: 1, life: 0, embed: 0.85, depth: 1, swayScale: 0, noise: 0, noise2: 0, flow: 0, dither: 0, dissolve: 0, haze: 0, zoom: 1 },
+      depth: [0, 0], scale: 1 },
     humilis: { label: 'Cumulus humilis', engine: 'thermal', preset: 'humilis', shape: 'flat', prim: 'sphere', primAmt: 1,
       forces: { width: 0.24, height: 0.1, count: 18, size: 0.07, pulse: 0, mixing: 14, formTime: 40, reservoir: 0.4 },
       look: { children: 4, ratio: 0.6, levels: 2, life: 1, embed: 0.85, depth: 1, shear: 0.3, lean: 0.1 },
@@ -60,6 +66,7 @@
   };
   // which editor sliders each engine exposes (name, label, min, max, step)
   window.CLOUD_FORCES = {
+    single: [['size', 'Size', 0.03, 0.3, 0.001]],
     thermal: [
       ['updraft', 'Updraft', 0, 0.5, 0.005], ['width', 'Width', 0.05, 0.5, 0.005], ['height', 'Height', 0.05, 0.6, 0.005],
       ['rise', 'Rise', 0, 0.02, 0.0005], ['expand', 'Expand', 0, 0.01, 0.0002], ['settle', 'Settle', 0, 1, 0.01],
