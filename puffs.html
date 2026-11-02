@@ -32,6 +32,7 @@
 <div id="app">
   <div id="stage"><canvas id="canvas"></canvas><div id="hud"></div></div>
   <div id="panel">
+    <div id="groupsTop"></div>
     <h3>Cloud type</h3>
     <div class="row"><label>Type</label><select id="type" style="flex:1"></select></div>
     <div class="seg" id="looks" style="margin-top:4px"></div>
@@ -40,16 +41,15 @@
     <h3>Shape</h3>
     <div class="row"><label>Layout</label><select id="shapes" style="flex:1"></select></div>
     <div class="row"><label>Primitive</label><select id="prims" style="flex:1"></select></div>
-    <h3>Forces</h3>
-    <div id="forces"></div>
+    <details class="grp" id="forcesGrp" open><summary>Forces<span class="n" id="forcesN"></span></summary><div id="forces"></div></details>
     <div id="groups"></div>
   </div>
 </div>
-<script src="src/sim.js?v=184"></script>
-<script src="src/puffs.js?v=184"></script>
-<script src="src/motion.js?v=184"></script>
-<script src="src/layer.js?v=184"></script>
-<script src="src/presets.js?v=184"></script>
+<script src="src/sim.js?v=187"></script>
+<script src="src/puffs.js?v=187"></script>
+<script src="src/motion.js?v=187"></script>
+<script src="src/layer.js?v=187"></script>
+<script src="src/presets.js?v=187"></script>
 <script>
 (function () {
   'use strict';
@@ -94,7 +94,7 @@
   var sim = makeSim('thermal', 'congestus', 1, 'ring');
 
   var look = { children: 6, ratio: 0.62, levels: 3, life: 1, embed: 0.9, softness: 1.0, depth: 1, swayScale: 1, roll: 1,
-    noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, noiseBias2: 0, flow: 0.04, smooth: 0.5, haze: 0.5, shear: 0, shearBias: 0, wind: 0, lean: 0, prim: 'sphere', primAmt: 1, panX: 0, panY: 0, diag: 0, dither: 0, dissolve: 0.7, dotSize: 1, grain: 1, anchor: 1, zoom: 1,
+    noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, noiseBias2: 0, flow: 0.04, smooth: 0.5, haze: 0.5, shear: 0, shearBias: 0, wind: 0, lean: 0, prim: 'sphere', primAmt: 1, panX: 0, panY: 0, diag: 0, dither: 0, dissolve: 0, dotSize: 1, grain: 1, anchor: 1, zoom: 1,
     sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, depthFall: 0, atmos: 0, cirrus: 0, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, veil: 0, baseShade: 0.5, stackShade: 0.4, pixelated: true, pixel: 2, rim: 0.5, puffRim: 0.5, cap: 0, contact: 0, cavity: 0, cavityReach: 8, cavityLit: 1, baseFall: 0.7,
     shapeVar: 0, stretchVar: 1, contourVar: 1, shapeSeed: 0, angular: 0, sides: 5, evapScale: 3, stipple: 0, stippleBias: 0, breakup: 0, breakupReach: 6, patternLock: 1 };
   // rimV 2: Puff rim and Rim soften are independent (the shader used max(Puff rim, Rim soften) for the lobe rims). A look
@@ -193,12 +193,14 @@
     var keys = engine === 'layer' ? LAYER_MODE_KEYS[sim.params.mode] : null;
     $('shapes').parentNode.style.display = engine === 'single' ? 'none' : '';   // no layout for one puff
     FORCES.forEach(function (s) { if (keys && keys.indexOf(s[0]) < 0) return; slider($('forces'), function () { return sim.params; }, s); sliders[s[0]].force = true; });
+    $('forcesN').textContent = $('forces').querySelectorAll('.row').length;
   }
   buildForces();
   // the sliders in collapsible groups (open state remembered per group); every spec of the lists above lands in
   // exactly one group, any left over in 'Other', so a new slider never goes missing
-  function buildGroups(host, groups, lists, target, onChange) {
+  function buildGroups(host, groups, lists, target, onChange, skip) {
     var specs = {}, used = {}, openState = {};
+    (skip || []).forEach(function (k) { used[k] = 1; });   // keys another host shows
     lists.forEach(function (L) { L.forEach(function (s) { specs[s[0]] = s; }); });
     try { openState = JSON.parse(localStorage.getItem('plume-puffs-groups') || '{}'); } catch (e) { openState = {}; }
     function group(title, keys) {
@@ -211,19 +213,24 @@
     groups.forEach(function (g) { group(g[0], g[1]); });
     var rest = Object.keys(specs).filter(function (k) { return !used[k]; }); if (rest.length) group('Other', rest);
   }
+  var VIEW_GROUP = ['View', ['pixel', 'zoom', 'panX', 'panY', 'diag']];
   var GROUPS = [
-    ['View', ['pixel', 'zoom', 'panX', 'panY', 'diag']],
     ['Shape', ['primAmt', 'cap', 'shapeVar', 'stretchVar', 'contourVar', 'shapeSeed', 'angular', 'sides']],
     ['Puffs', ['children', 'ratio', 'levels', 'life', 'embed', 'softness', 'depth', 'swayScale']],
     ['Wind', ['shear', 'shearBias', 'wind', 'lean']],
     ['Noise', ['noise', 'noiseScale', 'noiseBias', 'noise2', 'noise2Scale', 'noiseBias2', 'flow', 'anchor', 'smooth']],
     ['Rims', ['rim', 'puffRim']],
     ['Light', ['sun', 'elevation', 'shadow', 'fill', 'bands', 'grain']],
-    ['Shadows', ['contact', 'cavity', 'cavityReach', 'cavityLit', 'baseShade', 'baseFall', 'stackShade']],
-    ['Haze and dither', ['haze', 'dither', 'dissolve', 'evapScale', 'stipple', 'stippleBias', 'breakup', 'breakupReach', 'dotSize', 'patternLock']],
+    ['Shadows', ['contact', 'cavity', 'cavityReach', 'cavityLit', 'baseShade', 'baseFall', 'stackShade', 'haze']],
+    ['Dither', ['dither', 'dissolve', 'evapScale', 'stipple', 'stippleBias', 'breakup', 'breakupReach', 'dotSize', 'patternLock']],
     ['Sky', ['depthFall', 'cirrus', 'cirrusScale', 'cirrusAngle', 'veil']]
   ];
-  buildGroups($('groups'), GROUPS, [SURFACE, LIGHT, VIEW], function () { return look; });
+  var GROUP_KEYS = [].concat.apply([], GROUPS.map(function (g) { return g[1]; }));
+  buildGroups($('groupsTop'), [VIEW_GROUP], [SURFACE, LIGHT, VIEW], function () { return look; }, null, GROUP_KEYS);   // the view controls at the top of the panel
+  buildGroups($('groups'), GROUPS, [SURFACE, LIGHT, VIEW], function () { return look; }, null, VIEW_GROUP[1]);
+  // the Forces group (rebuilt per engine) remembers its open state like the others
+  (function () { var d = $('forcesGrp'), st = {}; try { st = JSON.parse(localStorage.getItem('plume-puffs-groups') || '{}'); } catch (e) {} if (st.Forces !== undefined) d.open = !!st.Forces;
+    d.addEventListener('toggle', function () { try { var o = JSON.parse(localStorage.getItem('plume-puffs-groups') || '{}'); o.Forces = d.open; localStorage.setItem('plume-puffs-groups', JSON.stringify(o)); } catch (e) {} }); })();
   function refresh() { for (var k in sliders) sliders[k](); }
   var playing = true;
   function setPlaying(v) { playing = v; $('btnPlay').textContent = playing ? 'Pause' : 'Play'; }

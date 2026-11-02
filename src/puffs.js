@@ -883,7 +883,7 @@
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this._tileHead); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this._tileList);
     gl.uniform1i(this._fu.uSph, 0); gl.uniform1i(this._fu.uTileHead, 1); gl.uniform1i(this._fu.uTileList, 2); gl.uniform1f(this._fu.uTexW, this._w); gl.uniform1f(this._fu.uTileSize, this._tileSize); gl.uniform2i(this._fu.uTiles, this._tx, this._ty); gl.uniform1f(this._fu.uAspect, asp);
     var T = Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4)); this._T = T;
-    gl.uniform1f(this._fu.uT, T); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0), 0, 1)); gl.uniform1f(this._fu.uDissolve, clamp(num(sky.dissolve, 0.7), 0, 1)); gl.uniform1f(this._fu.uDotSize, Math.max(1, Math.round(num(sky.dotSize, 1)))); gl.uniform1f(this._fu.uEvapScale, Math.max(0.1, num(sky.evapScale, 3))); gl.uniform1f(this._fu.uRef, ref);
+    gl.uniform1f(this._fu.uT, T); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0), 0, 1)); gl.uniform1f(this._fu.uDissolve, clamp(num(sky.dissolve, 0), 0, 1)); gl.uniform1f(this._fu.uDotSize, Math.max(1, Math.round(num(sky.dotSize, 1)))); gl.uniform1f(this._fu.uEvapScale, Math.max(0.1, num(sky.evapScale, 3))); gl.uniform1f(this._fu.uRef, ref);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // shade
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);
@@ -903,7 +903,7 @@
     gl.uniform1f(su.uNoise2, num(sky.noise2, 0)); gl.uniform1f(su.uNoise2Scale, num(sky.noise2Scale, 4)); gl.uniform1f(su.uNoiseBias, clamp(num(sky.noiseBias, 0), -1, 1)); gl.uniform1f(su.uNoiseBias2, clamp(num(sky.noiseBias2, num(sky.noiseBias, 0)), -1, 1)); gl.uniform1f(su.uAnchor, clamp(num(sky.anchor, 1), 0, 1));   // (noise 2 follows noise 1's bias when it has none of its own: older presets)
     gl.uniform1f(su.uAtmos, clamp(num(sky.atmos, 0), 0, 1)); gl.uniform1f(su.uDepthFall, clamp(num(sky.depthFall, 0), 0, 1));
     gl.uniform1f(su.uCirrus, clamp(num(sky.cirrus, 0), 0, 1)); gl.uniform1f(su.uCirrusScale, num(sky.cirrusScale, 2)); gl.uniform1f(su.uCirrusAngle, num(sky.cirrusAngle, -12) * Math.PI / 180); gl.uniform1f(su.uCirrusFlow, num(sky.cirrusFlow, 0.01)); gl.uniform1f(su.uVeil, clamp(num(sky.veil, 0), 0, 1));
-    gl.uniform1f(su.uDissolve, clamp(num(sky.dissolve, 0.7), 0, 1)); gl.uniform1f(su.uDotSize, Math.max(1, Math.round(num(sky.dotSize, 1))));
+    gl.uniform1f(su.uDissolve, clamp(num(sky.dissolve, 0), 0, 1)); gl.uniform1f(su.uDotSize, Math.max(1, Math.round(num(sky.dotSize, 1))));
     gl.uniform1f(su.uTime, time); gl.uniform1f(su.uRef, ref);
     // per-cloud style: a cloud's look may set haze, stackShade, dither, shadow, baseShade, noise and
     // smooth for itself (a stratus is hazy and flat, a cirrus dithered, whatever the sky's style says)
