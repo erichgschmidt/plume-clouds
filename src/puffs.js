@@ -280,7 +280,11 @@
 
   var SHADE_FS = '#version 300 es\nprecision highp float;\n' +
   'uniform sampler2D uField; uniform sampler2D uAux; uniform sampler2D uAux2; uniform sampler2D uAux3; uniform vec2 uTexel; uniform float uAspect; uniform vec3 uLight;\n' +
-  'uniform float uHighlight, uFill, uBands, uNoise, uNoiseScale, uNoise2, uNoise2Scale, uNoiseBias, uNoiseBias2, uFlow, uTime, uRef, uPixelated, uAnchor;\n' +
+  'uniform float uHighlight, uFill, uBands, uNoise, uNoiseScale, uNoise2, uNoise2Scale, uNoiseBias, uNoiseBias2, uFlow, uTime, uRef, uPixelated, uAnchor, uStreak;\n' +
+  'uniform vec2 uWindDir;\n' +
+  '// directional streak (wind erosion, step 4): the surface noise squeezed along the wind by Streak, up to 3x, twice as much\n' +
+  '// on dispersed material (wisps, worn and mixing parcels), so the detail reads as streaming downwind without any texture scrolling\n' +
+  'vec2 streak(vec2 w0, vec2 uv0){ if(uStreak <= 0.0) return w0; float sk = 1.0 + uStreak * 2.0 * (0.5 + 0.5 * texture(uAux, uv0).g); return w0 + uWindDir * dot(w0, uWindDir) * (1.0 / sk - 1.0); }\n' +
   '// per-cloud style, indexed by the cloud of the highest puff: A = (depth weight, haze, stack shade, dither), B = (shadow, base shade, noise scale, normal smooth)\n' +
   'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
   'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow, uDissolve, uDotSize, uVeil;\n' +
@@ -355,7 +359,7 @@
   '  // boundary the smoothing must not cross; roots of one cloud share a group, a root\'s children another\n' +
   '  float ins = (f.a < 0.5 || abs(texture(uAux2, uv).b - texture(uAux2, uv0).b) > 0.5 || texelFetch(uAux3, ivec2(uv / uTexel), 0).w != texelFetch(uAux3, ivec2(uv0 / uTexel), 0).w || abs(f.r - texture(uField, uv0).r) > 10.0 * length(dd) + 1e-6) ? 0.0 : 1.0;\n' +
   '  if(ins < 0.5) f = texture(uField, uv0);   // never read height outside the silhouette (the rim)\n' +
-  '  vec2 w0 = (vec2(uv.x, (1.0 - uv.y) * uAspect) - uAnchor * texture(uAux, uv0).ba) / uRef;   // noise rides with the parcel\n' +
+  '  vec2 w0 = streak((vec2(uv.x, (1.0 - uv.y) * uAspect) - uAnchor * texture(uAux, uv0).ba) / uRef, uv0);   // noise rides with the parcel\n' +
   '  float t = uTime * uFlow;\n' +
   '  float n1 = fbm(w0 * uNoiseScale + vec2(t, t * 0.37));\n' +
   '  float n2 = snoise(w0 * uNoise2Scale + vec2(-t * 0.6, t * 0.8) + 11.0) + 0.5 * snoise(w0 * uNoise2Scale * 2.1 + vec2(t * 0.3, -t * 0.5) + 23.0);\n' +
@@ -363,7 +367,7 @@
   '}\n' +
   '// the noise displacement alone at a uv (amplitude from the centre pixel, so it never steps)\n' +
   'float dispAt(vec2 uv, vec2 uv0, float bias, float bias2, float namp){\n' +
-  '  vec2 w0 = (vec2(uv.x, (1.0 - uv.y) * uAspect) - uAnchor * texture(uAux, uv0).ba) / uRef;\n' +
+  '  vec2 w0 = streak((vec2(uv.x, (1.0 - uv.y) * uAspect) - uAnchor * texture(uAux, uv0).ba) / uRef, uv0);\n' +
   '  float t = uTime * uFlow;\n' +
   '  float n1 = fbm(w0 * uNoiseScale + vec2(t, t * 0.37));\n' +
   '  float n2 = snoise(w0 * uNoise2Scale + vec2(-t * 0.6, t * 0.8) + 11.0) + 0.5 * snoise(w0 * uNoise2Scale * 2.1 + vec2(t * 0.3, -t * 0.5) + 23.0);\n' +
@@ -566,7 +570,7 @@
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTileSize', 'uTiles', 'uAspect', 'uT', 'uCap', 'uDissolve', 'uDotSize', 'uEvapScale', 'uRef']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uCavityLit', 'uGrain', 'uDiag', 'uT', 'uStipple', 'uStippleBias', 'uBreakup', 'uBreakupReach', 'uLock']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStreak', 'uWindDir', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uCavityLit', 'uGrain', 'uDiag', 'uT', 'uStipple', 'uStippleBias', 'uBreakup', 'uBreakupReach', 'uLock']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 8);   // eight rows: the fifth is (puff id, parent id), the sixth to eighth the shape variation
     this._sphTex = gl.createTexture();
     // tile lists: a head texture (offset, count) per 16-texel tile, sized in resize, and a flat index list
@@ -974,6 +978,7 @@
     gl.uniform1f(su.uHighlight, clamp(num(sky.highlight, 0.68), 0, 1));
     gl.uniform1f(su.uFill, num(sky.fill, 0.2)); gl.uniform1f(su.uBands, num(sky.bands, 5));
     gl.uniform1f(su.uNoise, num(sky.noise, 0.3)); gl.uniform1f(su.uNoiseScale, num(sky.noiseScale, 1)); gl.uniform1f(su.uFlow, num(sky.flow, 0.01));
+    var swa = num(sky.wind, 0) * Math.PI / 180; gl.uniform1f(su.uStreak, clamp(num(sky.streak, 0), 0, 1)); gl.uniform2f(su.uWindDir, Math.cos(swa), -Math.sin(swa));
     gl.uniform1f(su.uNoise2, num(sky.noise2, 0)); gl.uniform1f(su.uNoise2Scale, num(sky.noise2Scale, 4)); gl.uniform1f(su.uNoiseBias, clamp(num(sky.noiseBias, 0), -1, 1)); gl.uniform1f(su.uNoiseBias2, clamp(num(sky.noiseBias2, num(sky.noiseBias, 0)), -1, 1)); gl.uniform1f(su.uAnchor, clamp(num(sky.anchor, 1), 0, 1));   // (noise 2 follows noise 1's bias when it has none of its own: older presets)
     gl.uniform1f(su.uAtmos, clamp(num(sky.atmos, 0), 0, 1)); gl.uniform1f(su.uDepthFall, clamp(num(sky.depthFall, 0), 0, 1));
     gl.uniform1f(su.uCirrus, clamp(num(sky.cirrus, 0), 0, 1)); gl.uniform1f(su.uCirrusScale, num(sky.cirrusScale, 2)); gl.uniform1f(su.uCirrusAngle, num(sky.cirrusAngle, -12) * Math.PI / 180); gl.uniform1f(su.uCirrusFlow, num(sky.cirrusFlow, 0.01)); gl.uniform1f(su.uVeil, clamp(num(sky.veil, 0), 0, 1));

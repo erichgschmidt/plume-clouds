@@ -39,11 +39,11 @@
     <div id="groups"></div>
   </div>
 </div>
-<script src="src/sim.js?v=192"></script>
-<script src="src/puffs.js?v=192"></script>
-<script src="src/motion.js?v=192"></script>
-<script src="src/layer.js?v=192"></script>
-<script src="src/presets.js?v=192"></script>
+<script src="src/sim.js?v=193"></script>
+<script src="src/puffs.js?v=193"></script>
+<script src="src/motion.js?v=193"></script>
+<script src="src/layer.js?v=193"></script>
+<script src="src/presets.js?v=193"></script>
 <script>
 (function () {
   'use strict';
@@ -55,7 +55,7 @@
   renderer.resize(400);
 
   // the style of the whole sky (the shade pass): one look for every cloud
-  var sky = { softness: 1.0, noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, noiseBias2: 0, flow: 0.04, anchor: 1, smooth: 0.5, haze: 0.4, dither: 0, dissolve: 0, dotSize: 1, grain: 1,
+  var sky = { softness: 1.0, noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, noiseBias2: 0, streak: 0, flow: 0.04, anchor: 1, smooth: 0.5, haze: 0.4, dither: 0, dissolve: 0, dotSize: 1, grain: 1,
     atmos: 0.35, depthFall: 0.6, sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, baseShade: 0.5, stackShade: 0.4,
     cirrus: 0.35, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, pixelated: true, pixel: 2, overhead: 0.7, rim: 0.5, puffRim: 0.5, cap: 0, contact: 0, cavity: 0, cavityReach: 8, cavityLit: 1, baseFall: 0.7 };
   // the sky's own parameters
@@ -141,7 +141,7 @@
   }
 
   var SKYP = [['clouds', 'Clouds', 1, 14, 1], ['near', 'Near size', 0.3, 1.4, 0.01], ['travel', 'Travel', 0, 0.05, 0.001], ['drift', 'Drift', -0.02, 0.02, 0.001], ['parallax', 'Parallax', 0, 0.08, 0.002], ['sway', 'Sway (s)', 5, 120, 1], ['horizon', 'Horizon', 0.5, 1, 0.01], ['simSpeed', 'Sim speed', 0.1, 1.5, 0.01]];
-  var STYLE = [['pixel', 'Pixel size', 1, 6, 1], ['softness', 'Softness', 0.3, 4, 0.01], ['rim', 'Rim soften', 0, 1, 0.01], ['cap', 'Cap', 0, 1, 0.01], ['puffRim', 'Puff rim', 0, 1, 0.01], ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias2', 'Noise 2 bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['dissolve', 'Evaporation', 0, 1, 0.01], ['evapScale', 'Evap. scale', 0.5, 8, 0.1], ['stipple', 'Stipple', 0, 1, 0.01], ['stippleBias', 'Stipple bias', -1, 1, 0.01], ['breakup', 'Edge breakup', 0, 1, 0.01], ['breakupReach', 'Breakup reach', 1, 24, 1], ['dotSize', 'Dot size', 1, 4, 1], ['patternLock', 'Pattern lock', 0, 1, 1], ['grain', 'Palette dither', 0, 2, 0.01], ['atmos', 'Atmosphere', 0, 1, 0.01], ['depthFall', 'Depth falloff', 0, 1, 0.01]];
+  var STYLE = [['pixel', 'Pixel size', 1, 6, 1], ['softness', 'Softness', 0.3, 4, 0.01], ['rim', 'Rim soften', 0, 1, 0.01], ['cap', 'Cap', 0, 1, 0.01], ['puffRim', 'Puff rim', 0, 1, 0.01], ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias2', 'Noise 2 bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['streak', 'Streak', 0, 1, 0.01], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['dissolve', 'Evaporation', 0, 1, 0.01], ['evapScale', 'Evap. scale', 0.5, 8, 0.1], ['stipple', 'Stipple', 0, 1, 0.01], ['stippleBias', 'Stipple bias', -1, 1, 0.01], ['breakup', 'Edge breakup', 0, 1, 0.01], ['breakupReach', 'Breakup reach', 1, 24, 1], ['dotSize', 'Dot size', 1, 4, 1], ['patternLock', 'Pattern lock', 0, 1, 1], ['grain', 'Palette dither', 0, 2, 0.01], ['atmos', 'Atmosphere', 0, 1, 0.01], ['depthFall', 'Depth falloff', 0, 1, 0.01]];
   var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['overhead', 'Overhead', 0, 1, 0.01], ['shadow', 'Shadow', 0, 1, 0.01], ['contact', 'Contact', 0, 1, 0.01], ['cavity', 'Cavity', 0, 1, 0.01], ['cavityReach', 'Cavity reach', 2, 24, 1], ['cavityLit', 'Cavity in light', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['baseFall', 'Base falloff', 0.1, 1.5, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
   var CIRRUS = [['cirrus', 'Cirrus', 0, 1, 0.01], ['cirrusScale', 'Scale', 0.5, 6, 0.1], ['cirrusAngle', 'Angle (deg)', -45, 45, 1], ['cirrusFlow', 'Flow', 0, 0.1, 0.001]];
   var TIPS = { dither: 'Dispersing puffs keep a hard, stippled edge instead of a hazy fade (per type). It does not remove pixels: that is Evaporation (Dissolve), tone is Stipple, ragged outlines are Edge breakup.',
@@ -184,7 +184,7 @@
   }
   var GROUPS = [
     ['Surface', ['pixel', 'softness', 'cap', 'rim', 'puffRim', 'smooth']],
-    ['Noise', ['noise', 'noiseScale', 'noiseBias', 'noise2', 'noise2Scale', 'noiseBias2', 'flow', 'anchor']],
+    ['Noise', ['noise', 'noiseScale', 'noiseBias', 'noise2', 'noise2Scale', 'noiseBias2', 'flow', 'streak', 'anchor']],
     ['Light', ['sun', 'elevation', 'overhead', 'shadow', 'fill', 'bands', 'grain']],
     ['Shadows', ['contact', 'cavity', 'cavityReach', 'cavityLit', 'baseShade', 'baseFall', 'stackShade', 'haze']],
     ['Dither', ['dither', 'dissolve', 'evapScale', 'stipple', 'stippleBias', 'breakup', 'breakupReach', 'dotSize', 'patternLock']],
