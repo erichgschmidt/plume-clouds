@@ -57,7 +57,7 @@
     <p class="hint">Geometry is fixed sphere records fed straight to PuffRenderer (no ThermalSim, no children, no noise). Coordinates are final renderer units: x and y over the width, y down, positive z0 nearer.</p>
   </div>
 </div>
-<script src="src/puffs.js?v=lab24"></script>
+<script src="src/puffs.js?v=lab27"></script>
 <script src="lab-ref.js?v=11"></script>
 <script>
 (function () {
@@ -311,12 +311,24 @@
     res.angularRef = aA.visible === 0 && aH.visible === 0; res.angularMismatches = aA.mismatches + aH.mismatches; res.angularNudge = Math.max(aA.jump, aH.jump);
     state.fixture = 'A Single'; look.diag = 4; var mr = snap(); look.angular = 0; var mc = snap(); var cr = skyMask(mr), cc = skyMask(mc); res.angularInscribed = subset(cr, cc) === 0 && subset(cc, cr) > 100;
     Object.assign(look, L0);
-    ok = res.unattachedCrisp && res.attachedBlended && res.coverageKept && res.varZeroSame && res.sameSeedSame && res.varChanges && res.reseedChanges && res.reorderSame && res.deformedRef && res.childrenAttached && res.rimKeepsCoverage && res.silRimActs && res.puffRimActs && res.rimsIndependent && res.stippleKeepsCoverage && res.stippleActs && res.breakupOnlyRemoves && res.breakupNearEdge && res.evapMonotone && res.evapFreshKept && res.angularRef && res.angularInscribed;
+    // Normal smooth: a plain dome is left alone (A: no pixel over 3 levels at smooth 1), an occluding step keeps its
+    // profile (C: the crease row within 3 levels), an unattached crease is never averaged across (F: the crease row
+    // within 3 levels); attached domes do smooth (B: the crease row changes)
+    var yc2 = H - 1 - Math.round(0.375 * W);
+    function rowDiff(a, b) { var m = 0; for (var xx = 440; xx < 584; xx++) { var k = (yc2 * W + xx) * 4; m = Math.max(m, Math.abs(a[k] - b[k])); } return m; }
+    look.diag = 1; look.rim = 0; look.puffRim = 0;
+    state.fixture = 'A Single'; look.smooth = 0; var sA0 = snap(); look.smooth = 1; var sA1 = snap(); res.smoothDome = maxDiff(sA0, sA1) <= 3; res.smoothDomeMax = maxDiff(sA0, sA1);
+    state.fixture = 'C Depth overlap'; look.smooth = 0; var sC0 = snap(); look.smooth = 1; var sC1 = snap(); res.smoothKeepsStep = rowDiff(sC0, sC1) <= 3; res.smoothStepMax = rowDiff(sC0, sC1);
+    state.fixture = 'F Unattached pair'; look.smooth = 0; var sF0 = snap(); look.smooth = 1; var sF1 = snap(); res.smoothKeepsCrease = rowDiff(sF0, sF1) <= 3; res.smoothCreaseMax = rowDiff(sF0, sF1);
+    state.fixture = 'B Equal-depth overlap'; look.smooth = 0; var sB0 = snap(); look.smooth = 1; var sB1 = snap(); res.smoothActs = rowDiff(sB0, sB1) > 3; res.smoothBMax = rowDiff(sB0, sB1);
+    Object.assign(look, L0);
+    ok = res.unattachedCrisp && res.attachedBlended && res.coverageKept && res.varZeroSame && res.sameSeedSame && res.varChanges && res.reseedChanges && res.reorderSame && res.deformedRef && res.childrenAttached && res.rimKeepsCoverage && res.silRimActs && res.puffRimActs && res.rimsIndependent && res.stippleKeepsCoverage && res.stippleActs && res.breakupOnlyRemoves && res.breakupNearEdge && res.evapMonotone && res.evapFreshKept && res.angularRef && res.angularInscribed && res.smoothDome && res.smoothKeepsStep && res.smoothKeepsCrease && res.smoothActs;
     var line = 'check rules: ' + (ok ? 'PASS' : 'FAIL') + '   unattached crisp ' + res.unattachedCrisp + ' (Gx ' + res.gF.join(' ') + ')   attached blended ' + res.attachedBlended + ' (Gx ' + res.gB.join(' ') + ')   coverage at Dissolve 0 ' + res.coverageKept + ' (' + holes + ' holes / ' + tested + ')' +
       '\n  shape: var 0 same ' + res.varZeroSame + '   same seed same ' + res.sameSeedSame + '   var changes ' + res.varChanges + '   reseed changes ' + res.reseedChanges + '   reorder same ' + res.reorderSame + ' (max ' + res.reorderDiff + ')   deformed vs ref ' + res.deformedRef + ' (' + res.deformedMismatches + ' mismatches, ' + res.deformedVisible + ' visible, nudge max ' + res.deformedNudge + ')   children attached ' + res.childrenAttached + ' (' + nch + ')' +
       '\n  rims: keep coverage ' + res.rimKeepsCoverage + '   silhouette rim acts ' + res.silRimActs + '   puff rim acts ' + res.puffRimActs + '   independent ' + res.rimsIndependent +
       '\n  dither: stipple keeps coverage ' + res.stippleKeepsCoverage + '   stipple acts ' + res.stippleActs + '   breakup only removes ' + res.breakupOnlyRemoves + '   near the edge ' + res.breakupNearEdge + ' (' + res.breakupRemoved + ' px)   evaporation monotone ' + res.evapMonotone + ' (' + res.evapRemovedAt3 + ' / ' + res.evapRemovedAt6 + ' px at .3 / .6)   fresh kept ' + res.evapFreshKept +
-      '\n  angular: vs ref ' + res.angularRef + ' (' + res.angularMismatches + ' mismatches, nudge max ' + res.angularNudge + ')   inscribed ' + res.angularInscribed;
+      '\n  angular: vs ref ' + res.angularRef + ' (' + res.angularMismatches + ' mismatches, nudge max ' + res.angularNudge + ')   inscribed ' + res.angularInscribed +
+      '\n  normal smooth: dome untouched ' + res.smoothDome + ' (' + res.smoothDomeMax + ')   step kept ' + res.smoothKeepsStep + ' (' + res.smoothStepMax + ')   unattached crease kept ' + res.smoothKeepsCrease + ' (' + res.smoothCreaseMax + ')   attached smooths ' + res.smoothActs + ' (' + res.smoothBMax + ')';
     state.fixture = DEFAULT_FIXTURE; sync(); draw(); hud.textContent += '\n' + line; console.log(line, res); window.labRules = res;
   });
 })();

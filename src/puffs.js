@@ -366,7 +366,7 @@
   '// height is differenced across an occlusion step any more, so there is no step test, no footprint shrink and\n' +
   '// no fallback that could face a strip toward the viewer. A far footprint (Depth falloff) averages the\n' +
   '// gradient over same-surface neighbours. The noise displacement is smooth, so it is differenced plainly.\n' +
-  'vec3 normalAt(vec2 uv, vec2 dx, vec2 dy, float wx, float wy, float bias, float bias2, float namp, out float edge){\n' +
+  'vec3 normalAt(vec2 uv, vec2 dx, vec2 dy, float wx, float wy, float bias, float bias2, float namp, float sm, out float edge){\n' +
   '  // rim weight: a smooth fall-off with the distance from the silhouette line, over the blend width T or two\n' +
   '  // texels, whichever is wider (it used to be full across the whole mask ramp and then drop within two\n' +
   '  // texels: at high Softness a flat lifted band ending in a step, a ring)\n' +
@@ -379,6 +379,30 @@
   '      if(hAt(q, uv, bias, bias2, namp).y > 0.5){ G += texture(uAux3, q).xy; gn += 1.0; }\n' +
   '    }\n' +
   '    G /= gn;\n' +
+  '  }\n' +
+  '  // Normal smooth: a bilateral average of the exact (unfiltered) gradient over the 7x7 texels round this one, Gaussian\n' +
+  '  // in distance (sigma 1.5 texels) and in gradient difference (sigma 2 slope units: attached domes differ by less, a\n' +
+  '  // crisp overlap by more and keeps its crease), rejecting outright a texel outside the silhouette, on another cloud,\n' +
+  '  // across an occluding step or owned by another family (a crisp overlap by design: unrelated surfaces are never\n' +
+  '  // averaged, whatever their slopes; the family test alone was imprecise, since siblings can still overlap sharply,\n' +
+  '  // which the gradient weight now handles). The slider blends toward the average over a fixed footprint. It used\n' +
+  '  // to average the normals of four isolated samples up to three texels out, the slider setting both spacing and\n' +
+  '  // strength: a crease three texels away echoed as a second contour, and a sample switching between accepted and\n' +
+  '  // rejected stepped\n' +
+  '  if(sm > 0.0){\n' +
+  '    ivec2 c = ivec2(uv / uTexel); vec4 f0 = texelFetch(uField, c, 0); float cl0 = texelFetch(uAux2, c, 0).b; vec4 a0 = texelFetch(uAux3, c, 0); vec2 G0 = a0.xy;\n' +
+  '    vec2 acc = vec2(0.0); float wsum = 0.0;\n' +
+  '    for(int j = -3; j <= 3; j++) for(int i = -3; i <= 3; i++){\n' +
+  '      ivec2 q = c + ivec2(i, j); vec4 fq = texelFetch(uField, q, 0);\n' +
+  '      if(fq.a < 0.5 || abs(texelFetch(uAux2, q, 0).b - cl0) > 0.5) continue;\n' +
+  '      float dd = length(vec2(float(i) * uTexel.x, float(j) * uTexel.y * uAspect));\n' +
+  '      if(abs(fq.r - f0.r) > 10.0 * dd + 1e-6) continue;\n' +
+  '      vec4 aq = texelFetch(uAux3, q, 0); if(aq.w != a0.w) continue;\n' +
+  '      vec2 Gq = aq.xy, dg = Gq - G0;\n' +
+  '      float w = exp(-float(i * i + j * j) / 4.5) * exp(-dot(dg, dg) / 8.0);\n' +
+  '      acc += w * Gq; wsum += w;\n' +
+  '    }\n' +
+  '    G = mix(G, acc / wsum, sm);\n' +
   '  }\n' +
   '  float nL = dispAt(uv - dx, uv, bias, bias2, namp), nR = dispAt(uv + dx, uv, bias, bias2, namp), nU = dispAt(uv - dy, uv, bias, bias2, namp), nD = dispAt(uv + dy, uv, bias, bias2, namp);\n' +
   '  // field y is down, uv y is up: the stored gradient is in field units, the noise difference in uv\n' +
@@ -411,7 +435,7 @@
   '  float namp = (1.0 - 0.6 * far) * sB.z;\n' +
   '  // noise bias: the macro (undisplaced) light decides where the noise lives (-1 shadow only .. +1 light only)\n' +
   '  float edge;\n' +
-  '  vec3 n0 = normalAt(uv, dx, dy, wx, wy, 0.0, 0.0, namp, edge);\n' +
+  '  vec3 n0 = normalAt(uv, dx, dy, wx, wy, 0.0, 0.0, namp, sB.w, edge);\n' +
   '  // under the camera the view pitches up toward the top of the frame, so the sun turns with it:\n' +
   '  // a cloud near the horizon is lit from above, one straight overhead shows its underside with\n' +
   '  // the light coming from beyond it\n' +
@@ -424,18 +448,7 @@
   '  float l0 = dot(n0, Lv);\n' +
   '  float bias = uNoiseBias > 0.0 ? mix(1.0, smoothstep(-0.2, 0.5, l0), uNoiseBias) : mix(1.0, 1.0 - smoothstep(-0.2, 0.5, l0), -uNoiseBias);\n' +
   '  float bias2 = uNoiseBias2 > 0.0 ? mix(1.0, smoothstep(-0.2, 0.5, l0), uNoiseBias2) : mix(1.0, 1.0 - smoothstep(-0.2, 0.5, l0), -uNoiseBias2);\n' +
-  '  vec3 n = normalAt(uv, dx, dy, wx, wy, bias, bias2, namp, edge);\n' +
-  '  // Normal smooth: average the normals of four neighbours (reach up to 3 texels) with this one, skipping\n' +
-  '  // any neighbour that is outside, on another cloud or across a step, so the smoothing never crosses an edge\n' +
-  '  if(sB.w > 0.0){\n' +
-  '    float ss = sB.w * 3.0; vec2 ox = vec2(uTexel.x * ss, 0.0), oy = vec2(0.0, uTexel.y * ss);\n' +
-  '    vec3 nacc = n; float e2;\n' +
-  '    for(int k = 0; k < 4; k++){\n' +
-  '      vec2 p = uv + (k == 0 ? ox : k == 1 ? -ox : k == 2 ? oy : -oy);\n' +
-  '      if(hAt(p, uv, bias, bias2, namp).y > 0.5) nacc += normalAt(p, dx, dy, wx, wy, bias, bias2, namp, e2) * sB.w;\n' +
-  '    }\n' +
-  '    n = normalize(nacc);\n' +
-  '  }\n' +
+  '  vec3 n = normalAt(uv, dx, dy, wx, wy, bias, bias2, namp, sB.w, edge);   // (Normal smooth is inside: the gradient\'s bilateral average)\n' +
   '  // the rim turns toward the viewer: the dome edge is otherwise a dark ring that reads as an outline. Two controls,\n' +
   '  // independent: Rim soften by the distance to the exposed silhouette (edge), Puff rim by each puff\'s own rim weight\n' +
   '  // inside the cloud (bx.a, by its share of the surface). Where a lobe rim meets the silhouette the larger of the two\n' +

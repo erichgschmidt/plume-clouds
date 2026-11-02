@@ -44,11 +44,11 @@
     <div id="light"></div>
   </div>
 </div>
-<script src="src/sim.js?v=173"></script>
-<script src="src/puffs.js?v=173"></script>
-<script src="src/motion.js?v=173"></script>
-<script src="src/layer.js?v=173"></script>
-<script src="src/presets.js?v=173"></script>
+<script src="src/sim.js?v=176"></script>
+<script src="src/puffs.js?v=176"></script>
+<script src="src/motion.js?v=176"></script>
+<script src="src/layer.js?v=176"></script>
+<script src="src/presets.js?v=176"></script>
 <script>
 (function () {
   'use strict';
@@ -149,7 +149,7 @@
     noiseBias2: 'Where noise 2 lives: -1 only in shadow, +1 only in light.',
     flow: 'Scroll speed of the noise over the surface.',
     anchor: 'How much the noise rides on each parcel (1) versus staying fixed in screen space (0).',
-    smooth: 'Footprint of the normal: higher softens the shading.',
+    smooth: 'Normal smooth: blends the surface slope toward a bilateral average over the seven-by-seven texels round each one (a fixed footprint; edges, other clouds, occluding steps and crisp overlaps are not crossed). Higher softens the shading.',
     shear: 'How far dispersing parcels stretch along the wind as they mix away.',
     shearBias: 'Shear by depth: +1 the near face shears most, -1 the back does.',
     depthFall: 'Recessed volumes lose shadow, noise and crispness: near billows stay sharp.',
