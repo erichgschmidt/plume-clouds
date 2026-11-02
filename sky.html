@@ -20,6 +20,12 @@
   .seg { display: flex; gap: 4px; flex-wrap: wrap; }
   #hud { position: absolute; left: 10px; top: 10px; background: rgba(0,0,0,.45); padding: 6px 10px; border-radius: 4px; white-space: pre; }
   p.hint { color: #8d9ca4; margin: 4px 0 8px; }
+  details.grp { margin: 6px 0 2px; }
+  details.grp > summary { cursor: pointer; list-style: none; margin: 4px 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #9fb0b8; user-select: none; }
+  details.grp > summary::-webkit-details-marker { display: none; }
+  details.grp > summary::before { content: '\25B8'; display: inline-block; width: 12px; color: #6f8089; }
+  details.grp[open] > summary::before { content: '\25BE'; }
+  details.grp > summary .n { color: #6f8089; font-weight: normal; margin-left: 4px; }
 </style>
 </head>
 <body>
@@ -30,19 +36,14 @@
     <div class="row"><button class="btn" id="btnNew">Regenerate</button><button class="btn" id="btnPlay">Pause</button><label style="width:auto">Seed</label><input id="seed" type="number" value="1" style="width:56px"></div>
     <div id="skyp"></div>
     <p class="hint">Every cloud is its own sim placed in a world (lateral position, distance, altitude) and projected toward the horizon; the camera glides forward, so near clouds pass overhead and far ones creep in from the horizon. Distance sets scale, parallax, detail and haze; the cloud type (src/presets.js, plus any preset saved in the puff editor) sets its engine and form.</p>
-    <h3>Style</h3>
-    <div id="style"></div>
-    <h3>Light</h3>
-    <div id="light"></div>
-    <h3>Cirrus</h3>
-    <div id="cirrus"></div>
+    <div id="groups"></div>
   </div>
 </div>
-<script src="src/sim.js?v=177"></script>
-<script src="src/puffs.js?v=177"></script>
-<script src="src/motion.js?v=177"></script>
-<script src="src/layer.js?v=177"></script>
-<script src="src/presets.js?v=177"></script>
+<script src="src/sim.js?v=184"></script>
+<script src="src/puffs.js?v=184"></script>
+<script src="src/motion.js?v=184"></script>
+<script src="src/layer.js?v=184"></script>
+<script src="src/presets.js?v=184"></script>
 <script>
 (function () {
   'use strict';
@@ -165,9 +166,32 @@
   SKYP.forEach(function (s) { slider($('skyp'), function () { return P; }, s, function (k) {
     if (k === 'clouds' || k === 'near') build();
   }); });
-  STYLE.forEach(function (s) { slider($('style'), function () { return sky; }, s); });
-  LIGHT.forEach(function (s) { slider($('light'), function () { return sky; }, s); });
-  CIRRUS.forEach(function (s) { slider($('cirrus'), function () { return sky; }, s); });
+  // the sliders in collapsible groups (open state remembered per group); every spec of the lists above lands in
+  // exactly one group, any left over in 'Other', so a new slider never goes missing
+  function buildGroups(host, groups, lists, target, onChange) {
+    var specs = {}, used = {}, openState = {};
+    lists.forEach(function (L) { L.forEach(function (s) { specs[s[0]] = s; }); });
+    try { openState = JSON.parse(localStorage.getItem('plume-sky-groups') || '{}'); } catch (e) { openState = {}; }
+    function group(title, keys) {
+      var d = document.createElement('details'); d.className = 'grp'; d.open = openState[title] === undefined ? true : !!openState[title];
+      var sm = document.createElement('summary'); sm.innerHTML = title + '<span class="n">' + keys.length + '</span>'; d.appendChild(sm);
+      var body = document.createElement('div'); d.appendChild(body); host.appendChild(d);
+      keys.forEach(function (k) { if (!specs[k]) return; used[k] = 1; slider(body, target, specs[k], onChange); });
+      d.addEventListener('toggle', function () { openState[title] = d.open; try { localStorage.setItem('plume-sky-groups', JSON.stringify(openState)); } catch (e) {} });
+    }
+    groups.forEach(function (g) { group(g[0], g[1]); });
+    var rest = Object.keys(specs).filter(function (k) { return !used[k]; }); if (rest.length) group('Other', rest);
+  }
+  var GROUPS = [
+    ['Surface', ['pixel', 'softness', 'cap', 'rim', 'puffRim', 'smooth']],
+    ['Noise', ['noise', 'noiseScale', 'noiseBias', 'noise2', 'noise2Scale', 'noiseBias2', 'flow', 'anchor']],
+    ['Light', ['sun', 'elevation', 'overhead', 'shadow', 'fill', 'bands', 'grain']],
+    ['Shadows', ['contact', 'cavity', 'cavityReach', 'cavityLit', 'baseShade', 'baseFall', 'stackShade']],
+    ['Haze and dither', ['haze', 'dither', 'dissolve', 'evapScale', 'stipple', 'stippleBias', 'breakup', 'breakupReach', 'dotSize', 'patternLock']],
+    ['Atmosphere', ['atmos', 'depthFall']],
+    ['Cirrus', ['cirrus', 'cirrusScale', 'cirrusAngle', 'cirrusFlow']]
+  ];
+  buildGroups($('groups'), GROUPS, [STYLE, LIGHT, CIRRUS], function () { return sky; });
 
   var playing = true;
   $('btnPlay').addEventListener('click', function () { playing = !playing; this.textContent = playing ? 'Pause' : 'Play'; });

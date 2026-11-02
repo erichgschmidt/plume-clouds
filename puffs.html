@@ -20,6 +20,12 @@
   .seg { display: flex; gap: 4px; flex-wrap: wrap; }
   #hud { position: absolute; left: 10px; top: 10px; background: rgba(0,0,0,.45); padding: 6px 10px; border-radius: 4px; white-space: pre; }
   p.hint { color: #8d9ca4; margin: 4px 0 8px; }
+  details.grp { margin: 6px 0 2px; }
+  details.grp > summary { cursor: pointer; list-style: none; margin: 4px 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #9fb0b8; user-select: none; }
+  details.grp > summary::-webkit-details-marker { display: none; }
+  details.grp > summary::before { content: '\25B8'; display: inline-block; width: 12px; color: #6f8089; }
+  details.grp[open] > summary::before { content: '\25BE'; }
+  details.grp > summary .n { color: #6f8089; font-weight: normal; margin-left: 4px; }
 </style>
 </head>
 <body>
@@ -34,21 +40,16 @@
     <h3>Shape</h3>
     <div class="row"><label>Layout</label><select id="shapes" style="flex:1"></select></div>
     <div class="row"><label>Primitive</label><select id="prims" style="flex:1"></select></div>
-    <h3>View</h3>
-    <div id="view"></div>
     <h3>Forces</h3>
     <div id="forces"></div>
-    <h3>Surface</h3>
-    <div id="surface"></div>
-    <h3>Light</h3>
-    <div id="light"></div>
+    <div id="groups"></div>
   </div>
 </div>
-<script src="src/sim.js?v=177"></script>
-<script src="src/puffs.js?v=177"></script>
-<script src="src/motion.js?v=177"></script>
-<script src="src/layer.js?v=177"></script>
-<script src="src/presets.js?v=177"></script>
+<script src="src/sim.js?v=184"></script>
+<script src="src/puffs.js?v=184"></script>
+<script src="src/motion.js?v=184"></script>
+<script src="src/layer.js?v=184"></script>
+<script src="src/presets.js?v=184"></script>
 <script>
 (function () {
   'use strict';
@@ -194,9 +195,35 @@
     FORCES.forEach(function (s) { if (keys && keys.indexOf(s[0]) < 0) return; slider($('forces'), function () { return sim.params; }, s); sliders[s[0]].force = true; });
   }
   buildForces();
-  SURFACE.forEach(function (s) { slider($('surface'), function () { return look; }, s); });
-  LIGHT.forEach(function (s) { slider($('light'), function () { return look; }, s); });
-  VIEW.forEach(function (s) { slider($('view'), function () { return look; }, s); });
+  // the sliders in collapsible groups (open state remembered per group); every spec of the lists above lands in
+  // exactly one group, any left over in 'Other', so a new slider never goes missing
+  function buildGroups(host, groups, lists, target, onChange) {
+    var specs = {}, used = {}, openState = {};
+    lists.forEach(function (L) { L.forEach(function (s) { specs[s[0]] = s; }); });
+    try { openState = JSON.parse(localStorage.getItem('plume-puffs-groups') || '{}'); } catch (e) { openState = {}; }
+    function group(title, keys) {
+      var d = document.createElement('details'); d.className = 'grp'; d.open = openState[title] === undefined ? true : !!openState[title];
+      var sm = document.createElement('summary'); sm.innerHTML = title + '<span class="n">' + keys.length + '</span>'; d.appendChild(sm);
+      var body = document.createElement('div'); d.appendChild(body); host.appendChild(d);
+      keys.forEach(function (k) { if (!specs[k]) return; used[k] = 1; slider(body, target, specs[k], onChange); });
+      d.addEventListener('toggle', function () { openState[title] = d.open; try { localStorage.setItem('plume-puffs-groups', JSON.stringify(openState)); } catch (e) {} });
+    }
+    groups.forEach(function (g) { group(g[0], g[1]); });
+    var rest = Object.keys(specs).filter(function (k) { return !used[k]; }); if (rest.length) group('Other', rest);
+  }
+  var GROUPS = [
+    ['View', ['pixel', 'zoom', 'panX', 'panY', 'diag']],
+    ['Shape', ['primAmt', 'cap', 'shapeVar', 'stretchVar', 'contourVar', 'shapeSeed', 'angular', 'sides']],
+    ['Puffs', ['children', 'ratio', 'levels', 'life', 'embed', 'softness', 'depth', 'swayScale']],
+    ['Wind', ['shear', 'shearBias', 'wind', 'lean']],
+    ['Noise', ['noise', 'noiseScale', 'noiseBias', 'noise2', 'noise2Scale', 'noiseBias2', 'flow', 'anchor', 'smooth']],
+    ['Rims', ['rim', 'puffRim']],
+    ['Light', ['sun', 'elevation', 'shadow', 'fill', 'bands', 'grain']],
+    ['Shadows', ['contact', 'cavity', 'cavityReach', 'cavityLit', 'baseShade', 'baseFall', 'stackShade']],
+    ['Haze and dither', ['haze', 'dither', 'dissolve', 'evapScale', 'stipple', 'stippleBias', 'breakup', 'breakupReach', 'dotSize', 'patternLock']],
+    ['Sky', ['depthFall', 'cirrus', 'cirrusScale', 'cirrusAngle', 'veil']]
+  ];
+  buildGroups($('groups'), GROUPS, [SURFACE, LIGHT, VIEW], function () { return look; });
   function refresh() { for (var k in sliders) sliders[k](); }
   var playing = true;
   function setPlaying(v) { playing = v; $('btnPlay').textContent = playing ? 'Pause' : 'Play'; }
