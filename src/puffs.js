@@ -37,6 +37,11 @@
   'uniform sampler2D uSph; uniform float uAspect; uniform float uT, uCap;\n' +
   '// tiles: the spheres whose reach touches a 16-texel tile, as a list per tile (uTileHead: offset, count; uTileList: indices)\n' +
   'uniform sampler2D uTileHead, uTileList; uniform float uTexW; uniform ivec2 uTiles;\n' +
+  '// dissolve: a dispersing puff (attribute w) loses texels on the dither grid HERE, in the union and the silhouette,\n' +
+  '// so the holes show the cloud behind it (the shade pass used to drop the pixel to sky instead)\n' +
+  'uniform float uDissolve, uDotSize;\n' +
+  'float bayer(vec2 p){ vec2 q = mod(floor(p), 4.0); float m[16]; m[0]=0.;m[1]=8.;m[2]=2.;m[3]=10.;m[4]=12.;m[5]=4.;m[6]=14.;m[7]=6.;m[8]=3.;m[9]=11.;m[10]=1.;m[11]=9.;m[12]=15.;m[13]=7.;m[14]=13.;m[15]=5.; return m[int(q.y) * 4 + int(q.x)] / 16.0 - 0.5; }\n' +
+  'bool dissolved(int i){ float dis = texelFetch(uSph, ivec2(i, 1), 0).w; return dis > 0.001 && bayer(floor(gl_FragCoord.xy / uDotSize) + 7.0) + 0.5 < uDissolve * dis; }\n' +
   'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3; layout(location = 3) out vec4 o4;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
@@ -74,6 +79,7 @@
   '    else if(prim == 3){ vec2 q = d * d; d *= mix(1.0, sqrt(sqrt(dot(q, q))) / max(length(d), 1e-6), pa); }\n' +
   '    else if(prim == 4) d *= mix(1.0, (abs(d.x) + abs(d.y)) / max(length(d), 1e-6), pa);\n' +
   '    float d2 = dot(d, d); if(d2 >= r * r) continue;\n' +
+  '    if(dissolved(i)) continue;\n' +
   '    float u = sqrt(d2) / r;\n' +
   '    float h = s.w + r * mix(sqrt(1.0 - u * u), 1.0 - u * u, uCap);\n' +
   '    if(h > winH){ winH = h; vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); winId = idp.x; winPid = idp.y; }\n' +
@@ -95,6 +101,7 @@
   '    else if(prim == 4) d *= mix(1.0, (abs(d.x) + abs(d.y)) / max(length(d), 1e-6), pa);\n' +
   '    float d2 = dot(d, d);\n' +
   '    if(d2 > r * r * 2.25) continue;\n' +
+  '    if(dissolved(i)) continue;\n' +
   '    float dist = sqrt(d2);\n' +
   '    // the skirt outside the radius dies off continuously before the 1.5 r cutoff (a penalty that diverges\n' +
   '    // there), so nothing is lost abruptly at the boundary: a skirt still above a neighbour used to drop\n' +
@@ -299,8 +306,7 @@
   '  vec4 bx = texture(uAux2, uv);   // band, puff depth weight, cloud index\n' +
   '  int ci = clamp(int(bx.b + 0.5), 0, 31); vec4 sA = uStyleA[ci], sB = uStyleB[ci];\n' +
   '  float dis = sA.w * ax.g;   // dispersing puffs dissolve into the pixel grid\n' +
-  '  float th = dis > 0.001 ? mix(0.5, (bayer(floor(vUv / (uTexel * uDotSize)) + 7.0) + 0.5) * 0.9 + 0.05, dis) : 0.5;\n' +
-  '  if(min(f.a, 1.0) * (1.0 - uDissolve * dis) < th){ fragColor = vec4(sky(uv), 1.0); return; }   // a strongly dispersing puff also loses interior pixels (wisps dissolve)\n' +
+  '  if(f.a < 0.5){ fragColor = vec4(sky(uv), 1.0); return; }   // the dissolve of a dispersing puff happens in the field pass now\n' +
   '  // diagnostic view 4: the coverage mask (the field alpha, ramp included), before the mask test drops the outside\n' +
   '  if(uDiag > 3.5 && uDiag < 4.5){ fragColor = vec4(vec3(min(f.a, 1.0)), 1.0); return; }\n' +
   '  // depth weight: 1 near .. 0 far. Far volumes: softer normal, weaker shadow, less noise, bluer\n' +
@@ -426,7 +432,7 @@
     this._float32 = !!gl.getExtension('OES_texture_float_linear');   // the height target is 32-bit when it can be filtered
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
-    this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTiles', 'uAspect', 'uT', 'uCap']);
+    this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTiles', 'uAspect', 'uT', 'uCap', 'uDissolve', 'uDotSize']);
     this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain', 'uDiag']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 5);   // five rows: the fifth is (puff id, parent id)
     this._sphTex = gl.createTexture();
@@ -705,7 +711,7 @@
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this._tileHead); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this._tileList);
     gl.uniform1i(this._fu.uSph, 0); gl.uniform1i(this._fu.uTileHead, 1); gl.uniform1i(this._fu.uTileList, 2); gl.uniform1f(this._fu.uTexW, this._w); gl.uniform2i(this._fu.uTiles, this._tx, this._ty); gl.uniform1f(this._fu.uAspect, asp);
-    gl.uniform1f(this._fu.uT, Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4))); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0), 0, 1));
+    gl.uniform1f(this._fu.uT, Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4))); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0), 0, 1)); gl.uniform1f(this._fu.uDissolve, clamp(num(sky.dissolve, 0.7), 0, 1)); gl.uniform1f(this._fu.uDotSize, Math.max(1, Math.round(num(sky.dotSize, 1))));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // shade
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);

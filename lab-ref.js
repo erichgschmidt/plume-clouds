@@ -19,7 +19,11 @@
 
   function fieldRef(D, count, P, x, y) {
     var M = P.MAX_SPH || (window.PuffRenderer && PuffRenderer.MAX_SPH) || 4096;
-    var W = P.W, Hh = P.H, asp = Hh / W, T = P.T, T2 = T * 4, cap = P.cap;
+    var W = P.W, Hh = P.H, asp = Hh / W, T = P.T, T2 = T * 4, cap = P.cap, dissolve = P.dissolve || 0, dot = P.dotSize || 1;
+    // the dither threshold at this texel (gl_FragCoord = texel + 0.5), for the dissolve of dispersing puffs
+    var BAY = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+    var bq = Math.floor((x + 0.5) / dot) + 7, bqy = Math.floor((y + 0.5) / dot) + 7, bay = BAY[(((bqy % 4) + 4) % 4) * 4 + (((bq % 4) + 4) % 4)] / 16 - 0.5 + 0.5;
+    function dissolved(i) { var dis = D[(M + i) * 4 + 3]; return dis > 0.001 && bay < dissolve * dis; }
     // p = vec2(vUv.x, (1 - vUv.y) * uAspect) at the texel centre
     var px = (x + 0.5) / W, py = (1 - (y + 0.5) / Hh) * asp;
     var i, o0, o1, o2, o3, o4, dx, dy, r, st, prim, pa, q, len, d2, u, h, along, across;
@@ -38,6 +42,7 @@
       else if (prim === 3) { q = Math.sqrt(Math.sqrt(dx * dx * dx * dx + dy * dy * dy * dy)) / Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6); len = mix(1, q, pa); dx *= len; dy *= len; }
       else if (prim === 4) { q = (Math.abs(dx) + Math.abs(dy)) / Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6); len = mix(1, q, pa); dx *= len; dy *= len; }
       d2 = dx * dx + dy * dy; if (d2 >= r * r) continue;
+      if (dissolved(i)) continue;
       u = Math.sqrt(d2) / r;
       h = D[o0 + 3] + r * mix(Math.sqrt(1 - u * u), 1 - u * u, cap);
       if (h > winH) { winH = h; winId = D[o4]; winPid = D[o4 + 1]; }
@@ -61,6 +66,7 @@
       else if (prim === 4) { q = (Math.abs(dx) + Math.abs(dy)) / Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6); len = mix(1, q, pa); dx *= len; dy *= len; }
       d2 = dx * dx + dy * dy;
       if (d2 > r * r * 2.25) continue;
+      if (dissolved(i)) continue;
       var dist = Math.sqrt(d2);
       var tt = clamp((dist - r) / (0.5 * r), 0, 0.995), pen = r * tt * tt / (1 - tt);
       var e = (r - dist - pen) / T;

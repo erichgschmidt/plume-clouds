@@ -43,8 +43,8 @@
     <p class="hint">Geometry is fixed sphere records fed straight to PuffRenderer (no ThermalSim, no children, no noise). Coordinates are final renderer units: x and y over the width, y down, positive z0 nearer.</p>
   </div>
 </div>
-<script src="src/puffs.js?v=lab6"></script>
-<script src="lab-ref.js?v=2"></script>
+<script src="src/puffs.js?v=lab7"></script>
+<script src="lab-ref.js?v=3"></script>
 <script>
 (function () {
   'use strict';
@@ -181,7 +181,7 @@
     gl.readBuffer(gl.COLOR_ATTACHMENT0); gl.readPixels(x0, y0, ww, hh, gl.RGBA, gl.FLOAT, hp);
     gl.readBuffer(gl.COLOR_ATTACHMENT3); gl.readPixels(x0, y0, ww, hh, gl.RGBA, gl.FLOAT, gp);
     gl.readBuffer(gl.COLOR_ATTACHMENT0); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    var P = { W: fw, H: fh, T: Math.max(0.002, REF * look.zoom * 0.08 * look.softness), cap: look.cap,  MAX_SPH: PuffRenderer.MAX_SPH };
+    var P = { W: fw, H: fh, T: Math.max(0.002, REF * look.zoom * 0.08 * look.softness), cap: look.cap, dissolve: look.dissolve || 0, dotSize: 1,  MAX_SPH: PuffRenderer.MAX_SPH };
     var eH = 0, eM = 0, eG = 0, bad = [], n = 0;
     for (var j = 0; j < hh; j++) for (var i = 0; i < ww; i++) {
       var o = (j * ww + i) * 4, ref = fieldRef(renderer._sphData, renderer.count, P, x0 + i, y0 + j);
