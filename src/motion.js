@@ -89,6 +89,7 @@
     this.parcels = [];
     this.base = [];               // the basal reservoir: dense, slow, soft parcels just above the base line
     this.waiting = 0;             // retired parcels queued for re-entry
+    this.lastCount = this.params.count | 0; this.catchUp = 0;   // the Parcels slider's last value, and what a change of it still owes
     this.cohort = null;           // parcels being released as one bubble
     this.cohorts = [];            // live cohorts: shared noise so a turret's parcels move together
     this.cohortSerial = 0;
@@ -198,7 +199,21 @@
       this.parcels.push(this._spawn(false, null));
       if (this.waiting > 0) this.waiting--;
     }
-    if (alive > want) { for (i = this.parcels.length - 1; i >= 0; i--) if (!this.parcels[i].dying) { this.parcels[i].dying = true; break; } }
+    // the Parcels slider reconciles promptly, both ways: when the count changes, the shortfall beyond what
+    // recycling explains (the waiting queue) is filled at about three per second per parcel short, and every
+    // parcel over the count starts dying now, not one per step (the fade itself stays a few seconds).
+    // Formation and recycling never take this path, so their pace is unchanged
+    if ((P.count | 0) !== this.lastCount) { this.lastCount = P.count | 0; this.catchUp = Math.max(0, want - alive - this.waiting); }
+    if (this.catchUp > 0) { var k = Math.min(this.catchUp, Math.ceil(this.catchUp * dt * 3)); this.catchUp -= k; while (k-- > 0 && this.parcels.length < MAX - 1) this.parcels.push(this._spawn(false, null)); }
+    if (alive > want) { var over = alive - want; for (i = this.parcels.length - 1; i >= 0 && over > 0; i--) if (!this.parcels[i].dying) { this.parcels[i].dying = true; over--; } }
+    // the reservoir follows Parcels and Base share live (the neck's three entries stay)
+    var nbWant = 3 + Math.round((P.count | 0) * (P.reservoir || 0) * 0.6);
+    while (this.base.length > nbWant && this.base.length > 3) this.base.pop();
+    while (this.base.length < nbWant) {
+      var rb = this.rng, ub = rb();
+      this.base.push({ x: (ub * 2 - 1) * 0.72 + (rb() - 0.5) * 0.1, lift: 0.12 + rb() * 0.3, phi: rb() * 6.283,
+        size: 1.6 + rb() * 0.4, seed: rb() * 100, nx: gauss(rb), roll: rb() * 6.283 });
+    }
     // leadership: the newest turret head takes over when the old leader has held 20..30 s or died
     if (this.leader && (this.time > this.leaderUntil || this.leader.dying)) this.leader = null;
     if (!this.leader) { for (i = this.parcels.length - 1; i >= 0; i--) if (this.parcels[i].lead && !this.parcels[i].dying) { this.leader = this.parcels[i]; this.leaderUntil = this.time + 20 + 10 * rng(); break; } }
