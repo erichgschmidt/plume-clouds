@@ -278,7 +278,7 @@
   'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
   'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow, uDissolve, uDotSize, uVeil;\n' +
   'uniform vec3 uSkyColor;\n' +
-  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach, uGrain, uDiag, uT;\n' +
+  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach, uCavityLit, uGrain, uDiag, uT;\n' +
   'uniform float uStipple, uStippleBias, uBreakup, uBreakupReach, uLock;\n' +
   'float bayer8(vec2 p){ vec2 q = mod(floor(p), 8.0); int x = int(q.x), y = int(q.y), v = 0; for(int b = 0; b < 3; b++){ v = v * 4 + ((x >> (2 - b)) & 1) * 2 + ((((x ^ y) >> (2 - b)) & 1)); } return float(v) / 64.0 - 0.5; }\n' +
   'uniform vec4 uCam;   // camera x, camera z, horizon (field y), cirrus altitude; w <= 0: no camera (the flat veil)\n' +
@@ -514,11 +514,15 @@
   '    cav = wsum > 0.0 ? pow(acc / wsum, 0.125) : 0.0;\n' +
   '  }\n' +
   '  float cavity = uCavity * cav;\n' +
+  '  // Cavity in light: how much of the cavity darkening reaches the direct light on a lit face (the ambient cut is the\n' +
+  '  // physical part, a valley sees less sky; the direct cut doubles up with Contact where the valley faces the sun).\n' +
+  '  // 1 as before; 0 leaves sunlit creases their light and cuts only where the face already turns from the sun\n' +
+  '  float cavD = cavity * mix(1.0 - smoothstep(-0.2, 0.5, lambert), 1.0, uCavityLit);\n' +
   '  float band = sB.y * bx.r;\n' +
   '  float stack = sA.z * f.b;\n' +
   '  float direct = 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - 0.7 * band) * (1.0 - 0.5 * stack);\n' +
   '  float ambient = (0.18 + uFill * bounce) * (1.0 - band) * (1.0 - 0.8 * stack);\n' +
-  '  direct *= (1.0 - contact) * (1.0 - 0.6 * cavity); ambient *= (1.0 - 0.5 * contact) * (1.0 - 0.7 * cavity);\n' +
+  '  direct *= (1.0 - contact) * (1.0 - 0.6 * cavD); ambient *= (1.0 - 0.5 * contact) * (1.0 - 0.7 * cavity);\n' +
   '  // shadow: faces turning away from the light lose ambient too (the old term scaled only the direct light,\n' +
   '  // which is already zero where the face turns away, so the slider did nothing)\n' +
   '  float sh = sB.x * (1.0 - 0.6 * far) * (1.0 - smoothstep(-0.25, 0.25, lambert));\n' +
@@ -555,7 +559,7 @@
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
     this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTileSize', 'uTiles', 'uAspect', 'uT', 'uCap', 'uDissolve', 'uDotSize', 'uEvapScale', 'uRef']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uGrain', 'uDiag', 'uT', 'uStipple', 'uStippleBias', 'uBreakup', 'uBreakupReach', 'uLock']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uCavityLit', 'uGrain', 'uDiag', 'uT', 'uStipple', 'uStippleBias', 'uBreakup', 'uBreakupReach', 'uLock']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 8);   // eight rows: the fifth is (puff id, parent id), the sixth to eighth the shape variation
     this._sphTex = gl.createTexture();
     // tile lists: a head texture (offset, count) per 16-texel tile, sized in resize, and a flat index list
@@ -915,7 +919,7 @@
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);
     gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);
     // (puffRim default 0.5: before rimV 2 the shader floored it by Rim soften, whose default is 0.5; see puffs.html)
-    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0.5), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0)); gl.uniform1f(su.uT, this._T);
+    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0.5), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uCavityLit, clamp(num(sky.cavityLit, 1), 0, 1)); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0)); gl.uniform1f(su.uT, this._T);
     gl.uniform1f(su.uStipple, clamp(num(sky.stipple, 0), 0, 1)); gl.uniform1f(su.uStippleBias, clamp(num(sky.stippleBias, 0), -1, 1)); gl.uniform1f(su.uBreakup, clamp(num(sky.breakup, 0), 0, 1)); gl.uniform1f(su.uBreakupReach, Math.max(1, num(sky.breakupReach, 6))); gl.uniform1f(su.uLock, sky.patternLock === 0 ? 0 : 1);
     var cam = sky.cam; gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
