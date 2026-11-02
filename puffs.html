@@ -19,6 +19,8 @@
   .btn.on { background: #4a7a94; }
   .seg { display: flex; gap: 4px; flex-wrap: wrap; }
   #hud { position: absolute; left: 10px; top: 10px; background: rgba(0,0,0,.45); padding: 6px 10px; border-radius: 4px; white-space: pre; }
+  #scrubBar { position: absolute; left: 10px; right: 10px; bottom: 10px; height: 30px; background: rgba(0,0,0,.45); padding: 0 10px; border-radius: 4px; }
+  #scrubBar #scrubT { width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
   p.hint { color: #8d9ca4; margin: 4px 0 8px; }
   details.grp { margin: 6px 0 2px; }
   details.grp > summary { cursor: pointer; list-style: none; margin: 4px 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #9fb0b8; user-select: none; }
@@ -30,7 +32,9 @@
 </head>
 <body>
 <div id="app">
-  <div id="stage"><canvas id="canvas"></canvas><div id="hud"></div></div>
+  <div id="stage"><canvas id="canvas"></canvas><div id="hud"></div>
+    <div id="scrubBar" class="row" title="Replays a fresh run of the current type, seed, forces and look to this time, in fixed steps: the same time always gives the same picture"><button class="btn" id="btnPlay2">Pause</button><label style="width:auto">Scrub</label><input id="scrub" type="range" min="0" max="120" step="0.5" value="0"><span id="scrubT">0s</span></div>
+  </div>
   <div id="panel">
     <div id="groupsTop"></div>
     <h3>Cloud type</h3>
@@ -38,7 +42,6 @@
     <div class="seg" id="looks" style="margin-top:4px"></div>
     <div class="row" style="margin-top:4px"><input id="lookName" placeholder="preset name" style="flex:1;min-width:0"><button class="btn" id="btnSave">Save</button><button class="btn" id="btnDel">Delete</button></div>
     <div class="row" style="margin-top:6px"><button class="btn" id="btnPlay">Pause</button><button class="btn" id="btnReset">Reset</button><label style="width:auto">Seed</label><input id="seed" type="number" value="1" style="width:56px"></div>
-    <div class="row" style="margin-top:4px" title="Replays a fresh run of the current type, seed, forces and look to this time, in fixed steps: the same time always gives the same picture"><label style="width:auto">Scrub</label><input id="scrub" type="range" min="0" max="120" step="0.5" value="0" style="flex:1"><span id="scrubT" style="width:34px;text-align:right">0s</span></div>
     <h3>Shape</h3>
     <div class="row"><label>Layout</label><select id="shapes" style="flex:1"></select></div>
     <div class="row"><label>Primitive</label><select id="prims" style="flex:1"></select></div>
@@ -234,7 +237,7 @@
     d.addEventListener('toggle', function () { try { var o = JSON.parse(localStorage.getItem('plume-puffs-groups') || '{}'); o.Forces = d.open; localStorage.setItem('plume-puffs-groups', JSON.stringify(o)); } catch (e) {} }); })();
   function refresh() { for (var k in sliders) sliders[k](); }
   var playing = true;
-  function setPlaying(v) { playing = v; $('btnPlay').textContent = playing ? 'Pause' : 'Play'; }
+  function setPlaying(v) { playing = v; $('btnPlay').textContent = $('btnPlay2').textContent = playing ? 'Pause' : 'Play'; }
 
   // cloud types (src/presets.js): engine + sim preset + layout + primitive + form
   function applyType(name) {
@@ -308,6 +311,7 @@
   $('shapes').addEventListener('change', function () { sim.setShape(this.value); refresh(); });
   $('prims').addEventListener('change', function () { look.prim = this.value; });
   $('btnPlay').addEventListener('click', function () { setPlaying(!playing); });
+  $('btnPlay2').addEventListener('click', function () { setPlaying(!playing); });
   // the scrub (for testing): a fresh sim of the current type, seed, forces and look, replayed from 0 to t in fixed steps with a
   // render per step, so the renderer's slow state (child births, wind drift, erosion, wisps) is played through as well; the
   // same t always gives the same picture. Pauses; Play continues from there
