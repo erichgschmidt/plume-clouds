@@ -58,7 +58,7 @@
 <script src="src/puffs.js?v=211"></script>
 <script src="src/motion.js?v=209"></script>
 <script src="src/layer.js?v=209"></script>
-<script src="src/presets.js?v=210"></script>
+<script src="src/presets.js?v=211"></script>
 <script>
 (function () {
   'use strict';
@@ -105,7 +105,7 @@
   var look = { children: 6, ratio: 0.62, levels: 3, life: 1, embed: 0.9, softness: 1.0, depth: 1, swayScale: 1, roll: 1,
     noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, noiseBias2: 0, flow: 0.04, smooth: 0.5, haze: 0.5, shear: 0, shearBias: 0, wind: 0, lean: 0, windSpeed: 0, gustSize: 1.5, topEmphasis: 0.5, erosion: 0, wispAmount: 0, wispLife: 8, streak: 0, prim: 'sphere', primAmt: 1, panX: 0, panY: 0, diag: 0, dither: 0, dissolve: 0, dotSize: 1, grain: 1, anchor: 1, zoom: 1,
     sun: 86, elevation: 6, shadow: 0.64, highlight: 0.68, fill: 0.11, bands: 5, depthFall: 0, atmos: 0, cirrus: 0, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, veil: 0, baseShade: 0.5, stackShade: 0.4, pixelated: true, pixel: 2, rim: 0.5, puffRim: 0.5, cap: 0, contact: 0, cavity: 0, cavityReach: 8, cavityLit: 1, baseFall: 0.7,
-    shapeVar: 0, stretchVar: 1, contourVar: 1, shapeSeed: 0, angular: 0, sides: 5, evapScale: 3, stipple: 0, stippleBias: 0, breakup: 0, breakupReach: 6, patternLock: 1 };
+    shapeVar: 0, stretchVar: 1, contourVar: 1, shapeSeed: 0, angular: 0, sides: 5, bulge: 0, evapScale: 3, stipple: 0, stippleBias: 0, breakup: 0, breakupReach: 6, patternLock: 1 };
   // rimV 2: Puff rim and Rim soften are independent (the shader used max(Puff rim, Rim soften) for the lobe rims). A look
   // from before (no rimV) keeps its appearance by puffRim = max(puffRim, rim); the page default puffRim is 0.5 for the same reason
   var RIM_V = 2;
@@ -116,12 +116,12 @@
 
   var LOOK0 = Object.freeze(Object.assign({}, look));   // the page defaults: every type and saved preset starts from these, never from the previous look
   var FORCES = CLOUD_FORCES.thermal;
-  var SURFACE = [['pixel', 'Pixel size', 1, 6, 1], ['rim', 'Rim soften', 0, 1, 0.01], ['cap', 'Cap', 0, 1, 0.01], ['puffRim', 'Puff rim', 0, 1, 0.01], ['shapeVar', 'Shape variation', 0, 1, 0.01], ['stretchVar', 'Stretch variation', 0, 1, 0.01], ['contourVar', 'Contour irregularity', 0, 1, 0.01], ['shapeSeed', 'Shape seed', 0, 99, 1], ['angular', 'Angular', 0, 1, 0.01], ['sides', 'Sides', 3, 8, 1], ['children', 'Children', 0, 6, 1], ['ratio', 'Size ratio', 0.25, 0.7, 0.01], ['levels', 'Levels', 1, 3, 1], ['life', 'Life', 0, 3, 0.01], ['embed', 'Embed', 0.4, 1, 0.01], ['softness', 'Softness', 0.3, 4, 0.01], ['depth', 'Depth', 0, 2, 0.01], ['swayScale', 'Sway depth', 0, 2, 0.01],
+  var SURFACE = [['pixel', 'Pixel size', 1, 6, 1], ['rim', 'Rim soften', 0, 1, 0.01], ['cap', 'Cap', 0, 1, 0.01], ['puffRim', 'Puff rim', 0, 1, 0.01], ['shapeVar', 'Shape variation', 0, 1, 0.01], ['stretchVar', 'Stretch variation', 0, 1, 0.01], ['contourVar', 'Contour irregularity', 0, 1, 0.01], ['shapeSeed', 'Shape seed', 0, 99, 1], ['angular', 'Angular', 0, 1, 0.01], ['sides', 'Sides', 3, 8, 1], ['bulge', 'Bulge only', 0, 1, 0.01], ['children', 'Children', 0, 6, 1], ['ratio', 'Size ratio', 0.25, 0.7, 0.01], ['levels', 'Levels', 1, 3, 1], ['life', 'Life', 0, 3, 0.01], ['embed', 'Embed', 0.4, 1, 0.01], ['softness', 'Softness', 0.3, 4, 0.01], ['depth', 'Depth', 0, 2, 0.01], ['swayScale', 'Sway depth', 0, 2, 0.01],
     ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias2', 'Noise 2 bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['streak', 'Streak', 0, 1, 0.01], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['shear', 'Shear', 0, 3, 0.05], ['shearBias', 'Shear bias', -1, 1, 0.01], ['wind', 'Wind (deg)', -90, 90, 1], ['lean', 'Lean', -1, 1, 0.01], ['windSpeed', 'Wind speed', 0, 1, 0.01], ['gustSize', 'Gust size', 0.5, 4, 0.1], ['topEmphasis', 'Top emphasis', 0, 1, 0.01], ['erosion', 'Erosion', 0, 1, 0.01], ['wispAmount', 'Wisp amount', 0, 1, 0.01], ['wispLife', 'Wisp persistence', 1, 20, 0.5], ['primAmt', 'Primitive amt', 0, 1, 0.01]];
   var VIEW = [['zoom', 'Scale', 0.5, 2.5, 0.05], ['panX', 'Pan X', -1, 1, 0.01], ['panY', 'Pan Y', -1, 1, 0.01], ['diag', 'Diag view', 0, 7, 1]];
   var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['shadow', 'Shadow', 0, 1, 0.01], ['contact', 'Contact', 0, 1, 0.01], ['cavity', 'Cavity', 0, 1, 0.01], ['cavityReach', 'Cavity reach', 2, 24, 1], ['cavityLit', 'Cavity in light', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['baseFall', 'Base falloff', 0.1, 1.5, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['dissolve', 'Evaporation', 0, 1, 0.01], ['evapScale', 'Evap. scale', 0.5, 8, 0.1], ['stipple', 'Stipple', 0, 1, 0.01], ['stippleBias', 'Stipple bias', -1, 1, 0.01], ['breakup', 'Edge breakup', 0, 1, 0.01], ['breakupReach', 'Breakup reach', 1, 24, 1], ['dotSize', 'Dot size', 1, 4, 1], ['patternLock', 'Pattern lock', 0, 1, 1], ['grain', 'Palette dither', 0, 2, 0.01], ['depthFall', 'Depth falloff', 0, 1, 0.01], ['cirrus', 'Cirrus', 0, 1, 0.01], ['cirrusScale', 'Cirrus scale', 0.5, 6, 0.1], ['cirrusAngle', 'Cirrus angle', -45, 45, 1], ['veil', 'Veil', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
   var TIPS = { rim: 'Silhouette rim: turns the normal toward the viewer near the exposed outline of the cloud, so the dome edge is not a dark ring. Shading only; independent of Puff rim.',
-    shapeVar: 'How far each puff departs from the primitive (0: the exact primitive). Each puff\'s own shape, from its identity and the shape seed; the strength scales it, never rearranges it.',
+    bulge: 'Where the contour irregularity goes: 0 both ways (bumps and dents, a potato), 1 outward only (a convex lobe with convex bumps, the same amplitude, so the puff is a little larger). Each puff keeps its own shape for life either way.', shapeVar: 'How far each puff departs from the primitive (0: the exact primitive). Each puff\'s own shape, from its identity and the shape seed; the strength scales it, never rearranges it.',
     stretchVar: 'The aspect part of the variation: how elliptical a puff may be (its orientation is its own). Area is kept.',
     contourVar: 'The contour part of the variation: a broad, gentle asymmetry of the outline (one- and three-lobed terms, bounded so nothing folds).',
     shapeSeed: 'Reseeds the shape variation of every puff without moving any puff (Reseed: pick another value).',
@@ -224,7 +224,7 @@
   }
   var VIEW_GROUP = ['View', ['pixel', 'zoom', 'panX', 'panY', 'diag']];
   var GROUPS = [
-    ['Shape', ['primAmt', 'cap', 'shapeVar', 'stretchVar', 'contourVar', 'shapeSeed', 'angular', 'sides']],
+    ['Shape', ['primAmt', 'cap', 'shapeVar', 'stretchVar', 'contourVar', 'shapeSeed', 'angular', 'sides', 'bulge']],
     ['Puffs', ['children', 'ratio', 'levels', 'life', 'embed', 'softness', 'depth', 'swayScale']],
     ['Wind', ['shear', 'shearBias', 'wind', 'lean', 'windSpeed', 'gustSize', 'topEmphasis', 'erosion', 'wispAmount', 'wispLife']],
     ['Noise', ['noise', 'noiseScale', 'noiseBias', 'noise2', 'noise2Scale', 'noiseBias2', 'flow', 'streak', 'anchor', 'smooth']],

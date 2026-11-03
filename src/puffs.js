@@ -674,7 +674,7 @@
       swayScale: num(look.swayScale, 1),
       // shape variation (amplitude, the aspect and contour parts, the seed): every puff\'s own warp, from its persistent
       // id and this seed alone (never the upload order or the sim\'s random sequence), so a puff keeps its shape for life
-      vary: { amp: clamp(num(look.shapeVar, 0), 0, 1), st: clamp(num(look.stretchVar, 1), 0, 1), ct: clamp(num(look.contourVar, 1), 0, 1), seed: num(look.shapeSeed, 0), ang: clamp(num(look.angular, 0), 0, 1), sides: clamp(Math.round(num(look.sides, 5)), 3, 8) },
+      vary: { amp: clamp(num(look.shapeVar, 0), 0, 1), st: clamp(num(look.stretchVar, 1), 0, 1), ct: clamp(num(look.contourVar, 1), 0, 1), seed: num(look.shapeSeed, 0), ang: clamp(num(look.angular, 0), 0, 1), sides: clamp(Math.round(num(look.sides, 5)), 3, 8), bulge: clamp(num(look.bulge, 0), 0, 1) },
       // band: crown (0) to base (1) in the cloud's own frame, after Scale and Pan
       baseT: baseY + num(look.panY, 0), spanT: Math.max(1e-3, (baseY - topY) * zoom), baseFall: Math.max(0.05, num(look.baseFall, 0.7)),
       dw: clamp(num(look.far, 1), 0, 1),   // depth weight: 1 near .. 0 far
@@ -689,13 +689,17 @@
     var LEVEL_DETAIL = [0.25, 0.6, 1.0];
     // the shape variation of one puff: rows 5 and 6 (see the field pass). The hashes are of the id and the seed only
     function vary(V, id) {
-      if (V.amp <= 0 && V.ang <= 0) return { c: 1, s: 0, a: 0, b: 1, A1: 0, B1: 0, A3: 0, B3: 0, ang: 0, n: 5 };
+      if (V.amp <= 0 && V.ang <= 0) return { c: 1, s: 0, a: 0, b: 1, A1: 0, B1: 0, A3: 0, B3: 0, ang: 0, n: 5, rs: 1 };
       var k = id * 0.7311 + V.seed * 131.71, th = hash(k + 1.1) * Math.PI;
       var a = 0.35 * V.amp * V.st * (2 * hash(k + 2.2) - 1);
       var c1 = 0.2 * V.amp * V.ct * hash(k + 3.3), p1 = hash(k + 4.4) * 6.2832, c3 = 0.1 * V.amp * V.ct * hash(k + 5.5), p3 = hash(k + 6.6) * 6.2832;
+      // bulge (Bulge only): the contour h = f - 1 swings both ways by up to c1 + c3, so a lobe dents as often as it bulges (a potato);
+      // remapped outward-only it is 1 + (h + hmax) / 2, the same amplitude: a radius scaled by rs = 1 + hmax / 2 with the harmonics
+      // halved (over rs). Mixed by the amount, so 0 is the two-way warp to the bit; the shader and the reference see only coefficients
+      var hm = c1 + c3, rs = 1 + 0.5 * V.bulge * hm, hk = (1 - 0.5 * V.bulge) / rs; c1 *= hk; c3 *= hk;
       // the angular factor never grows the footprint (the polygon is inscribed), but a bound of exactly 1 is the shader's
       // 'no warp' mark, so it is nudged past 1 when the angle is on
-      return { c: Math.cos(th), s: Math.sin(th), a: a, b: (1 + Math.abs(a)) * (1 + c1 + c3) + (V.ang > 0 ? 1e-4 : 0), A1: c1 * Math.cos(p1), B1: c1 * Math.sin(p1), A3: c3 * Math.cos(p3), B3: c3 * Math.sin(p3), ang: V.ang, n: V.sides };
+      return { c: Math.cos(th), s: Math.sin(th), a: a, b: (1 + Math.abs(a)) * (1 + c1 + c3) + (V.ang > 0 ? 1e-4 : 0), A1: c1 * Math.cos(p1), B1: c1 * Math.sin(p1), A3: c3 * Math.cos(p3), B3: c3 * Math.sin(p3), ang: V.ang, n: V.sides, rs: rs };
     }
     // the inverse warp: a point of the unit space (a child's seat on the shell) back to the field offset
     function varyOut(v, x, y) {
@@ -808,7 +812,7 @@
             if (nw < F.wisps) wisps.set(id, { c: c, x: rx + F.wx * r * 0.8, y: ry + F.wy * r * 0.8, r: r * 0.6, v: vs * ex * ua, age: 0, life: F.wispLife * (0.7 + 0.6 * hash(id + 9.9)), z: z0, dw: dwp, band: band, pid: pid, id: id + 0.5 + 1000 * hash(id * 0.53 + 3.3) });
           }
         }
-        var vv = vary(F.vary, id);
+        var vv = vary(F.vary, id); r *= vv.rs;   // (bulge: the outward-only contour rides on a larger radius)
         if (!put(rx, ry, r, z0, stack0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp, id, pid, vv, wer)) break;
         queue.push({ id: id, v: vv, F: F, x: rx, y: ry, r: r, z: z0, zr: zr, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: stack0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band, zp: F.cam ? zp : 0, wer: wer });
       }
@@ -819,7 +823,7 @@
         var vw = Math.max(F.windSpeed, 0.25) * 0.4, uv = smoothstep(0, 0.3, u), v = w.v + (vw - w.v) * uv;   // from the lobe's pace up to the wind's
         w.x += F.wx * v * F.ref * dtW; w.y += F.wy * v * F.ref * dtW;
         var env = smoothstep(0, 0.15, u) * (1 - smoothstep(0.45, 1, u)), ws = 1.5 + 2.5 * u, wwear = 0.8 + 2.2 * u;   // swells in, stretches and frays out
-        put(w.x, w.y, w.r * env, w.z, 0, 0.3, 0, 1, ws, w.x, w.y, F.primPacked, F.wx, F.wy, w.band, w.dw, w.id, w.pid, vary(F.vary, w.id), wwear);
+        var wv = vary(F.vary, w.id); put(w.x, w.y, w.r * env * wv.rs, w.z, 0, 0.3, 0, 1, ws, w.x, w.y, F.primPacked, F.wx, F.wy, w.band, w.dw, w.id, w.pid, wv, wwear);
       });
       W.drift = driftNow; W.wear = wearNow;   // entries of parcels gone are dropped
     }
@@ -905,7 +909,7 @@
           var pdw2 = clamp(0.5 + 0.5 * zr2 / (F.ref * 2), 0, 1) * F.dw, dwp2 = F.idx + pdw2 * 0.25;
           // the child's id: from its seed, scattered by a hash so that cousins never share one (seeds are linear in j, and a
           // grandchild of child 0 had the id of another of child 1); persistent for the child's life, so its shape is too
-          var cid = cs + j * 3.1 + 1.7 + 1000 * hash(cs * 0.37 + j * 5.9), cv = vary(F.vary, cid);
+          var cid = cs + j * 3.1 + 1.7 + 1000 * hash(cs * 0.37 + j * 5.9), cv = vary(F.vary, cid); cr *= cv.rs;
           put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id, cv, q.wer);
           next.push({ id: cid, v: cv, F: F, x: x, y: y, r: cr, z: z, zr: zr2, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2, zp: q.zp, wer: q.wer });
         }
