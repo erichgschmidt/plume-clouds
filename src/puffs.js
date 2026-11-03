@@ -25,6 +25,7 @@
   var PRIMS = ['sphere', 'disc', 'drop', 'box', 'diamond'];
 
   function hash(x) { var s = Math.sin(x * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); }
+  function mix(a, b, t) { return a + (b - a) * t; }
   function vnoise2(x, y) {   // value noise on the unit lattice, smooth, 0..1 (the wind's gust pattern)
     var ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
     var a = hash(ix + iy * 57.17), b = hash(ix + 1 + iy * 57.17), c = hash(ix + (iy + 1) * 57.17), d = hash(ix + 1 + (iy + 1) * 57.17);
@@ -716,6 +717,7 @@
       capN: Math.max(0, num(look.puffCap, 0) | 0),   // puffCap: this cloud's own puff budget, thinned like the scene's (0: none)
       life: Math.max(0, num(look.life, 1)) * num(look.motion, 1), embed: clamp(num(look.embed, 0.78), 0.3, 1),
       relief1: clamp(num(look.relief1, 1), 0, 1), relief2: clamp(num(look.relief2, 1), 0, 1),   // lobe relief by generation: the height amplitude of first and second children (not their size or seat)
+      cluster: clamp(num(look.cluster, 0), 0, 1),   // lobe grouping: a parent's children in two or three seeded clusters (0: independent seats)
       depthScale: num(look.depth, 1), roll: num(look.roll, 1),
       // step 4 (docs/core-audit.md): Depth scales the heights only (order and relief are one thing in a height
       // union); the sway of child puffs has its own scale, and a puff's depth weight (its fade) comes from its
@@ -958,7 +960,16 @@
           var jit = hash(cs + j * 31.7) - 0.5;
           var zz = (1 - 2 * (j + 0.5 + jit * 0.55) / F.children) * 0.9;
           var azm = hash(cs + 1.3 + j * 13.9) * 6.2832;
-          var sr = Math.sqrt(Math.max(1 - zz * zz, 0));
+          // lobe grouping (Cluster): the parent's children dealt into two or three clusters, seeded from the parent's persistent id
+          // (so the arrangement lasts the parent's life), spaced evenly over the upper shell with quiet arcs between; each child
+          // is pulled toward its cluster's seat (and below, its size and shape toward the cluster's) by the amount. 0: as before
+          var kC = F.cluster, nC = hash(q.id + 0.71) < 0.5 ? 2 : 3, cj = j % nC;
+          if (kC > 0) {
+            var wC = Math.PI / nC, aC = Math.PI + (cj + 0.5 + 0.3 * (hash(q.id + 2.3 + cj * 7.7) - 0.5)) * wC, zC = 1.2 * (hash(q.id + 3.1 + cj * 5.3) - 0.5);
+            var dA = aC + 0.6 * wC * (hash(cs + 8.1 + j * 3.7) - 0.5) - azm; dA -= 6.2832 * Math.round(dA / 6.2832);
+            azm += kC * dA; zz = mix(zz, clamp(zC + 0.3 * (hash(cs + 9.2 + j * 2.9) - 0.5), -0.9, 0.9), kC);
+          }
+          var sr =Math.sqrt(Math.max(1 - zz * zz, 0));
           var vx = sr * Math.cos(azm), vy = sr * Math.sin(azm), vz = zz;
           if (vy > 0) { vx = -vx; vy = -vy; }   // born on the upper shell (world y is down)
           // carried round by the parent's roll since birth (born on top, whatever the parent's angle then)
@@ -971,7 +982,8 @@
           // shape change while the child is at zero size), eased in to 24% and out from 76% with zero velocity at both ends.
           // The old sin^0.6 had infinite slope at birth and death: a child was an eighth of its size 1% into its life
           var env = smoothstep(0.04, 0.24, ph) * (1 - smoothstep(0.76, 0.96, ph));
-          var cr = q.r * F.ratio * (0.8 + 0.4 * hash(cs + 5.1 + j * 23.0)) * env * cf;
+          var szH = hash(cs + 5.1 + j * 23.0); if (kC > 0) szH = mix(szH, 0.75 * hash(q.id + 4.4 + cj * 3.9) + 0.25 * szH, kC);   // neighbours in a cluster are of a size
+          var cr = q.r * F.ratio * (0.8 + 0.4 * szH) * env * cf;
           if (cr <= 1e-4) continue;
           var shell = q.r * F.embed * (0.7 + 0.3 * env);
           // the child sits on the parent's shell, which follows the primitive and the shear
@@ -996,6 +1008,11 @@
           // the child's id: from its seed, scattered by a hash so that cousins never share one (seeds are linear in j, and a
           // grandchild of child 0 had the id of another of child 1); persistent for the child's life, so its shape is too
           var ce = qget(), cid = cs + j * 3.1 + 1.7 + 1000 * hash(cs * 0.37 + j * 5.9), cv = vary(F.vary, cid, ce.v); cr *= cv.rs;
+          if (kC > 0 && cv.b !== 1) {   // ... and of a stretch and direction: the orientation and the aspect pulled toward the cluster's (the bound follows the aspect)
+            var thC = hash(q.id + 6.6 + cj * 4.1) * 6.2832, th0 = Math.atan2(cv.s, cv.c), dT = thC - th0; dT -= 6.2832 * Math.round(dT / 6.2832);
+            var th1 = th0 + kC * dT, aN = mix(cv.a, 0.35 * F.vary.amp * F.vary.st * (2 * hash(q.id + 7.7 + cj * 2.3) - 1), kC), nud = cv.ang > 0 ? 1e-4 : 0;
+            cv.b = (cv.b - nud) / (1 + Math.abs(cv.a)) * (1 + Math.abs(aN)) + nud; cv.a = aN; cv.c = Math.cos(th1); cv.s = Math.sin(th1);
+          }
           putC = F.c;
           put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id, cv, q.wer, level === 0 ? F.relief1 : F.relief2, level === 0 ? 1 : 0.5);
           ce.id = cid; ce.F = F; ce.x = x; ce.y = y; ce.r = cr; ce.z = z; ce.zr = zr2; ce.seed = cs + j * 3.1; ce.ax = q.ax; ce.ay = q.ay; ce.az = q.az; ce.angle = q.angle; ce.fresh = q.fresh; ce.mixed = q.mixed; ce.stack = stack; ce.dis = q.dis; ce.st = q.st; ce.anx = q.anx; ce.any = q.any; ce.band = band2; ce.zp = q.zp; ce.wer = q.wer;
