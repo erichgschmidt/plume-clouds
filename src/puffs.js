@@ -373,6 +373,8 @@
   '  float n2 = snoise(w0 * uNoise2Scale + vec2(-t * 0.6, t * 0.8) + 11.0) + 0.5 * snoise(w0 * uNoise2Scale * 2.1 + vec2(t * 0.3, -t * 0.5) + 23.0);\n' +
   '  return uRef * 0.5 * texture(uField, uv0).g * namp * (uNoise * n1 * bias + uNoise2 * n2 * bias2);\n' +
   '}\n' +
+  '// Missing samples have no coverage; texelFetch outside the target is not a valid blocker.\n' +
+  'vec4 shadowField(ivec2 p){ ivec2 sz = textureSize(uField, 0); if(any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, sz))) return vec4(0.0); return texelFetch(uField, p, 0); }\n' +
   '// the normal. The surface slope is the field union\'s own gradient, analytic, stored by the field pass: no\n' +
   '// height is differenced across an occlusion step any more, so there is no step test, no footprint shrink and\n' +
   '// no fallback that could face a strip toward the viewer. A far footprint (Depth falloff) averages the\n' +
@@ -486,22 +488,31 @@
   '    vec2 lxy = vec2(Lv.x, -Lv.y); float ll = length(lxy);   // toward the light in uv (world y is down, uv y is up)\n' +
   '    if(ll > 1e-3){\n' +
   '      vec2 ld = lxy / ll; float slope = Lv.z / ll, stepW = uTexel.x * 1.5;\n' +
-  '      // the receiver too is read per texel and weighted by its coverage confidence below, so a skirt pixel on the outline\n' +
-  '      // (its height a mix) is not shaded by the confident puff just inside it\n' +
-  '      ivec2 c0 = ivec2(uv / uTexel); vec4 f0 = texelFetch(uField, c0, 0); float h0 = f0.r, tol = uTexel.x * 0.25;\n' +
+  '      // Read the receiver per texel too. Coverage confidence fades the shadow on partially covered pixels.\n' +
+  '      ivec2 c0 = ivec2(uv / uTexel); vec4 f0 = shadowField(c0); float h0 = f0.r, tol = uTexel.x * 0.25, hp = h0; ivec2 ckp = c0;\n' +
+  '      vec2 grad = texelFetch(uAux3, c0, 0).xy;   // geometric slope, before noise, smoothing or rim lift\n' +
   '      for(int k = 1; k <= 8; k++){\n' +
   '        float dW = stepW * float(k);\n' +
   '        // the blocker\'s height read per texel, unfiltered (a filtered read at a silhouette mixed the background\'s\n' +
   '        // height in), and weighted by its coverage confidence (the alpha past the mask ramp) instead of a threshold,\n' +
   '        // so a step fades in across the outline instead of switching on. Any puff may be the blocker\n' +
-  '        ivec2 ck = ivec2((uv + vec2(ld.x, ld.y / uAspect) * dW) / uTexel); vec4 fk = texelFetch(uField, ck, 0);\n' +
+  '        ivec2 ck = ivec2(floor((uv + vec2(ld.x, ld.y / uAspect) * dW) / uTexel)); vec4 fk = shadowField(ck);\n' +
   '        // the slope over the snapped texel\'s real distance (the nominal one was off by up to half a texel, enough for a flat\n' +
   '        // face to shade itself), with a quarter texel of rise allowed before anything counts as shadow\n' +
-  '        vec2 dv = vec2(ck - c0) * uTexel; dv.y *= uAspect; float dk = max(length(dv), uTexel.x * 0.5);\n' +
+  '        vec2 dv = vec2(ck - c0) * uTexel; dv.y *= uAspect; float dk = max(dot(dv, ld), uTexel.x * 0.5);\n' +
+  '        // A convex dome already shades itself through its normal. Contact needs a blocker above BOTH\n' +
+  '        // the light ray and the receiver tangent; otherwise the dome adds a second dark rim to itself.\n' +
+  '        float tangent = dot(grad, vec2(dv.x, -dv.y));\n' +
+  '        // an occluding step (a jump over ten times the step, the test the normal smoothing uses) is a depth edge, not a\n' +
+  '        // wall to shade from: a front puff\'s rim stands on the surface behind it by its depth offset, and the sliver of\n' +
+  '        // that surface before the silhouette was shaded by it as a line along every outline. The march stops there\n' +
+  '        // (judged sample to sample over the distance between the snapped texels, at slope six: a narrow trench\n' +
+  '        // or a wall is a jump of ten or more texels of height per texel, a merged crease stays under three)\n' +
+  '        float dsk = length(vec2(ck - ckp)) * uTexel.x; if(abs(fk.r - hp) > 6.0 * max(dsk, uTexel.x * 0.5)) break; hp = fk.r; ckp = ck;\n' +
   '        float conf = smoothstep(0.5, 1.0, fk.a);\n' +
   '        // penumbra: a blocker close by casts a full shadow, one at the end of the march a faint one, so the\n' +
   '        // shadow falls off away from the occluding puff instead of being one flat band\n' +
-  '        occ = max(occ, conf * smoothstep(0.0, 1.5, (fk.r - h0 - tol) / dk - slope) * (1.0 - 0.85 * float(k - 1) / 7.0));\n' +
+  '        occ = max(occ, conf * smoothstep(0.0, 1.5, (fk.r - h0 - max(slope * dk, tangent) - tol) / dk) * (1.0 - 0.85 * float(k - 1) / 7.0));\n' +
   '      }\n' +
   '    }\n' +
   '  }\n' +
@@ -510,26 +521,28 @@
   '  // its cancelling slopes face the viewer and would catch full light, so less reaches it\n' +
   '  float cav = 0.0;\n' +
   '  if(uCavity > 0.0){\n' +
-  '    // four rings out to Reach texels, four opposite pairs each (eight directions); a pair asks how far the surface\n' +
-  '    // sits below the lower of its two samples (so a rim, higher on its inward side only, is never a valley), as a\n' +
-  '    // slope over the ring radius. Heights are read per texel, unfiltered, and every pair is weighted by the coverage\n' +
-  '    // confidence of both samples (the alpha past the mask ramp) and by a Gaussian in the radius, then combined as\n' +
-  '    // a power mean of order eight (near the strongest pair, but smooth): nothing switches on at a threshold or a ring. Three rings\n' +
-  '    // with a hard coverage test, filtered reads and the strongest direction left repeated bands along a silhouette\n' +
-  '    // normalised by the full weight (every pair fully supported), not the weight present: a pair with a lost sample then\n' +
-  '    // lowers the result as its confidence goes (divided by the weight present, a lone faint pair counted in full and dropped out at zero)\n' +
-  '    float reach = uCavityReach, wsum = 0.0, acc = 0.0; ivec2 c0 = ivec2(uv / uTexel); float h0 = texelFetch(uField, c0, 0).r;\n' +
-  '    for(int ring = 1; ring <= 4; ring++){\n' +
-  '      float cs = reach * float(ring) / 4.0, wr = exp(-2.0 * float(ring * ring) / 16.0);\n' +
-  '      for(int k = 0; k < 4; k++){\n' +
-  '        float an = float(k) * 0.7853982; vec2 o = vec2(cos(an), sin(an)) * cs;\n' +
-  '        ivec2 oa = ivec2(round(o)); vec4 fa = texelFetch(uField, c0 + oa, 0), fb = texelFetch(uField, c0 - oa, 0);\n' +
-  '        float w = wr * smoothstep(0.5, 1.0, fa.a) * smoothstep(0.5, 1.0, fb.a);\n' +
-  '        float cv = smoothstep(0.0, 1.0, (min(fa.r, fb.r) - h0) / (uTexel.x * cs * 1.5));\n' +
-  '        float c4 = cv * cv * cv * cv; acc += w * c4 * c4; wsum += wr;\n' +
+  '    // Opposite samples must rise above the receiver tangent, not merely above its height. A tilted\n' +
+  '    // back surface beside a foreground step otherwise looks like a valley and acquires an outline.\n' +
+  '    // RMS over the full support retains broad valleys without the old eighth-root amplification of\n' +
+  '    // isolated pairs. Confidence multiplies the response BEFORE squaring, so faint support stays faint.\n' +
+  '    float reach = uCavityReach, wsum = 0.0, acc = 0.0; ivec2 c0 = ivec2(uv / uTexel); vec4 f0 = shadowField(c0); float h0 = f0.r;\n' +
+  '    vec2 grad = texelFetch(uAux3, c0, 0).xy;\n' +
+  '    // each direction walks its rings outward; a step between consecutive samples (slope six, as in the contact march: the\n' +
+  '    // depth wall at a front puff\'s rim, or a trench) ends that side\'s pairs, so a surface beyond a step is never a valley wall\n' +
+  '    for(int k = 0; k < 4; k++){\n' +
+  '      float an = float(k) * 0.7853982; vec2 dir = vec2(cos(an), sin(an)); float hpa = h0, hpb = h0; ivec2 op = ivec2(0); bool oka = true, okb = true;\n' +
+  '      for(int ring = 1; ring <= 4; ring++){\n' +
+  '        float cs = reach * float(ring) / 4.0, wr = exp(-2.0 * float(ring * ring) / 16.0);\n' +
+  '        ivec2 oa = ivec2(round(dir * cs)); vec4 fa = shadowField(c0 + oa), fb = shadowField(c0 - oa);\n' +
+  '        float dss = max(length(vec2(oa - op)), 0.5) * uTexel.x; op = oa;\n' +
+  '        if(abs(fa.r - hpa) > 6.0 * dss) oka = false; if(abs(fb.r - hpb) > 6.0 * dss) okb = false; hpa = fa.r; hpb = fb.r;\n' +
+  '        vec2 dv = vec2(oa) * uTexel; dv.y *= -uAspect; float dk = max(length(dv), uTexel.x * 0.5), tangent = dot(grad, dv);\n' +
+  '        float conf = (oka && okb) ? smoothstep(0.5, 1.0, fa.a) * smoothstep(0.5, 1.0, fb.a) : 0.0;\n' +
+  '        float cv = conf * smoothstep(0.0, 1.0, (min(fa.r - tangent, fb.r + tangent) - h0 - uTexel.x * 0.25) / (dk * 1.5));\n' +
+  '        acc += wr * cv * cv; wsum += wr;\n' +
   '      }\n' +
   '    }\n' +
-  '    cav = pow(acc / wsum, 0.125);\n' +
+  '    cav = sqrt(acc / wsum) * smoothstep(0.5, 1.0, f0.a);\n' +
   '  }\n' +
   '  float cavity = uCavity * cav;\n' +
   '  // Cavity in light: how much of the cavity darkening reaches the direct light on a lit face (the ambient cut is the\n' +

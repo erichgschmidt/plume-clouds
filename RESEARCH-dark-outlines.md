@@ -1,0 +1,64 @@
+# Research brief: dark outlines from Contact and Cavity
+
+## What we are solving
+
+Plume Clouds draws pixel-art clouds from an analytic union of puffs (a height field) in a WebGL2 field pass, then lights it in a shade pass. Two optional shade-pass effects, **Contact** (a shadow cast by a puff onto the puff behind it, marched toward the light) and **Cavity** (less light in a valley between puffs), draw **thin dark lines** along puff outlines when turned up: along the crown silhouette and along the creases where one lobe overlaps another. They should instead give a soft shadow continuing a dome's dark side into the puff behind it (Contact) and a darker valley floor (Cavity), with no line that follows an outline. A single convex puff must not acquire an outline at any slider setting.
+
+The goal: find the mechanism that still draws a line, fix it without losing legitimate shadows, and give a test that proves it.
+
+## Where things are
+
+- Repo: `erichgschmidt/plume-clouds`, branch master, head 6e8282d. Classic scripts, no build. Local server: `python -m http.server 8765 --bind 127.0.0.1`; pages `puffs.html` (editor), `sky.html`, `lab.html` (reference checks). Cache-bust with `?r=N` on the page and `?v=N` on script tags.
+- Renderer: `src/puffs.js`. Field pass fragment shader `FIELD_FS` (height, mask, gradient, puff rim weight written to three RGBA16F targets); shade pass `SHADE_FS` (normal, rim lift, Contact march, Cavity rings, lighting, palette).
+- Field targets (see the comment near the top of `src/puffs.js`): `uField` = (height, detail, stack, alpha), where alpha = mask ramp 0..1 plus ten times the distance inside the silhouette past the ramp, so `alpha < 0.5` is outside and `smoothstep(0.5, 1.0, alpha)` is a coverage confidence. `uAux3` = (gradient.xy, distance to the exposed silhouette, owner group id).
+- Shade pass, in order: `normalAt` (stored gradient, bilateral smoothing, noise displacement), `edge` weight from the silhouette distance, rim lift `n = mix(n, +z, max(uRim * edge, uPuffRim * bx.a))`, Contact march, Cavity rings, `direct *= (1 - contact) * (1 - 0.6 * cavD)`, `ambient *= (1 - 0.5 * contact) * (1 - 0.7 * cavity)`, shadow term, palette bands, then `soft = smoothstep(0.5, 0.5 + 0.45 * haze, f.a)` mixing sky into hazy edges.
+- Diagnostic views: set `look.diag` in the editor console (`window.look`): 1 grey lighting of the final normal, 2 height, 3 normal as RGB, 4 coverage mask, 5 normal-footprint neighbour acceptance, 6 owner group, 7 the light before the palette (contact, cavity, shadow, bands in).
+- Editor tools: a scrub bar replays a fresh deterministic run to a time (`document.getElementById('scrub').value = 30` then dispatch `change`); the same time always gives the same picture, so measurements are repeatable. Keys renders five thumbnails across the range. Sliders live on `window.look` (contact, cavity, cavityReach, cavityLit, rim, puffRim, haze, pixel) and apply on the next frame.
+- Reading pixels: after a synchronous replay the GL canvas can be copied with `ctx.drawImage(canvas, 0, 0)` into a 2D canvas in the same task, then `getImageData`. Do not return large objects from the console tool.
+- Lab: `lab.html`, buttons `btnCheck` (GPU field against a CPU reference, `window.labCheck.visible` should be 0) and `btnRules` (`window.labRules`, 48 rules, all `ok`). The lab mirrors the field pass only, not the shade pass, so Contact and Cavity changes have no numeric gate yet.
+
+## What we tried, and what happened
+
+1. **Contact, first revision.** Blocker height read per texel with `texelFetch` instead of a filtered read (a filtered read at a silhouette mixed the background height in), and the blocker weighted by its coverage confidence `smoothstep(0.5, 1.0, alpha)` instead of a hard threshold. Lines reduced but persisted.
+2. **Contact, second revision (1333b5d).** The receiving pixel's own confidence now multiplies the shadow (`contact = uContact * occ * smoothstep(0.5, 1.0, alpha0)`), the slope is taken over the snapped texel's real distance instead of the nominal march distance (the nominal one was off by up to half a texel on the first step), and a quarter texel of rise is allowed before anything counts as shadow. Lines still reported by the user.
+3. **Cavity, first revision.** Four rings out to `cavityReach` texels, four opposite pairs each; a pair measures how far the surface sits below the lower of its two samples; heights unfiltered; each pair weighted by both samples' confidence and a Gaussian in ring radius; combined as a power mean of order eight. Replaced an earlier three-ring version with a hard coverage test that left repeated bands along a silhouette.
+4. **Cavity, second revision (1333b5d).** The power mean is normalised by the full possible weight instead of the weight present, because dividing by the weight present cancelled the confidence: a lone faint pair at the outline counted in full and then dropped to zero. Interior pixels are numerically identical to before. Lines still reported.
+5. **Measurements at 6e8282d, editor, congestus seed 1, scrub 30 s, pixel 2, canvas 741 wide.**
+   - Along the crown's right silhouette (rows 12 to 40 percent of the height, the rightmost cloud pixel per row), the mean edge luminance is 201 with Contact and Cavity at 0 and 198 with both at 0.6; the darkest edge pixel is 120 in both. So on that silhouette the two effects change almost nothing.
+   - Diagnostic 7 (the light) along that same silhouette is flat, 203 for the eight pixels inward, with Rim soften at 0 and at 0.5. At Rim soften 1 the two outermost pixels drop to 187. The rim lift is not producing a dark line there either.
+   - Over all outline pixels in the top 45 percent of the canvas (cloud pixels with a sky 4-neighbour), the darkest 5 percent have luminance about 110 in the final image, and diagnostic 7 reads about 32 at those same pixels. So those dark outline pixels are dark in the light stage, before the palette, not from the haze soft-edge mix. Setting haze to 0 made the darkest outline pixels darker still (83), not brighter. The sample dark pixels sat around x 368, y 179, which is the underside of an upper lobe, not the crown top.
+   - A plain rim darkening also exists with both sliders at 0 (the darkest edge pixel is 120 regardless), so part of what reads as an outline predates Contact and Cavity. The user still sees Contact and Cavity add lines.
+
+## Finding (added after the measurements above): the line sits on a depth wall
+
+Read directly from the field texture with `gl.readPixels` (RGBA float) on congestus seed 1 at scrub 30 s, field 370 by 272 texels, along rows crossing the crown's right silhouette, going inward from the rightmost drawn texel (heights in texels):
+
+| row | heights inward | alpha | contact drop | cavity drop |
+|---|---|---|---|---|
+| 79 | 60.4, 57.3, 49.3, 41.5, **71.5**, 74.7, 76.8 | 0.73, 0.98, 1.01, 1.02, 1.03 | 0, 0, 0, 0, 129 | 0, 0, 0, 86, 100 |
+| 82 | 48.4, 25.5, 7.5, 8.0, 8.6, **73.1**, 75.9 | 0.87, 1.01, 1.03, 1.05, 1.07 | 0, 0, 0, 173, 186 | 0, 33, 101, 101, 105 |
+
+So, from the outline inward: a short strip that rises toward the outline, then a flat ledge, then a jump of 60 to 65 texels of height in one texel onto the front puff's dome. The jump is the front puff's depth offset (`s.w` in the field pass, its z), which the height field encodes as a near-vertical wall at the puff's rim. The strip beyond the wall is a sliver of the puff behind, visible before the silhouette. Over 105 of 195 rows crossing the cloud the right silhouette shows this structure, and both effects fire exactly on the ledge texels: Contact because the wall is a steep rise toward the light, Cavity because the ledge is below both the wall and the rising strip. By their definitions that is a shadow and a valley; visually it is a one-to-two texel line hugging every outline where a front puff overlaps one behind. A single sphere (type "single") has no such structure: its profile rises monotonically inward, so a lone convex puff was never the case that draws the line.
+
+The tangent-plane test (comparing against the receiver's own slope) does not remove this case: on the flat ledge the tangent is flat and the wall is still far above it.
+
+The codebase already has a rule for exactly this geometry in the normal smoothing: a height difference greater than ten times the distance (`abs(fq.r - f0.r) > 10.0 * dd`) is an occluding step, and the field pass comment calls the clamp ramp at a footprint edge "an occluding edge, not a wall to light". The proposed fix is to apply that rule to both effects: the Contact march stops when a step between consecutive samples exceeds ten times the step width (`if(abs(fk.r - hp) > 10.0 * stepW) break; hp = fk.r;` with `hp` starting at `h0`), and a Cavity pair whose sample differs from `h0` by more than ten times the ring radius gets weight zero. Legitimate creases between merged lobes are blended by the field pass over the width T (about 2.4 texels), so their slopes stay well under ten and keep their shading. This was not applied yet because another edit of `SHADE_FS` was in progress in the working tree at the time.
+
+## Resolution
+
+Two edits landed together. The second agent's: a bounds-checked field read, Contact requiring a blocker above both the light ray and the receiver's tangent plane, Cavity measured against the tangent plane with an RMS aggregation, and a regression page at `tools/shadow-test.html` (78 GPU comparisons: single puff, overlap, valley). On top of that, the step rule from the Finding, judged sample to sample: the Contact march stops at a jump of more than six times the distance between consecutive snapped samples, and each Cavity direction walks its rings outward and drops its pairs once such a jump occurs. On congestus seed 1 at 30 s, rows crossing the cloud whose right outline carried a Contact line went 105 (before either edit) to 72 (second agent's edit) to 36 (both); Cavity lines 105 to 83 to 31. A JavaScript replica of the march, run against the field texture read back with `readPixels`, reproduces every texel the GPU darkens (the viewport is placed at whole pixels, so a buffer pixel maps to texel `floor((X + 0.5) / pixel)`, not `X / width`). The remaining darkened texels near the outline are all along the cloud's base, where the surface rises continuously toward the light at slopes of four to six: the underside in its own shadow, not a depth wall. The regression page and the lab gates pass with both edits.
+
+## What is not yet known
+
+- Exactly which pixels Contact and Cavity darken when the user sees the lines: silhouette pixels, or the crease pixels inside the cloud where one lobe overlaps another (where `bx.a`, the puff rim weight, is high). The crown-silhouette measurement says silhouette pixels are not it on that preset, so the lobe creases are the likelier place. A per-pixel difference image (both sliders at 1 minus both at 0, in diagnostic 7) would settle it.
+- For Contact: whether the march steps up onto the occluding puff's own skirt or clamped ramp (the field pass clamps a neighbour's skirt inside a footprint over a width T, and leaves that ramp without a slope) and reads the ramp as a steep rise, which would shade a one-T-wide line along every overlap.
+- For Cavity: whether the "surface below the lower of its two samples" test fires along an overlap because the far sample lands on the higher front puff while the near sample lands on the lower back puff, which is a step, not a valley. A valley test may need both samples on the same owner group (`uAux3.w`) or the step rejected the way the normal smoothing rejects it (`abs(fq.r - f0.r) > 10 * distance`).
+- Whether `cavityLit` (how much cavity darkening reaches the direct light) is at 1 in the user's look, which doubles the effect where the valley faces the sun.
+
+## What a solution should satisfy
+
+- A single convex puff shows no outline at Contact 1 and Cavity 1.
+- Two overlapping puffs: Contact shades only the back puff, only on the side away from the light, fading with distance from the front puff's rim; nothing on the front puff's lit side. Cavity darkens only the floor between two puffs that both rise from it, not the step where one puff crosses in front of another.
+- With both sliders at 1, no pixel within two texels of the exposed silhouette is darker than it is with both at 0 by more than a small tolerance, unless a legitimate blocker lies between it and the light.
+- No new sliders; the fixes should be mechanism fixes in `SHADE_FS`. Default look unchanged (both effects default to 0).
+- Ideally a lab rule in `lab.html` that renders the two cases above and checks them, since the shade pass has no gate today.

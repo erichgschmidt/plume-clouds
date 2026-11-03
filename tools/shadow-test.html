@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Contact / Cavity regression</title>
+<style>body{background:#202629;color:#ddd;font:14px monospace}canvas{image-rendering:pixelated}#canvas{display:none}.row{display:flex;gap:12px;flex-wrap:wrap}figure{margin:8px 0}figure canvas{width:256px;height:192px}pre{white-space:pre-wrap}a{color:#9dd6ed}</style>
+<h1>Contact / Cavity regression</h1>
+<p><a href="../lab.html">Back to artifact lab</a></p>
+<p id="status">Running production GPU shade-pass checks…</p>
+<p>Fixed 2D puffs, no simulation or noise. Images show light before the palette. White in the difference image means extra darkening (amplified 3×).</p>
+<canvas id="canvas" width="512" height="384"></canvas><div id="previews"></div>
+<details><summary>Numeric results</summary><pre id="results"></pre></details>
+<script src="../src/puffs.js?v=197"></script>
+<script src="shadow-test.js?v=1"></script>
