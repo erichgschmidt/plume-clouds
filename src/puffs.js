@@ -239,9 +239,14 @@
   '  // edge, and a skirt discarded while it still carried the height. A front puff crossing its own radius\n' +
   '  // over the surface behind it still steps down onto it: that is an occlusion, and the shade pass keeps\n' +
   '  // its normal on its own side of the step\n' +
-  '  float g = 1.0 - ins;\n' +
   '  float HI = acc > 0.0 ? m + T * log(acc) : -1e9, HO = accO > 0.0 ? mO + T * log(accO) : -1e9;\n' +
   '  float HO0 = HO;\n' +
+  '  // ... but a containing puff well below the skirt surface is behind it, not a surface for the skirt to join (a far cloud\'s\n' +
+  '  // small puff in the gap between a near cloud\'s lobes took the gap and drew the far cloud through it): the clamp and the\n' +
+  '  // weight fade out as the containing union falls from two to four T under the skirt union, so the near skirt stands.\n' +
+  '  // Between puffs of different clouds only: within a cloud the join is unchanged to the bit\n' +
+  '  if(HI > -1e8 && HO0 > -1e8 && cIdx != cIdxO) ins *= 1.0 - smoothstep(2.0 * T, 4.0 * T, HO0 - HI);\n' +
+  '  float g = 1.0 - ins;\n' +
   '  if(HI > -1e8 && HO > -1e8) HO -= ins * max(0.0, HO - (HI - 2.0 * T));\n' +
   '  // and inside a footprint the skirt set is also weighted by g = 1 - ins, so a fully containing puff owns\n' +
   '  // its pixels outright: no skirt height, no skirt slope (the clamp seam and the join groove the lab measured\n' +
@@ -250,7 +255,7 @@
   '  if(HO > -1e8){ HO = g > 1e-4 ? HO + T * log(g) : -1e9; if(g <= 1e-4) accO = 0.0; }\n' +
   '  float Hm = max(HI, HO);\n' +
   '  float H = Hm > -1e8 ? Hm + T * log(exp((HI - Hm) / T) + exp((HO - Hm) / T)) : -1.0;\n' +
-  '  if(acc <= 0.0) cIdx = cIdxO;\n' +
+  '  if(acc <= 0.0 || HO > HI) cIdx = cIdxO;   // the style of whichever union is the surface (a skirt standing over a far puff is the near cloud)\n' +
   '  // contact shadow, in object space: a ray from the surface point toward the light, tested against every other puff as\n' +
   '  // the sphere the union draws (centre at its depth offset, its eroded radius). Not a march over the height field: the\n' +
   '  // depth wall at a front puff\'s rim is an artefact of flattening the domes to one height, and the ray never sees it.\n' +

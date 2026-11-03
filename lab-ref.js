@@ -88,7 +88,7 @@
       if (h > winH) { winH = h; winId = D[o4]; winPid = D[o4 + 1]; winIdx = i; winZ = D[o0 + 3]; winU = u; winR = r; }
     }
 
-    var m = -1e9, acc = 0, mO = -1e9, accO = 0, ins = 0;
+    var m = -1e9, acc = 0, mO = -1e9, accO = 0, ins = 0, cI = -1, cO = -1;   // cI / cO: the cloud of the highest containing puff and of the highest skirt
     var m2 = -1e9, acc2 = 0, m2O = -1e9, acc2O = 0;
     var sm = -1e9, sacc = 0;
     var GIx = 0, GIy = 0, GOx = 0, GOy = 0, RI = 0;
@@ -131,20 +131,21 @@
       if (inside) { var id = D[o4], pid = D[o4 + 1]; for (var q2 = 0; q2 < ph.length; q2++) if (!(id === pidA[q2] || pid === ppA[q2] || pid === pidA[q2] || id === ppA[q2])) wa *= smoothstep(-0.25 * T, 0, h - ph[q2]); }
       var w, wq, rim = 1 - smoothstep(0, 0.3, 1 - dist / r);
       if (inside) {
-        if (h > m) { wq = Math.exp((m - h) / T); acc = acc * wq + wa; GIx = GIx * wq + wa * gdx; GIy = GIy * wq + wa * gdy; RI = RI * wq + wa * rim; m = h; }
+        if (h > m) { wq = Math.exp((m - h) / T); acc = acc * wq + wa; GIx = GIx * wq + wa * gdx; GIy = GIy * wq + wa * gdy; RI = RI * wq + wa * rim; m = h; cI = Math.floor(D[o3 + 3]); }
         else { wq = wa * Math.exp((h - m) / T); acc += wq; GIx += wq * gdx; GIy += wq * gdy; RI += wq * rim; }
         if (h > m2) { w = Math.exp((m2 - h) / T2); acc2 = acc2 * w + wa; m2 = h; } else { w = wa * Math.exp((h - m2) / T2); acc2 += w; }
       } else {
-        if (h > mO) { wq = Math.exp((mO - h) / T); accO = accO * wq + 1; GOx = GOx * wq + gdx; GOy = GOy * wq + gdy; mO = h; }
+        if (h > mO) { wq = Math.exp((mO - h) / T); accO = accO * wq + 1; GOx = GOx * wq + gdx; GOy = GOy * wq + gdy; mO = h; cO = Math.floor(D[o3 + 3]); }
         else { wq = Math.exp((h - mO) / T); accO += wq; GOx += wq * gdx; GOy += wq * gdy; }
         if (h > m2O) { w = Math.exp((m2O - h) / T2); acc2O = acc2O * w + 1; m2O = h; } else { w = Math.exp((h - m2O) / T2); acc2O += w; }
       }
     }
 
     // combine
-    var g = 1 - ins;
     var HI = acc > 0 ? m + T * Math.log(acc) : -1e9, HO = accO > 0 ? mO + T * Math.log(accO) : -1e9;
     var HO0 = HO;
+    if (HI > -1e8 && HO0 > -1e8 && cI !== cO) ins *= 1 - smoothstep(2 * T, 4 * T, HO0 - HI);   // a containing puff of another cloud well below the skirt surface is behind it (see the shader)
+    var g = 1 - ins;
     if (HI > -1e8 && HO > -1e8) HO -= ins * Math.max(0, HO - (HI - 2 * T));
     if (HO > -1e8) { HO = g > 1e-4 ? HO + T * Math.log(g) : -1e9; if (g <= 1e-4) accO = 0; }
     var Hm = Math.max(HI, HO);
@@ -220,7 +221,10 @@
     rows.forEach(function (q) { if (q.inside) mI = Math.max(mI, q.h); else mO = Math.max(mO, q.h); });
     rows.forEach(function (q) { if (q.inside) accI += q.wa * Math.exp((q.h - mI) / T); else accO += Math.exp((q.h - mO) / T); });
     rows.forEach(function (q) { q.share = q.inside ? q.wa * Math.exp((q.h - mI) / T) / Math.max(accI, 1e-30) : Math.exp((q.h - mO) / T) / Math.max(accO, 1e-30); });
-    var HI = accI > 0 ? mI + T * Math.log(accI) : -1e9, HO = accO > 0 ? mO + T * Math.log(accO) : -1e9, g = 1 - ins, clampBy = 0;
+    var HI = accI > 0 ? mI + T * Math.log(accI) : -1e9, HO = accO > 0 ? mO + T * Math.log(accO) : -1e9, clampBy = 0;
+    var cI = -1, cO = -1; rows.forEach(function (q) { var c = Math.floor(D[(M * 3 + q.i) * 4 + 3]); if (q.inside) { if (q.h === mI) cI = c; } else if (q.h === mO) cO = c; });
+    if (HI > -1e8 && HO > -1e8 && cI !== cO) ins *= 1 - smoothstep(2 * T, 4 * T, HO - HI);
+    var g = 1 - ins;
     if (HI > -1e8 && HO > -1e8) clampBy = ins * Math.max(0, HO - (HI - 2 * T));
     rows.forEach(function (q) { if (!q.inside) q.note = 'skirt set: clamped ' + clampBy.toFixed(4) + ', g ' + g.toFixed(3) + (g <= 1e-4 ? ' (dropped)' : ''); else if (q.wa < 0.999) q.note = 'hidden by an unattached puff above (wa ' + q.wa.toFixed(3) + ')'; });
     rows.sort(function (a, b) { return b.h - a.h; });
