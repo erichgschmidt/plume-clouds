@@ -89,17 +89,6 @@
         });
       });
     });
-    // A tilted receiver with an occluding step is not a valley. The slope makes the old
-    // raw-height opposing-pair test see higher samples on both sides of the step.
-    var step=function(x,y){return [-.4*x+(x>.5?.12:0),-.4,0];};
-    var a=capture(cases.single,{},step),m=compare(a,capture(cases.single,{cavity:1},step));
-    results.push(Object.assign({fixture:'tilted step',effect:'cavity'},m));
-    if(m.max>1)failures.push('Occluding step falsely classified as a cavity: '+m.max);
-    // A real concave floor must still darken; the same tilted plane without curvature must not.
-    var bowl=function(x,y){return [20*(x-.5)*(x-.5)-.4*x,40*(x-.5)-.4,0];};
-    var a=capture(cases.single,{},bowl),m=compare(a,capture(cases.single,{cavity:1},bowl));
-    results.push(Object.assign({fixture:'tilted bowl',effect:'cavity'},m));
-    if(m.max<5||m.count<100)failures.push('Lost shading of a concave floor');
     // Combined controls, oblique/below-horizon lights, clipped puffs, and two field resolutions.
     [1,2].forEach(function(pixel){
       [0,1].forEach(function(cap){
@@ -114,23 +103,23 @@
         });
       });
     });
-    // The stored contact term (COLOR_ATTACHMENT4) against the CPU reference in lab-ref.js, texel by texel.
-    (function(){
-      var c=capture(cases.overlap,{contact:1}),R=renderer,gl=R.gl,fw=R._w,fh=R._h,buf=new Float32Array(fw*fh*4);
+    // The stored contact and cavity terms (COLOR_ATTACHMENT4) against the CPU reference in lab-ref.js, texel by texel.
+    [['overlap','contact',0],['valley','cavity',1]].forEach(function(tc){ var name=tc[0],effect=tc[1],ch=tc[2],ov={};ov[effect]=1;
+      var c=capture(cases[name],ov),R=renderer,gl=R.gl,fw=R._w,fh=R._h,buf=new Float32Array(fw*fh*4);
       gl.bindFramebuffer(gl.FRAMEBUFFER,R._fbo);gl.readBuffer(gl.COLOR_ATTACHMENT4);gl.readPixels(0,0,fw,fh,gl.RGBA,gl.FLOAT,buf);
       gl.readBuffer(gl.COLOR_ATTACHMENT0);gl.bindFramebuffer(gl.FRAMEBUFFER,null);
       var sunA=base.sun*Math.PI/180,el=base.elevation*Math.PI/180;
-      var P={W:fw,H:fh,T:R._T,cap:0,ref:REF,contact:1,light:[Math.cos(sunA)*Math.cos(el),-Math.sin(sunA)*Math.cos(el),Math.sin(el)]};
+      var P={W:fw,H:fh,T:R._T,cap:0,ref:REF,contact:effect==='contact'?1:0,cavity:effect==='cavity'?1:0,cavityReach:base.cavityReach,light:[Math.cos(sunA)*Math.cos(el),-Math.sin(sunA)*Math.cos(el),Math.sin(el)]};
       var maxd=0,shaded=0,texels=0;
       for(var y=0;y<fh;y++)for(var x=0;x<fw;x++){
         var i=(y*fw+x)*4;if(c.field[i+3]<0.5)continue;
-        var ref=fieldRef(R._sphData,R.count,P,x,y);texels++;if(ref.contact>0.05)shaded++;
-        maxd=Math.max(maxd,Math.abs(ref.contact-buf[i]));
+        var ref=fieldRef(R._sphData,R.count,P,x,y)[effect];texels++;if(ref>0.05)shaded++;
+        maxd=Math.max(maxd,Math.abs(ref-buf[i+ch]));
       }
-      results.push({fixture:'contact vs CPU reference',max:maxd,count:shaded,texels:texels});
-      if(maxd>0.02)failures.push('Stored contact differs from the CPU reference by '+maxd.toFixed(3));
-      if(shaded<10)failures.push('The CPU reference finds no contact shadow on the overlap');
-    })();
+      results.push({fixture:effect+' vs CPU reference',max:maxd,count:shaded,texels:texels});
+      if(maxd>0.02)failures.push('Stored '+effect+' differs from the CPU reference by '+maxd.toFixed(3));
+      if(shaded<10)failures.push('The CPU reference finds no '+effect+' on the '+name);
+    });
     window.shadowResults={ok:!failures.length,failures:failures,results:results};
     document.getElementById('status').textContent=(failures.length?'FAIL':'PASS')+' — '+results.length+' comparisons. '+failures.join('; ');
     document.getElementById('results').textContent=JSON.stringify(window.shadowResults,null,2);

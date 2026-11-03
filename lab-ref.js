@@ -8,9 +8,10 @@
  *           (wind.xy, band, depth weight), (id, parent id), (cos, sin, aspect, bound), (A1, B1, A3, B3), (angular, sides))
  *   count   renderer.count
  *   params  { W, H: field texels; T: uT; cap: uCap; MAX_SPH (default PuffRenderer.MAX_SPH); light: [x, y, z] and
- *           contact > 0 for the contact term (o5.r), the light already turned by the camera pitch }
+ *           contact > 0 for the contact term (o5.r), the light already turned by the camera pitch; cavity > 0 and
+ *           cavityReach (texels) for the cavity term (o5.g) }
  *   x, y    texel indices, GL convention (y up from the bottom row), as readPixels addresses them
- *   returns { H, mask, Gx, Gy, rim, contact } = the shader's o.r, o.a, o4.x, o4.y, o3.w, o5.r
+ *   returns { H, mask, Gx, Gy, rim, contact, cavity } = the shader's o.r, o.a, o4.x, o4.y, o3.w, o5.r, o5.g
  */
 (function () {
   'use strict';
@@ -66,7 +67,7 @@
     var i, o0, o1, o2, o3, o4, dx, dy, r, st, prim, pa, q, len, d2, u, h, along, across;
 
     // ownership pre-pass: the highest puff containing the pixel
-    var winId = -1, winPid = -2, winH = -1e9, winIdx = -1, ph = [], pidA = [], ppA = [];
+    var winId = -1, winPid = -2, winH = -1e9, winIdx = -1, winZ = 0, ph = [], pidA = [], ppA = [];
     for (i = 0; i < count; i++) {
       o0 = i * 4; o2 = (M * 2 + i) * 4; o3 = (M * 3 + i) * 4; o4 = (M * 4 + i) * 4;
       dx = px - D[o0]; dy = py - D[o0 + 1]; r = D[o0 + 2] * erode(i); st = D[o2 + 2]; if (r <= 1e-5) continue;
@@ -84,7 +85,7 @@
       h = D[o0 + 3] + r * mix(Math.sqrt(1 - u * u), 1 - u * u, cap);
       if (ph.length < 8) { ph.push(h); pidA.push(D[o4]); ppA.push(D[o4 + 1]); }
       else { var lo = 0; for (var qq = 1; qq < 8; qq++) if (ph[qq] < ph[lo]) lo = qq; if (h > ph[lo]) { ph[lo] = h; pidA[lo] = D[o4]; ppA[lo] = D[o4 + 1]; } }
-      if (h > winH) { winH = h; winId = D[o4]; winPid = D[o4 + 1]; winIdx = i; }
+      if (h > winH) { winH = h; winId = D[o4]; winPid = D[o4 + 1]; winIdx = i; winZ = D[o0 + 3]; }
     }
 
     var m = -1e9, acc = 0, mO = -1e9, accO = 0, ins = 0;
@@ -157,21 +158,23 @@
     var mask = smoothstep(-0.5 * T, 0.5 * T, sil);
     // contact, in object space (the shader's block after the union): a ray from (p, H) toward the light against every
     // other puff as a sphere; the spheres the point sits on (within T) and the owner are left out
-    var contact = 0;
-    if (P.light && P.contact > 0 && Hf > -0.5) {
-      var L = P.light, tr = 1;
+    var contact = 0, cavity = 0, wantC = P.light && P.contact > 0, wantV = P.cavity > 0;
+    if ((wantC || wantV) && Hf > -0.5) {
+      var L = P.light || [0, 0, 1], tr = 1, sky = 1, creach = (P.cavityReach || 8) / W;
       for (i = 0; i < count; i++) {
         if (i === winIdx) continue;
         o0 = i * 4; r = D[o0 + 2] * erode(i); if (r <= 1e-5) continue;
-        var ox = D[o0] - px, oy = D[o0 + 1] - py, oz = D[o0 + 3] - Hf, oc2 = ox * ox + oy * oy + oz * oz; if (oc2 < (r + T) * (r + T)) continue;
+        var ox = D[o0] - px, oy = D[o0 + 1] - py, oz = D[o0 + 3] - Hf, oc2 = ox * ox + oy * oy + oz * oz, sxy = Math.sqrt(ox * ox + oy * oy) - r; if (sxy > 0.6 * r) continue;
+        if (sxy < 0 && oc2 < (r + T) * (r + T)) continue;
+        if (wantV) { var ozv = Math.min(oz, winZ - Hf), ocv = ox * ox + oy * oy + ozv * ozv, qq = Math.min(1, r * r / Math.max(ocv, 1e-12)), above = clamp(0.5 + ozv / (2 * r), 0, 1); sky *= 1 - (1 - Math.sqrt(1 - qq)) * above * (1 - smoothstep(0, Math.min(creach, 0.6 * r), sxy)); }
+        if (!wantC) continue;
         var t = ox * L[0] + oy * L[1] + oz * L[2]; if (t <= 0) continue;
-        var sxy = Math.sqrt(ox * ox + oy * oy) - r; if (sxy > 0.6 * r) continue;
         var d = Math.sqrt(Math.max(0, oc2 - t * t)), w = T + 0.2 * t;
         tr *= 1 - (1 - smoothstep(r - w, r + w, d)) * (1 - smoothstep(0.2 * r, 0.6 * r, sxy));
       }
-      contact = 1 - tr;
+      contact = 1 - tr; cavity = smoothstep(0, 0.5, 1 - sky);
     }
-    return { H: Hf, mask: mask + 10 * Math.max(0, sil - 0.5 * T), Gx: Gx, Gy: Gy, rim: clamp(rimW, 0, 1), contact: contact };
+    return { H: Hf, mask: mask + 10 * Math.max(0, sil - 0.5 * T), Gx: Gx, Gy: Gy, rim: clamp(rimW, 0, 1), contact: contact, cavity: cavity };
   }
 
   window.fieldRef = fieldRef; window.varyIn = varyIn;

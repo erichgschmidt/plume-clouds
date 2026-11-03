@@ -54,7 +54,7 @@
   var FIELD_FS = '#version 300 es\nprecision highp float; precision highp sampler2D;\n' +
   'uniform sampler2D uSph; uniform float uAspect; uniform float uT, uCap;\n' +
   '// contact (object space): the light, the camera pitch (as the shade pass turns the light with it) and the slider (0: skipped)\n' +
-  'uniform vec3 uLight; uniform vec4 uCam; uniform float uOverhead, uContact;\n' +
+  'uniform vec3 uLight; uniform vec4 uCam; uniform float uOverhead, uContact, uCavity, uCavityReach;\n' +
   '// tiles: the spheres whose reach touches a 16-texel tile, as a list per tile (uTileHead: offset, count; uTileList: indices)\n' +
   'uniform sampler2D uTileHead, uTileList; uniform float uTexW, uTileSize; uniform ivec2 uTiles;\n' +
   '// dissolve: a dispersing puff (attribute w) loses texels on the dither grid HERE, in the union and the silhouette,\n' +
@@ -139,7 +139,7 @@
   '  // (a ninth is hidden by them anyway); the highest one is the owner, whose family the shade pass gets\n' +
   '  ivec2 tile = clamp(ivec2(p * uTexW / uTileSize), ivec2(0), uTiles - 1);\n' +
   '  vec2 thead = texelFetch(uTileHead, tile, 0).xy; int toff = int(thead.x), tcnt = int(thead.y);\n' +
-  '  float winId = -1.0, winPid = -2.0, winH = -1e9; int winIdx = -1;\n' +
+  '  float winId = -1.0, winPid = -2.0, winH = -1e9, winZ = 0.0; int winIdx = -1;\n' +
   '  float ph[8], pidA[8], ppA[8]; int pn = 0;\n' +
   '  for(int k = 0; k < 4096; k++){\n' +
   '    if(k >= tcnt) break;\n' +
@@ -162,7 +162,7 @@
   '    vec4 idp = texelFetch(uSph, ivec2(i, 4), 0);\n' +
   '    if(pn < 8){ ph[pn] = h; pidA[pn] = idp.x; ppA[pn] = idp.y; pn++; }\n' +
   '    else { int lo = 0; for(int q = 1; q < 8; q++) if(ph[q] < ph[lo]) lo = q; if(h > ph[lo]){ ph[lo] = h; pidA[lo] = idp.x; ppA[lo] = idp.y; } }\n' +
-  '    if(h > winH){ winH = h; winId = idp.x; winPid = idp.y; winIdx = i; }\n' +
+  '    if(h > winH){ winH = h; winId = idp.x; winPid = idp.y; winIdx = i; winZ = s.w; }\n' +
   '  }\n' +
   '  for(int k = 0; k < 4096; k++){\n' +
   '    if(k >= tcnt) break;\n' +
@@ -256,23 +256,40 @@
   '  // depth wall at a front puff\'s rim is an artefact of flattening the domes to one height, and the ray never sees it.\n' +
   '  // A puff never shades itself: the spheres the point sits on (within T, so a merged lobe too) are left out, their\n' +
   '  // curvature is the normal\'s business. The penumbra widens along the ray (crisp at the contact, soft at the far\n' +
-  '  // edge); the shadow fades out by 0.6 r beyond the blocker\'s rim, inside the tile reach. Stored for the shade pass\n' +
-  '  float contact = 0.0;\n' +
-  '  if(uContact > 0.0 && H > -0.5){\n' +
+  '  // edge); the shadow fades out by 0.6 r beyond the blocker\'s rim, inside the tile reach. Stored for the shade pass.\n' +
+  '  // Cavity, in the same loop: sphere ambient occlusion. Each other puff hides a share of the sky over the point, its\n' +
+  '  // solid angle (1 - sqrt(1 - r^2 / d^2)) times the share of the sphere above the point\'s level, fading out over Cavity\n' +
+  '  // reach (at most 0.6 r, inside the tile reach) beyond the sphere\'s rim; the shares combine as transmittances and\n' +
+  '  // the floor of a crease between two domes reaches about 0.8. No height-field sample, so no step and no outline\n' +
+  '  float contact = 0.0, cav = 0.0;\n' +
+  '  if((uContact > 0.0 || uCavity > 0.0) && H > -0.5){\n' +
   '    vec3 Lv = uLight;\n' +
   '    if(uCam.w > 0.0 && uOverhead > 0.0){ float pc = atan(max(0.0, uCam.z - (1.0 - vUv.y) * uAspect)) * uOverhead, cp = cos(pc), sp = sin(pc); float up = -uLight.y, tz = uLight.z; Lv = vec3(uLight.x, -(up * cp + tz * sp), tz * cp - up * sp); }\n' +
-  '    vec3 ro = vec3(p, H); float tr = 1.0;\n' +
+  '    vec3 ro = vec3(p, H); float tr = 1.0, sky = 1.0, creach = uCavityReach / uTexW;\n' +
   '    for(int k = 0; k < 4096; k++){\n' +
   '      if(k >= tcnt) break;\n' +
   '      int i = int(texelFetch(uTileList, ivec2((toff + k) & 4095, (toff + k) >> 12), 0).x); if(i == winIdx) continue;\n' +
   '      vec4 s = texelFetch(uSph, ivec2(i, 0), 0); float r = s.z * erode(i); if(r <= 1e-5) continue;\n' +
-  '      vec3 oc = vec3(s.xy, s.w) - ro; float oc2 = dot(oc, oc); if(oc2 < (r + T) * (r + T)) continue;\n' +
+  '      vec3 oc = vec3(s.xy, s.w) - ro; float oc2 = dot(oc, oc), sxy = length(oc.xy) - r; if(sxy > 0.6 * r) continue;\n' +
+  '      // the point sits on this sphere (inside its footprint, within T of its surface: the owner or a merged lobe): neither\n' +
+  '      // a blocker nor an occluder. Outside the footprint it is the puff behind, even within T (a bright strip hugged\n' +
+  '      // the rim of a front puff with a small depth offset when the margin applied there too)\n' +
+  '      if(sxy < 0.0 && oc2 < (r + T) * (r + T)) continue;\n' +
+  '      if(uCavity > 0.0){\n' +
+  '        // depth offsets are draw order, not height. A neighbour\'s centre is taken no higher than the point\'s own centre plane\n' +
+  '        // (its real offset when it is lower, a parent under a child), so a neighbour hides sky only where the point is low\n' +
+  '        // against the neighbour\'s size (a valley floor), not where a front puff overlaps a crown (a step: taken at its\n' +
+  '        // offset it drew a dark halo round every front lobe; taken on the plane, a parent under a child blacked the child out)\n' +
+  '        float oz = min(oc.z, winZ - H), ocv = dot(oc.xy, oc.xy) + oz * oz;\n' +
+  '        float q = min(1.0, r * r / max(ocv, 1e-12)), above = clamp(0.5 + oz / (2.0 * r), 0.0, 1.0);\n' +
+  '        sky *= 1.0 - (1.0 - sqrt(1.0 - q)) * above * (1.0 - smoothstep(0.0, min(creach, 0.6 * r), sxy));\n' +
+  '      }\n' +
+  '      if(uContact <= 0.0) continue;\n' +
   '      float t = dot(oc, Lv); if(t <= 0.0) continue;\n' +
-  '      float sxy = length(oc.xy) - r; if(sxy > 0.6 * r) continue;\n' +
   '      float d = sqrt(max(0.0, oc2 - t * t)), w = T + 0.2 * t;\n' +
   '      tr *= 1.0 - (1.0 - smoothstep(r - w, r + w, d)) * (1.0 - smoothstep(0.2 * r, 0.6 * r, sxy));\n' +
   '    }\n' +
-  '    contact = 1.0 - tr;\n' +
+  '    contact = 1.0 - tr; cav = smoothstep(0.0, 0.5, 1.0 - sky);\n' +
   '  }\n' +
   '  // the union\'s gradient: each set\'s mean slope by its share of the union (the skirt clamp is a shift, its\n' +
   '  // own slope left out, so a clamped skirt keeps the slope of the surface it came from)\n' +
@@ -301,7 +318,7 @@
   '  o2 = vec4(acc2 > 0.0 ? fSum * ia : 1.0, xSum * ia, anc * ia);\n' +
   '  o3 = vec4(bSum * ia, acc2 > 0.0 ? wSum * ia : 1.0, cIdx, clamp(rimW, 0.0, 1.0));\n' +
   '  o4 = vec4(G, sil, winPid);   // z: the signed distance to the silhouette line (field units); w: the owner\'s group (its parent id)\n' +
-  '  o5 = vec4(contact, 0.0, 0.0, 1.0);\n' +
+  '  o5 = vec4(contact, cav, 0.0, 1.0);\n' +
   '}';
 
   var SHADE_FS = '#version 300 es\nprecision highp float;\n' +
@@ -400,7 +417,6 @@
   '  return uRef * 0.5 * texture(uField, uv0).g * namp * (uNoise * n1 * bias + uNoise2 * n2 * bias2);\n' +
   '}\n' +
   '// Missing samples have no coverage; texelFetch outside the target is not a valid blocker.\n' +
-  'vec4 shadowField(ivec2 p){ ivec2 sz = textureSize(uField, 0); if(any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, sz))) return vec4(0.0); return texelFetch(uField, p, 0); }\n' +
   '// the normal. The surface slope is the field union\'s own gradient, analytic, stored by the field pass: no\n' +
   '// height is differenced across an occlusion step any more, so there is no step test, no footprint shrink and\n' +
   '// no fallback that could face a strip toward the viewer. A far footprint (Depth falloff) averages the\n' +
@@ -513,31 +529,8 @@
   '  float contact = uContact * occ * smoothstep(0.5, 1.0, texelFetch(uField, ivec2(uv / uTexel), 0).a);\n' +
   '  // cavity: the surface below the mean of its surroundings a few texels out is a valley between puffs;\n' +
   '  // its cancelling slopes face the viewer and would catch full light, so less reaches it\n' +
-  '  float cav = 0.0;\n' +
-  '  if(uCavity > 0.0){\n' +
-  '    // Opposite samples must rise above the receiver tangent, not merely above its height. A tilted\n' +
-  '    // back surface beside a foreground step otherwise looks like a valley and acquires an outline.\n' +
-  '    // RMS over the full support retains broad valleys without the old eighth-root amplification of\n' +
-  '    // isolated pairs. Confidence multiplies the response BEFORE squaring, so faint support stays faint.\n' +
-  '    float reach = uCavityReach, wsum = 0.0, acc = 0.0; ivec2 c0 = ivec2(uv / uTexel); vec4 f0 = shadowField(c0); float h0 = f0.r;\n' +
-  '    vec2 grad = texelFetch(uAux3, c0, 0).xy;\n' +
-  '    // each direction walks its rings outward; a step between consecutive samples (slope six, as in the contact march: the\n' +
-  '    // depth wall at a front puff\'s rim, or a trench) ends that side\'s pairs, so a surface beyond a step is never a valley wall\n' +
-  '    for(int k = 0; k < 4; k++){\n' +
-  '      float an = float(k) * 0.7853982; vec2 dir = vec2(cos(an), sin(an)); float hpa = h0, hpb = h0; ivec2 op = ivec2(0); bool oka = true, okb = true;\n' +
-  '      for(int ring = 1; ring <= 4; ring++){\n' +
-  '        float cs = reach * float(ring) / 4.0, wr = exp(-2.0 * float(ring * ring) / 16.0);\n' +
-  '        ivec2 oa = ivec2(round(dir * cs)); vec4 fa = shadowField(c0 + oa), fb = shadowField(c0 - oa);\n' +
-  '        float dss = max(length(vec2(oa - op)), 0.5) * uTexel.x; op = oa;\n' +
-  '        if(abs(fa.r - hpa) > 6.0 * dss) oka = false; if(abs(fb.r - hpb) > 6.0 * dss) okb = false; hpa = fa.r; hpb = fb.r;\n' +
-  '        vec2 dv = vec2(oa) * uTexel; dv.y *= -uAspect; float dk = max(length(dv), uTexel.x * 0.5), tangent = dot(grad, dv);\n' +
-  '        float conf = (oka && okb) ? smoothstep(0.5, 1.0, fa.a) * smoothstep(0.5, 1.0, fb.a) : 0.0;\n' +
-  '        float cv = conf * smoothstep(0.0, 1.0, (min(fa.r - tangent, fb.r + tangent) - h0 - uTexel.x * 0.25) / (dk * 1.5));\n' +
-  '        acc += wr * cv * cv; wsum += wr;\n' +
-  '      }\n' +
-  '    }\n' +
-  '    cav = sqrt(acc / wsum) * smoothstep(0.5, 1.0, f0.a);\n' +
-  '  }\n' +
+  '  // cavity: sphere ambient occlusion from the field pass (the same loop as contact), stored per texel\n' +
+  '  float cav = texelFetch(uAux4, ivec2(uv / uTexel), 0).g * smoothstep(0.5, 1.0, texelFetch(uField, ivec2(uv / uTexel), 0).a);\n' +
   '  float cavity = uCavity * cav;\n' +
   '  // Cavity in light: how much of the cavity darkening reaches the direct light on a lit face (the ambient cut is the\n' +
   '  // physical part, a valley sees less sky; the direct cut doubles up with Contact where the valley faces the sun).\n' +
@@ -584,7 +577,7 @@
     this._float32 = !!gl.getExtension('OES_texture_float_linear');   // the height target is 32-bit when it can be filtered
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
-    this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTileSize', 'uTiles', 'uAspect', 'uT', 'uCap', 'uDissolve', 'uDotSize', 'uEvapScale', 'uRef', 'uLight', 'uCam', 'uOverhead', 'uContact']);
+    this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTileSize', 'uTiles', 'uAspect', 'uT', 'uCap', 'uDissolve', 'uDotSize', 'uEvapScale', 'uRef', 'uLight', 'uCam', 'uOverhead', 'uContact', 'uCavity', 'uCavityReach']);
     this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uAux4', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStreak', 'uWindDir', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uCavityLit', 'uGrain', 'uDiag', 'uT', 'uStipple', 'uStippleBias', 'uBreakup', 'uBreakupReach', 'uLock']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 8);   // eight rows: the fifth is (puff id, parent id), the sixth to eighth the shape variation
     this._sphTex = gl.createTexture();
@@ -987,6 +980,7 @@
     gl.uniform3f(this._fu.uLight, Math.cos(sunA) * Math.cos(el), -Math.sin(sunA) * Math.cos(el), Math.sin(el));
     gl.uniform4f(this._fu.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     gl.uniform1f(this._fu.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(this._fu.uContact, clamp(num(sky.contact, 0), 0, 1));
+    gl.uniform1f(this._fu.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(this._fu.uCavityReach, Math.max(1, num(sky.cavityReach, 8)));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // shade
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);
