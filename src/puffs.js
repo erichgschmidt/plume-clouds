@@ -715,6 +715,7 @@
       levels: clamp(Math.round(num(look.levels, 3)), 1, 3), lvFade: clamp(num(look.levelFade, 1), 0, 1),   // levelFade: the deepest level thinned like the budget does (a host's LOD by distance), 1 whole
       capN: Math.max(0, num(look.puffCap, 0) | 0),   // puffCap: this cloud's own puff budget, thinned like the scene's (0: none)
       life: Math.max(0, num(look.life, 1)) * num(look.motion, 1), embed: clamp(num(look.embed, 0.78), 0.3, 1),
+      relief1: clamp(num(look.relief1, 1), 0, 1), relief2: clamp(num(look.relief2, 1), 0, 1),   // lobe relief by generation: the height amplitude of first and second children (not their size or seat)
       depthScale: num(look.depth, 1), roll: num(look.roll, 1),
       // step 4 (docs/core-audit.md): Depth scales the heights only (order and relief are one thing in a height
       // union); the sway of child puffs has its own scale, and a puff's depth weight (its fade) comes from its
@@ -996,7 +997,7 @@
           // grandchild of child 0 had the id of another of child 1); persistent for the child's life, so its shape is too
           var ce = qget(), cid = cs + j * 3.1 + 1.7 + 1000 * hash(cs * 0.37 + j * 5.9), cv = vary(F.vary, cid, ce.v); cr *= cv.rs;
           putC = F.c;
-          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id, cv, q.wer, 1, level === 0 ? 1 : 0.5);
+          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id, cv, q.wer, level === 0 ? F.relief1 : F.relief2, level === 0 ? 1 : 0.5);
           ce.id = cid; ce.F = F; ce.x = x; ce.y = y; ce.r = cr; ce.z = z; ce.zr = zr2; ce.seed = cs + j * 3.1; ce.ax = q.ax; ce.ay = q.ay; ce.az = q.az; ce.angle = q.angle; ce.fresh = q.fresh; ce.mixed = q.mixed; ce.stack = stack; ce.dis = q.dis; ce.st = q.st; ce.anx = q.anx; ce.any = q.any; ce.band = band2; ce.zp = q.zp; ce.wer = q.wer;
           next.push(ce);
         }
