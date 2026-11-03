@@ -25,6 +25,13 @@
     congestus: { label: 'Cumulus congestus', engine: 'thermal', preset: 'congestus', shape: 'ring', prim: 'sphere', primAmt: 1,
       forces: {}, look: { children: 4, ratio: 0.62, levels: 3, life: 1, embed: 0.9, depth: 1 },
       depth: [0.4, 1], scale: 1.0 },
+    // a big, calm cumulus mass (the pixel-art game sky): wide and low, many large parcels with a weak updraft, little
+    // jitter and no bubbles, long mixing, so the lobes are gently rounded and nearly still; smooth, pale, a touch of
+    // dither; wider than its frame, so in a sky it reads as part of a formation continuing past the edge
+    massif: { label: 'Cumulus massif', engine: 'thermal', preset: 'humilis', shape: 'flat', prim: 'sphere', primAmt: 1,
+      forces: { updraft: 0.02, width: 0.5, height: 0.2, count: 44, size: 0.11, jitter: 0.03, mixing: 45, pulse: 0, settle: 0.3, rollGain: 2, formTime: 0, reservoir: 0.5 },
+      look: { children: 3, ratio: 0.58, levels: 2, life: 0.4, embed: 0.9, depth: 0.8, shear: 0.15, lean: 0.05, smooth: 0.75, noise: 0.08, shadow: 0.5, baseShade: 0.4, stackShade: 0.25, haze: 0.3, dither: 0.25 },
+      depth: [0.15, 0.8], scale: 2.2 },
     cumulonimbus: { label: 'Cumulonimbus', engine: 'thermal', preset: 'tower', shape: 'tower', prim: 'sphere', primAmt: 1,
       forces: { height: 0.4, count: 44, pulse: 18, formTime: 150, parallax: 0.02 },
       look: { children: 4, ratio: 0.6, levels: 3, life: 1, embed: 0.9, depth: 1, lean: 0.25, wind: 0, shear: 0.6, baseShade: 0.75 },
