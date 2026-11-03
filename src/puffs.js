@@ -520,7 +520,7 @@
   '    }\n' +
   '    G = mix(G, acc / wsum, sm);\n' +
   '  }\n' +
-  '  if(uBody > 0.0) G = mix(G, texture(uAux4, uv).ba, uBody);   // body lighting: toward the cloud\'s shared soft-union slope\n' +
+  '  if(uBody > 0.0) G = mix(G, texelFetch(uAux4, ivec2(uv / uTexel), 0).ba, uBody);   // body lighting: toward the cloud\'s shared soft-union slope (unfiltered: a bilinear read mixed in the slope of the cloud across an occluding edge)\n' +
   '  float nL = dispAt(uv - dx, uv, bias, bias2, namp), nR = dispAt(uv + dx, uv, bias, bias2, namp), nU = dispAt(uv - dy, uv, bias, bias2, namp), nD = dispAt(uv + dy, uv, bias, bias2, namp);\n' +
   '  // field y is down, uv y is up: the stored gradient is in field units, the noise difference in uv\n' +
   '  return normalize(vec3(-G.x - (nR - nL) / wx, -G.y + (nD - nU) / wy, 1.0));\n' +
