@@ -40,7 +40,7 @@
   </div>
 </div>
 <script src="src/sim.js?v=196"></script>
-<script src="src/puffs.js?v=211"></script>
+<script src="src/puffs.js?v=212"></script>
 <script src="src/motion.js?v=209"></script>
 <script src="src/layer.js?v=209"></script>
 <script src="src/presets.js?v=211"></script>
@@ -61,7 +61,7 @@
   // the sky's own parameters
   // the eye: dragged in the canvas (an unlocked parallax, on top of the sway); double-click recentres
   var eye = { x: 0, y: 0 }, drag = null;
-  var P = { clouds: 12, drift: 0.004, travel: 0.012, parallax: 0.03, sway: 57, near: 0.6, horizon: 0.86, simSpeed: 0.5, fadeIn: 0, motion: 1, farMasses: 0, separation: 0, runX: 0, climb: 0, horizonBand: 0, poiCount: 0, poiLevels: 3, poiGap: 20, poiScale: 1 };
+  var P = { clouds: 12, drift: 0.004, travel: 0.012, parallax: 0.03, sway: 57, near: 0.6, horizon: 0.86, simSpeed: 0.5, fadeIn: 0, motion: 1, farMasses: 0, separation: 0, runX: 0, climb: 0, horizonBand: 0, poiCount: 0, poiLevels: 3, poiGap: 20, poiScale: 1, lod: 0 };
   // the player: held keys (A/D or left/right run, W/S or up/down climb/descend) add to the Run / Climb sliders
   var keyVel = { x: 0, y: 0 }, KEYS = { a: [-1, 0], d: [1, 0], w: [0, 1], s: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }, held = {};
   function keys(e, down) { var k = KEYS[e.key.length === 1 ? e.key.toLowerCase() : e.key]; if (!k || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return; held[e.key] = down; keyVel.x = 0; keyVel.y = 0; for (var h in held) if (held[h]) { var v = KEYS[h.length === 1 ? h.toLowerCase() : h]; keyVel.x += v[0] * 0.15; keyVel.y += v[1] * 0.15; } e.preventDefault(); }
@@ -122,12 +122,13 @@
     if (sim.params.mode === 'sheet') {   // under the camera a sheet lies flat: a parcel stretched along the wind is a horizontal bar at its own depth (the sheets read as stacked planks), so the striation is short
       sim.params.striate = 1 + ((sim.params.striate || 1) - 1) * 0.25;
     }
-    var sims = [{ sim: sim, look: look }];
+    var sims = [{ sim: sim, look: look, levels0: look.levels }];   // levels0: the type's own depth, before LOD by distance
     if (sp.extra) {
       var ex = makeSim(sp.extra.engine, sp.extra.preset, seed + 1, 'ring');
       ex.params.parallax = 0;
       ex.parcels.forEach(function (q) { q.link = 0; q.age = 0; }); ex._emit();   // the anvil grows in once the tower is up
-      sims.push({ sim: ex, look: Object.assign({}, look, sp.extra.look || {}), dy: sp.extra.dy || 0, atTop: true });
+      var exLook = Object.assign({}, look, sp.extra.look || {});
+      sims.push({ sim: ex, look: exLook, levels0: exLook.levels, dy: sp.extra.dy || 0, atTop: true });
     }
     // a cloud re-forming far away grows in instead of popping: its parcels start with their link cut (the renderer scales a
     // parcel by its link and sinks the remainder into the base, the anvil's own way in), and the link rises as the sim steps
@@ -156,6 +157,20 @@
       clouds.push(c);
     }
   }
+  // LOD by distance (Performance): a cloud's child levels by its depth weight (1 near .. 0 far). At LOD k a cloud with
+  // far under 0.7 k loses its third level and one under 0.35 k its second too (levels 3 near, 2 middle, 1 far); each
+  // threshold is a band 0.2 k wide over which the level is thinned child by child, the renderer's budget fade, so a
+  // cloud crossing it never pops. 0 is today: every cloud at its type's own depth
+  function smoothstep(a, b, x) { var t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
+  function lod(e, far) {
+    var L = e.levels0 === undefined ? 3 : e.levels0, k = P.lod, lv = L, fd = 1;
+    if (k > 0) {
+      var f3 = smoothstep(0.6 * k, 0.8 * k, far), f2 = smoothstep(0.25 * k, 0.45 * k, far);
+      if (lv >= 3) { if (f3 > 0) fd = f3; else lv = 2; }
+      if (lv === 2) { if (f2 > 0) fd = f2; else lv = 1; }
+    }
+    e.look.levels = lv; e.look.levelFade = fd;
+  }
   var respawn = Math.random;   // seeded in build(): the same seed replays the whole animation
   function build() {
     var rng = mulberry((+$('seed').value | 0) * 7919 + 17);
@@ -175,6 +190,7 @@
   var SKYP = [['clouds', 'Clouds', 1, 14, 1], ['near', 'Near size', 0.3, 1.4, 0.01], ['travel', 'Travel', 0, 0.05, 0.001], ['drift', 'Drift', -0.02, 0.02, 0.001], ['parallax', 'Parallax', 0, 0.08, 0.002], ['sway', 'Sway (s)', 5, 120, 1], ['horizon', 'Horizon', 0.5, 1, 0.01], ['simSpeed', 'Sim speed', 0.1, 1.5, 0.01], ['motion', 'Motion', 0, 1.5, 0.01], ['fadeIn', 'Fade in', 0, 1, 0.01], ['farMasses', 'Far masses', 0, 4, 1], ['separation', 'Separation', 0, 1, 0.01], ['horizonBand', 'Horizon band', 0, 1, 0.125], ['runX', 'Run', -0.3, 0.3, 0.005], ['climb', 'Climb', -0.3, 0.3, 0.005]];
   var STYLE = [['pixel', 'Pixel size', 1, 6, 1], ['softness', 'Softness', 0.3, 4, 0.01], ['rim', 'Rim soften', 0, 1, 0.01], ['cap', 'Cap', 0, 1, 0.01], ['puffRim', 'Puff rim', 0, 1, 0.01], ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias2', 'Noise 2 bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['streak', 'Streak', 0, 1, 0.01], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['dissolve', 'Evaporation', 0, 1, 0.01], ['evapScale', 'Evap. scale', 0.5, 8, 0.1], ['stipple', 'Stipple', 0, 1, 0.01], ['stippleBias', 'Stipple bias', -1, 1, 0.01], ['breakup', 'Edge breakup', 0, 1, 0.01], ['breakupReach', 'Breakup reach', 1, 24, 1], ['dotSize', 'Dot size', 1, 4, 1], ['patternLock', 'Pattern lock', 0, 1, 1], ['grain', 'Palette dither', 0, 2, 0.01], ['atmos', 'Atmosphere', 0, 1, 0.01], ['depthFall', 'Depth falloff', 0, 1, 0.01]];
   var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['overhead', 'Overhead', 0, 1, 0.01], ['shadow', 'Shadow', 0, 1, 0.01], ['contact', 'Contact', 0, 1, 0.01], ['cavity', 'Cavity', 0, 1, 0.01], ['cavityReach', 'Cavity reach', 2, 24, 1], ['cavityLit', 'Cavity in light', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['baseFall', 'Base falloff', 0.1, 1.5, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
+  var PERF = [['lod', 'LOD by distance', 0, 1, 0.01]];
   var CIRRUS = [['cirrus', 'Cirrus', 0, 1, 0.01], ['cirrusScale', 'Scale', 0.5, 6, 0.1], ['cirrusAngle', 'Angle (deg)', -45, 45, 1], ['cirrusFlow', 'Flow', 0, 0.1, 0.001]];
   var TIPS = { dither: 'Dispersing puffs keep a hard, stippled edge instead of a hazy fade (per type). It does not remove pixels: that is Evaporation (Dissolve), tone is Stipple, ragged outlines are Edge breakup.',
     dissolve: 'Evaporation: how far a dispersing puff is eroded from its outline inward, raggedly, by a broad noise riding with the parcel (no interior holes). A rising value only takes more.', dotSize: 'Cell size of the stipple, breakup and evaporation patterns in texels.',
@@ -184,6 +200,7 @@
     clouds: 'How many clouds the sky holds (regenerates).', near: 'Size of a cloud at distance 1 (regenerates).', travel: 'Forward glide of the camera; a cloud that passes overhead re-forms far away.', drift: 'Sideways wind in world units; near clouds cross faster.',
     parallax: 'Sway of the camera; near clouds sway more.', horizon: 'Where the horizon line sits (fraction of the height); far clouds converge on it.', simSpeed: 'How fast every cloud evolves (1: the editor speed).', motion: 'How much the clouds roil: one scale on the internal motion of the sims (parcel flow, roll, jitter, the drift and breathing of the layers), the life cycle of the child puffs, the wind drift, the surface noise flow and the camera sway. 1 is the behaviour of today; lower is calmer, 0 is still.', fadeIn: 'A cloud re-forming far away grows in from this much smaller instead of appearing whole (1: from nothing, over about 12 s; 0: off).', runX: 'The player running sideways (world units per second; near clouds cross faster). Keys A / D or left / right add to it while held.', climb: 'The player climbing (positive) or descending: the clouds slide down the frame as the camera rises, near ones faster. Keys W / S or up / down add to it while held.', separation: 'How distinct the depth planes read: pushes each cloud’s depth weight toward near or far (more haze, sky tint and softness on the far ones, none on the near), scales near clouds up and far ones down (up to 40 %), and lets near clouds sway more than far ones. 0 is today’s look.', horizonBand: 'How dense the band of distant flat cloud along the horizon is (up to eight stratocumulus / stratus / undulatus decks pinned at the far end of the frustum; they drift with the wind and sway, but never come nearer; regenerates).', farMasses: 'How many huge cumulus masses sit high and far overhead, a distant formation above the other clouds (regenerates; 0: none).', noiseBias2: 'Where noise 2 lives: -1 only in shadow, +1 only in light.', rim: 'Silhouette rim: turns the normal toward the viewer near the exposed outline of the cloud, so the dome edge is not a dark ring. Shading only; independent of Puff rim.', cap: 'Puff profile: 0 a sphere (its rim goes vertical, a thin dark crescent on the far side), 1 a parabola (a broad soft shadow side).', cavity: 'Less light in a valley between puffs (the surface below its surroundings), where the blended slopes otherwise face the viewer and draw a bright seam.', cavityReach: 'How far (field texels) the cavity shading reaches up the walls of a valley.', cavityLit: 'How much the cavity darkening reaches the direct light on a sunlit face: 1 all of it (as before), 0 none, so a lit crease keeps its light and loses only sky bounce (the shadow side is cut as always).', grain: 'Faint ordered dither added to the light before the bands (the palette grain); 0 is clean bands.', contact: 'Shadow cast by a puff onto the puff behind it, along the light: a dome\'s dark rim continues into shadow instead of ending in a line.', baseFall: 'How far up the cloud the base shade reaches, as a fraction of its height.', puffRim: 'Puff rim: turns the normal toward the viewer at each visible lobe\'s own rim inside the cloud, where one dome falls over the puff behind it (a crescent line). Shading only; independent of Rim soften.', overhead: 'How much the sun turns with the view: clouds high in the frame are seen from below, lit from beyond.', pixel: 'Size of one drawn pixel in canvas pixels; the whole picture sits on that grid.', sway: 'Period of the sway in seconds.', atmos: 'How much far clouds take on the sky colour.', depthFall: 'How much far clouds lose shadow, noise and crispness.',
     poiCount: 'Points of interest: how many composed groups (a large cloud far, a medium in the middle, a small one near, placed to frame one another) may be in the sky at once (0: none, today\u2019s sky).', poiLevels: 'Members per POI group: 1 the large hero alone, 2 a pair, 3 the trio.', poiGap: 'Seconds between one POI group leaving the frame and the next one forming far away (varied by a quarter either way).', poiScale: 'Size of the POI members (applies to the next group).',
+    lod: 'Level of detail by distance: far clouds drop their deepest puff level (3 levels near, 2 in the middle, 1 far; the thresholds scale with the slider, each a band where the level thins child by child like the budget, so nothing pops). 0 is today: every cloud at its type\'s own depth. Watch puffs and tree ms in the HUD.',
     cirrus: 'Amount of high streak cloud behind everything.', cirrusScale: 'Size of the cirrus streaks.', cirrusAngle: 'Direction of the streaks.', cirrusFlow: 'Scroll speed of the streaks.' };
   var sliders = {};
   function slider(parent, target, spec, onChange) {
@@ -208,14 +225,15 @@
     var specs = {}, used = {}, openState = {};
     lists.forEach(function (L) { L.forEach(function (s) { specs[s[0]] = s; }); });
     try { openState = JSON.parse(localStorage.getItem('plume-sky-groups') || '{}'); } catch (e) { openState = {}; }
-    function group(title, keys) {
+    function group(title, keys, tgt) {
+      var tg = tgt || target;   // a group may address another object (Performance: the sky's P)
       var d = document.createElement('details'); d.className = 'grp'; d.open = openState[title] === undefined ? true : !!openState[title];
       var sm = document.createElement('summary'); sm.innerHTML = title + '<span class="n">' + keys.length + '</span>'; d.appendChild(sm);
       var body = document.createElement('div'); d.appendChild(body); host.appendChild(d);
-      keys.forEach(function (k) { if (!specs[k]) return; used[k] = 1; slider(body, target, specs[k], onChange); });
+      keys.forEach(function (k) { if (!specs[k]) return; used[k] = 1; slider(body, tg, specs[k], onChange); });
       d.addEventListener('toggle', function () { openState[title] = d.open; try { localStorage.setItem('plume-sky-groups', JSON.stringify(openState)); } catch (e) {} });
     }
-    groups.forEach(function (g) { group(g[0], g[1]); });
+    groups.forEach(function (g) { group(g[0], g[1], g[2]); });
     var rest = Object.keys(specs).filter(function (k) { return !used[k]; }); if (rest.length) group('Other', rest);
   }
   var GROUPS = [
@@ -225,9 +243,10 @@
     ['Shadows', ['contact', 'cavity', 'cavityReach', 'cavityLit', 'baseShade', 'baseFall', 'stackShade', 'haze']],
     ['Dither', ['dither', 'dissolve', 'evapScale', 'stipple', 'stippleBias', 'breakup', 'breakupReach', 'dotSize', 'patternLock']],
     ['Atmosphere', ['atmos', 'depthFall']],
-    ['Cirrus', ['cirrus', 'cirrusScale', 'cirrusAngle', 'cirrusFlow']]
+    ['Cirrus', ['cirrus', 'cirrusScale', 'cirrusAngle', 'cirrusFlow']],
+    ['Performance', ['lod'], function () { return P; }]   // the cost toggles (every default is today's behaviour; the HUD's second line shows their effect)
   ];
-  buildGroups($('groups'), GROUPS, [STYLE, LIGHT, CIRRUS], function () { return sky; });
+  buildGroups($('groups'), GROUPS, [STYLE, LIGHT, CIRRUS, PERF], function () { return sky; });
   // lighting presets: a small select at the top of the Light group sets these five values; the sliders stay free afterwards.
   // The first is the default light (Gus's low side sun); 'Classic' is the light before 2026-11-03
   var LIGHTS = [
@@ -260,7 +279,8 @@
 
   var last = performance.now(), fpsT = 0, frames = 0, fps = 0, t = 0, camZ = 0, camWind = 0, camAlt = 0, worst = 0, stall = 0;   // camAlt: how far the player has climbed (the cirrus plane comes nearer)   // stall: the longest frame of the last half second, to pin a hitch   // where the camera has got to (the cirrus plane scrolls with it)
   // the cost readout (Performance): CPU ms per frame for the sims, the tree build and the upload, GPU ms for the field and
-  // shade passes (timer queries; n/a without the extension), averaged over the same half second as the fps
+  // shade passes (timer queries; n/a without the extension), averaged over the same half second as the fps. The upload
+  // figure includes any wait for the GPU (the first blocking GL call of a frame absorbs the vsync and back-pressure wait)
   var acc = { sim: 0, tree: 0, up: 0, cpu: 0, gf: 0, gs: 0, gn: 0 }, cost = '';
   // ?bench in the URL drives the loop with a message channel instead of requestAnimationFrame, so a tab that is not on
   // screen still runs frames (the browser pane here, a headless measurement): as fast as they go, not paced to the display
@@ -313,6 +333,7 @@
         if (e.atTop) { h += (main.sim.baseY - e.sim.baseY) * cs; flat = 1; span = cs * 0.9; }   // the anvil spreads flat at the tower top
         e.look.cam = { x: c.x - sx, z: c.z, h: h, s: cs, f: 1, hor: hor, flat: flat, span: span * sepK, sx: sx, sy: sy };   // sx/sy: the sway, re-projected per puff by its depth
         e.look.far = fs;
+        lod(e, c.far);
       }
     }
     sky.cam = { x: camX + camWind, z: camZ, hor: hor, alt: Math.max(0.15 * aspect, 1.05 * aspect - camAlt) };   // the cirrus veil: a plane above everything, travelling with the camera
@@ -326,7 +347,7 @@
     if (fpsT >= 0.5) {
       fps = Math.round(frames / fpsT); stall = Math.round(worst); worst = 0;
       var ms = function (v, n) { return (v / Math.max(1, n)).toFixed(1); };
-      cost = 'cpu ' + ms(acc.cpu, frames) + 'ms (sims ' + ms(acc.sim, frames) + ' tree ' + ms(acc.tree, frames) + ' upload ' + ms(acc.up, frames) + ')   gpu ' + (renderer.gpuField >= 0 ? 'field ' + ms(acc.gf, acc.gn) + ' shade ' + ms(acc.gs, acc.gn) + 'ms' : 'n/a');
+      cost = 'cpu ' + ms(acc.cpu, frames) + 'ms (sims ' + ms(acc.sim, frames) + ' tree ' + ms(acc.tree, frames) + ' upload+wait ' + ms(acc.up, frames) + ')   gpu ' + (renderer.gpuField >= 0 ? 'field ' + ms(acc.gf, acc.gn) + ' shade ' + ms(acc.gs, acc.gn) + 'ms' : 'n/a');
       window.skyCost = { fps: fps, cpu: acc.cpu / frames, sim: acc.sim / frames, tree: acc.tree / frames, upload: acc.up / frames, gpuField: acc.gn ? acc.gf / acc.gn : -1, gpuShade: acc.gn ? acc.gs / acc.gn : -1, puffs: renderer.count };
       frames = 0; fpsT = 0; for (var ak in acc) acc[ak] = 0;
     }

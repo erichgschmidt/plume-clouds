@@ -666,7 +666,8 @@
       spanY: Math.max(1e-3, baseY - topY),   // the sim's height range (base to nominal top), for the exposure
       prim: prim, pa: clamp(num(look.primAmt, 1), 0, 1), primPacked: prim + clamp(num(look.primAmt, 1), 0, 1) * 0.5,
       children: Math.max(0, Math.round(num(look.children, 4))), ratio: clamp(num(look.ratio, 0.42), 0.1, 0.8),
-      levels: clamp(Math.round(num(look.levels, 3)), 1, 3), life: Math.max(0, num(look.life, 1)) * num(look.motion, 1), embed: clamp(num(look.embed, 0.78), 0.3, 1),
+      levels: clamp(Math.round(num(look.levels, 3)), 1, 3), lvFade: clamp(num(look.levelFade, 1), 0, 1),   // levelFade: the deepest level thinned like the budget does (a host's LOD by distance), 1 whole
+      life: Math.max(0, num(look.life, 1)) * num(look.motion, 1), embed: clamp(num(look.embed, 0.78), 0.3, 1),
       depthScale: num(look.depth, 1), roll: num(look.roll, 1),
       // step 4 (docs/core-audit.md): Depth scales the heights only (order and relief are one thing in a height
       // union); the sway of child puffs has its own scale, and a puff's depth weight (its fade) comes from its
@@ -841,7 +842,7 @@
     queue = queue.filter(function (q) { return q.F.levels < 2 || thinR(q) >= minR; });
     queue.sort(function (a, b) { return b.r - a.r; });
     var l1 = 0, l2 = 0;
-    for (k = 0; k < queue.length; k++) { F = queue[k].F; if (F.levels >= 2) l1 += F.children; if (F.levels >= 3) l2 += F.children * F.children; }
+    for (k = 0; k < queue.length; k++) { F = queue[k].F; if (F.levels >= 2) l1 += F.children * (F.levels === 2 ? F.lvFade : 1); if (F.levels >= 3) l2 += F.children * F.children * F.lvFade; }
     var fade = [1, 1, 1], cap = Math.min(MAX_SPH, this.budget || MAX_SPH);   // budget: a smaller cap for testing the thinning
     if (n + l1 > cap) { fade[1] = Math.max(0, (cap - n) / Math.max(1, l1)); fade[2] = 0; }
     else if (n + l1 + l2 > cap) fade[2] = Math.max(0, (cap - n - l1) / Math.max(1, l2));
@@ -858,7 +859,8 @@
       for (k = 0; k < queue.length && n < cap; k++) {
         q = queue[k]; F = q.F;
         if (F.levels < level + 2) continue;
-        var keep = fd >= 1 ? F.children : Math.floor(fd * 0.98 * F.children + hash(q.seed + 77.7));
+        var fdc = level + 2 === F.levels ? fd * F.lvFade : fd;   // the cloud's own fade of its deepest level (LOD), on top of the budget's
+        var keep = fdc >= 1 ? F.children : Math.floor(fdc * 0.98 * F.children + hash(q.seed + 77.7));
         for (j = 0; j < keep && n < cap; j++) {
           var cf = smoothstep(minR, 2 * minR, thinR(q));
           var rate = 0.7 + 0.6 * hash(q.seed + 4.7 + j * 41.3);
