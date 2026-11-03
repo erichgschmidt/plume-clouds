@@ -11,7 +11,8 @@
  *           contact > 0 for the contact term (o5.r), the light already turned by the camera pitch; cavity > 0 and
  *           cavityReach (texels) for the cavity term (o5.g) }
  *   x, y    texel indices, GL convention (y up from the bottom row), as readPixels addresses them
- *   returns { H, mask, Gx, Gy, rim, contact, cavity } = the shader's o.r, o.a, o4.x, o4.y, o3.w, o5.r, o5.g
+ *           body > 0 and bodySoft (reference radii) for the body slope (o5.ba)
+ *   returns { H, mask, Gx, Gy, rim, contact, cavity, Bx, By } = the shader's o.r, o.a, o4.x, o4.y, o3.w, o5.r, o5.g, o5.b, o5.a
  */
 (function () {
   'use strict';
@@ -82,7 +83,7 @@
       else if (prim === 4) { q = (Math.abs(dx) + Math.abs(dy)) / Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6); len = mix(1, q, pa); dx *= len; dy *= len; }
       d2 = dx * dx + dy * dy; if (d2 >= r * r) continue;
       u = Math.sqrt(d2) / r;
-      h = D[o0 + 3] + r * mix(Math.sqrt(1 - u * u), 1 - u * u, cap);
+      h = D[o0 + 3] + D[o4 + 2] * r * mix(Math.sqrt(1 - u * u), 1 - u * u, cap);   // row 4 .z: the relief of the puff's level
       if (ph.length < 8) { ph.push(h); pidA.push(D[o4]); ppA.push(D[o4 + 1]); }
       else { var lo = 0; for (var qq = 1; qq < 8; qq++) if (ph[qq] < ph[lo]) lo = qq; if (h > ph[lo]) { ph[lo] = h; pidA[lo] = D[o4]; ppA[lo] = D[o4 + 1]; } }
       if (h > winH) { winH = h; winId = D[o4]; winPid = D[o4 + 1]; winIdx = i; winZ = D[o0 + 3]; winU = u; winR = r; }
@@ -91,7 +92,7 @@
     var m = -1e9, acc = 0, mO = -1e9, accO = 0, ins = 0, cI = -1, cO = -1;   // cI / cO: the cloud of the highest containing puff and of the highest skirt
     var m2 = -1e9, acc2 = 0, m2O = -1e9, acc2O = 0;
     var sm = -1e9, sacc = 0;
-    var GIx = 0, GIy = 0, GOx = 0, GOy = 0, RI = 0;
+    var GIx = 0, GIy = 0, GOx = 0, GOy = 0, RI = 0, wantB = P.body > 0, bodyC = [];
     for (i = 0; i < count; i++) {
       o0 = i * 4; o1 = (M + i) * 4; o2 = (M * 2 + i) * 4; o3 = (M * 3 + i) * 4; o4 = (M * 4 + i) * 4;
       dx = px - D[o0]; dy = py - D[o0 + 1]; r = D[o0 + 2] * erode(i); st = D[o2 + 2]; if (r <= 1e-5) continue;
@@ -117,7 +118,8 @@
       u = dist / r;
       var sph = u < 1 ? Math.sqrt(1 - u * u) : -(u - 1) * 2.0647;
       var par = u < 1 ? 1 - u * u : -2 * (u - 1);
-      h = D[o0 + 3] + r * mix(sph, par, cap) - pen;
+      var rel = D[o4 + 2];
+      h = D[o0 + 3] + rel * (r * mix(sph, par, cap) - pen);
       var dsph = u < 1 ? Math.max(-20, -u / Math.sqrt(Math.max(1e-6, 1 - u * u))) : -2.0647;
       var dpar = u < 1 ? -2 * u : -2;
       var dpen = (tt > 0 && tt < 0.995) ? Math.min(20, 2 * (2 * tt - tt * tt) / ((1 - tt) * (1 - tt))) : (tt > 0 ? 20 : 0);
@@ -125,10 +127,11 @@
       if (prim === 1) dpy *= 1 + 1.5 * pa;
       if (vb2 !== 1) { var vp = varyGrad(D, M, i, dpx, dpy, dx, dy); dpx = vp[0]; dpy = vp[1]; }
       if (st !== 1) { var ax = dpx * wx / st + dpy * wy * Math.sqrt(st), ay = dpx * wy / st + dpy * -wx * Math.sqrt(st); dpx = ax; dpy = ay; }
-      var gs = mix(dsph, dpar, cap) - dpen, gdx = gs * dpx, gdy = gs * dpy;
+      var gs = rel * (mix(dsph, dpar, cap) - dpen), gdx = gs * dpx, gdy = gs * dpy;
       if (inside) ins = Math.max(ins, smoothstep(0, T, r - dist));
       var wa = 1;
       if (inside) { var id = D[o4], pid = D[o4 + 1]; for (var q2 = 0; q2 < ph.length; q2++) if (!(id === pidA[q2] || pid === ppA[q2] || pid === pidA[q2] || id === ppA[q2])) wa *= smoothstep(-0.25 * T, 0, h - ph[q2]); }
+      if (wantB && inside && D[o4 + 3] > 0) { var wbB = wa * D[o4 + 3] * (1 - u * u) * (1 - u * u); if (wbB > 0) bodyC.push([Math.floor(D[o3 + 3]), h, gdx, gdy, wbB]); }   // body lighting candidates: footprints only, by (1 - u^2)^2 (row 4 .w: the generation weight)
       var w, wq, rim = 1 - smoothstep(0, 0.3, 1 - dist / r);
       if (inside) {
         if (h > m) { wq = Math.exp((m - h) / T); acc = acc * wq + wa; GIx = GIx * wq + wa * gdx; GIy = GIy * wq + wa * gdy; RI = RI * wq + wa * rim; m = h; cI = Math.floor(D[o3 + 3]); }
@@ -156,6 +159,13 @@
     if (acc > 0) { wI = Math.exp(Math.max(-40, (HI - Hf) / T)); Gx += gIx * wI; Gy += gIy * wI; rimW += RI / acc * wI; }
     if (accO > 0) { wO = Math.exp(Math.max(-40, (HO - Hf) / T)); Gx += gOx * wO; Gy += gOy * wO; rimW += wO; }
     var sil = sacc > 0 ? (sm + Math.log(Math.min(sacc, 2))) * T : -1;
+    // body lighting (the shader's third loop): a soft union at Body softness reference radii over the texel's own cloud
+    var cB = (acc <= 0 || HO > HI) ? cO : cI, Bx = Gx, By = Gy;
+    if (wantB && Hf > -0.5) {
+      var Tb = Math.max((P.bodySoft === undefined ? 1.5 : P.bodySoft) * ref, T), mB = -1e9, accB = 0, sBx = 0, sBy = 0;
+      bodyC.forEach(function (b) { if (b[0] !== cB) return; var wq; if (b[1] > mB) { wq = Math.exp((mB - b[1]) / Tb); accB = accB * wq + b[4]; sBx = sBx * wq + b[4] * b[2]; sBy = sBy * wq + b[4] * b[3]; mB = b[1]; } else { wq = b[4] * Math.exp((b[1] - mB) / Tb); accB += wq; sBx += wq * b[2]; sBy += wq * b[3]; } });
+      if (accB > 0) { Bx = sBx / accB; By = sBy / accB; }
+    }
     var mask = smoothstep(-0.5 * T, 0.5 * T, sil);
     // contact, in object space (the shader's block after the union): a ray from (p, H) toward the light against every
     // other puff as a sphere; the spheres the point sits on (within T) and the owner are left out
@@ -181,7 +191,7 @@
       }
       contact = 1 - tr; cavity = smoothstep(0, 0.5, 1 - sky);
     }
-    return { H: Hf, mask: mask + 10 * Math.max(0, sil - 0.5 * T), Gx: Gx, Gy: Gy, rim: clamp(rimW, 0, 1), contact: contact, cavity: cavity };
+    return { H: Hf, mask: mask + 10 * Math.max(0, sil - 0.5 * T), Gx: Gx, Gy: Gy, rim: clamp(rimW, 0, 1), contact: contact, cavity: cavity, Bx: Bx, By: By };
   }
 
   window.fieldRef = fieldRef; window.varyIn = varyIn;
@@ -209,7 +219,7 @@
       if (d2 > r * r * 2.25) continue;
       var dist = Math.sqrt(d2), u = dist / r, tt = clamp((dist - r) / (0.5 * r), 0, 0.995), pen = r * tt * tt / (1 - tt);
       var sph = u < 1 ? Math.sqrt(1 - u * u) : -(u - 1) * 2.0647, par = u < 1 ? 1 - u * u : -2 * (u - 1);
-      var h = D[o0 + 3] + r * mix(sph, par, cap) - pen, inside = d2 < r * r;
+      var h = D[o0 + 3] + D[o4 + 2] * (r * mix(sph, par, cap) - pen), inside = d2 < r * r;
       if (inside) ins = Math.max(ins, smoothstep(0, T, r - dist));
       rows.push({ i: i, id: D[o4], parent: D[o4 + 1], u: u, h: h, inside: inside, wa: 1, share: 0, note: '' });
     }
