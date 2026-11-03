@@ -654,7 +654,8 @@
     if (C) zoom = clamp(C.s * C.f / Math.max(0.05, C.z), 0.05, 8);
     return {
       cam: C ? { x: C.x, z: C.z, h: C.h, s: C.s, f: C.f, hor: C.hor, flat: clamp(num(C.flat, 0), 0, 1), k: num(C.span, 0) / Math.max(1e-3, baseY - topY), spanS: Math.max(1e-3, baseY - topY), sx: num(C.sx, 0), sy: num(C.sy, 0) } : null,
-      sim: sim, idx: Math.min(31, idx | 0), zoom: zoom, pivX: num(sim.cx, 0.5), pivY: baseY, panX: num(look.panX, 0), panY: num(look.panY, 0),
+      // c: the cloud's index; hold (a host's update rate by distance): 1 build and keep this frame's puffs, 2 reuse the kept ones, 0 neither
+      sim: sim, idx: Math.min(31, idx | 0), c: idx | 0, hold: num(look.hold, 0) | 0, zoom: zoom, pivX: num(sim.cx, 0.5), pivY: baseY, panX: num(look.panX, 0), panY: num(look.panY, 0),
       ref: (sim.refRadius || 0.08) * zoom,
       shear: Math.max(0, num(look.shear, 0)), shearBias: clamp(num(look.shearBias, 0), -1, 1), wx: Math.cos(wa), wy: -Math.sin(wa), lean: num(look.lean, 0),
       // wind drift (wind erosion, step 1): speed in fifths of a reference radius per second at full exposure, gust size in
@@ -721,9 +722,9 @@
       D[o2] = stack; D[o2 + 1] = detail; D[o2 + 2] = fresh; D[o2 + 3] = dis;
       D[o3] = anx; D[o3 + 1] = any; D[o3 + 2] = stretch; D[o3 + 3] = primPacked;
       D[o4] = wx; D[o4 + 1] = wy; D[o4 + 2] = band; D[o4 + 3] = dw;
-      n++; return true;
+      OWN[n] = putC; n++; return true;
     }
-    var queue = [], q, j, c, F;
+    var queue = [], q, j, c, F, OWN = this._owner || (this._owner = new Int32Array(MAX_SPH)), putC = 0, anyKeep = false;   // OWN: the cloud of each puff (for the kept blocks)
     // wind drift: an exposed lobe drifts downwind, the crown most and the body hardly, stretching as it goes. The drift is
     // accumulated per root id (in reference radii, bounded softly at 2 so a lobe stretches away but stays with its cloud)
     // and varied by a broad gust pattern that travels with the wind through the cloud (the surface detail travels with the
@@ -748,7 +749,12 @@
       var sim = F.sim, B = sim.blobs, A = sim.aux, S = sim.spin, Dt = sim.detail, STR = sim.stretch || null;
       var count = Math.min(sim.blobCount | 0, 128), baseStart = num(sim.baseStart, count);
       var ct = sim.time !== undefined ? sim.time : time, W = WS[c];
-      if (!W || ct < W.t) W = WS[c] = { t: ct, drift: new Map(), wear: new Map(), wisps: new Map(), hT: undefined, fresh: true };
+      if (!W || ct < W.t) W = WS[c] = { t: ct, drift: new Map(), wear: new Map(), wisps: new Map(), hT: undefined, fresh: true, born: new Map(), bornNow: new Map(), keep: null, keepN: 0 };
+      F.W = W; putC = c;
+      // a held cloud (hold 2, with a block kept from its last built frame): its puffs go in as they were, nothing else runs
+      // for it (its wind state, wisps and child births wait for its next built frame); hold 1 keeps this frame's block below
+      if (F.hold === 2 && W.keep) { var KB = W.keep, kn = Math.min(W.keepN, MAX_SPH - n); for (var kp = 0; kp < kn; kp++) { var kb = kp * 32; for (var kr = 0; kr < 8; kr++) { var ko = (MAX_SPH * kr + n) * 4, ki = kb + kr * 4; D[ko] = KB[ki]; D[ko + 1] = KB[ki + 1]; D[ko + 2] = KB[ki + 2]; D[ko + 3] = KB[ki + 3]; } OWN[n] = c; n++; } continue; }
+      if (F.hold === 1) anyKeep = true;
       var dtW = clamp(ct - W.t, 0, 0.1); W.t = ct; F.t = ct; F.reborn = W.fresh; W.fresh = false;   // reborn: this frame's child births are now
       var drift = W.drift, driftNow = new Map(), wear = W.wear, wearNow = new Map(), wisps = W.wisps;
       var hTop = 1e-3; for (var i0 = 0; i0 < count; i0++) if (B[i0 * 4 + 2] > 1e-4 && A[i0 * 4 + 3] > 1e-6) hTop = Math.max(hTop, (F.pivY - B[i0 * 4 + 1]) / F.spanY);
@@ -849,9 +855,8 @@
     var last = this._fade || [1, 1, 1];
     for (k = 1; k < 3; k++) { if (fade[k] < 1 && last[k] < 1 && Math.abs(fade[k] - last[k]) < 1 / 64) fade[k] = last[k]; }
     this._fade = fade;
-    this.degrade = fade[2] < 1 ? fade[2] : fade[1];
-    // a child's birth is the parent's roll angle then, kept while the child is seen (entries not refreshed this frame are dropped)
-    var born = this._born || new Map(), bornNow = new Map();
+    this.degrade = fade[2] < 1 ? fade[2] : fade[1];    // a child's birth is the parent's roll angle then, kept while the child is seen (entries not refreshed this frame are dropped)
+    // (per cloud, in its wind state W: a held cloud keeps its entries while it is not rebuilt)
     for (var level = 0; level < 2 && queue.length; level++) {
       var next = [], fd = fade[level + 1];
       if (fd <= 0) break;
@@ -870,7 +875,7 @@
           var sraw = q.F.t * 0.12 * F.life + hash(q.seed + 5.5 + j * 7.1) * cyc;
           var ci = Math.floor(sraw / cyc), ph = sraw / cyc - ci;
           var cs = q.seed + ci * 101.3 + level * 17.9;   // reseeded every life
-          var ck = cs + j * 3.1, b0 = q.F.reborn ? undefined : born.get(ck); if (b0 === undefined) b0 = q.angle; bornNow.set(ck, b0);
+          var ck = cs + j * 3.1, b0 = q.F.reborn ? undefined : q.F.W.born.get(ck); if (b0 === undefined) b0 = q.angle; q.F.W.bornNow.set(ck, b0);
           var jit = hash(cs + j * 31.7) - 0.5;
           var zz = (1 - 2 * (j + 0.5 + jit * 0.55) / F.children) * 0.9;
           var azm = hash(cs + 1.3 + j * 13.9) * 6.2832;
@@ -912,13 +917,26 @@
           // the child's id: from its seed, scattered by a hash so that cousins never share one (seeds are linear in j, and a
           // grandchild of child 0 had the id of another of child 1); persistent for the child's life, so its shape is too
           var cid = cs + j * 3.1 + 1.7 + 1000 * hash(cs * 0.37 + j * 5.9), cv = vary(F.vary, cid); cr *= cv.rs;
+          putC = F.c;
           put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id, cv, q.wer);
           next.push({ id: cid, v: cv, F: F, x: x, y: y, r: cr, z: z, zr: zr2, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2, zp: q.zp, wer: q.wer });
         }
       }
       queue = next.filter(function (q) { return thinR(q) >= minR; }).sort(function (a, b) { return b.r - a.r; });
     }
-    this._born = bornNow;
+    for (c = 0; c < clouds.length; c++) {   // every built cloud: this frame's births become last frame's (entries not refreshed are dropped)
+      var Wc = WS[c]; if (!Wc || (Wc.keep && ((clouds[c].look || {}).hold | 0) === 2)) continue;
+      var bt = Wc.born; Wc.born = Wc.bornNow; Wc.bornNow = bt; bt.clear();
+    }
+    if (anyKeep) {   // keep the blocks of the clouds that asked (hold 1): their puffs gathered by owner, 32 floats each
+      for (c = 0; c < clouds.length; c++) { var Wk = WS[c]; if (Wk) Wk.keepN = 0; }
+      for (var pi = 0; pi < n; pi++) {
+        var Wp = WS[OWN[pi]]; if (!Wp || ((clouds[OWN[pi]].look || {}).hold | 0) !== 1) continue;
+        if (!Wp.keep || Wp.keep.length < (Wp.keepN + 1) * 32) { var grown = new Float32Array(Math.max(64, Wp.keepN * 2 + 32) * 32); if (Wp.keep) grown.set(Wp.keep); Wp.keep = grown; }
+        var kb2 = Wp.keepN * 32; for (var kr2 = 0; kr2 < 8; kr2++) { var ko2 = (MAX_SPH * kr2 + pi) * 4, ki2 = kb2 + kr2 * 4; Wp.keep[ki2] = D[ko2]; Wp.keep[ki2 + 1] = D[ko2 + 1]; Wp.keep[ki2 + 2] = D[ko2 + 2]; Wp.keep[ki2 + 3] = D[ko2 + 3]; }
+        Wp.keepN++;
+      }
+    }
     this.count = n;
     var gl = this.gl, tB = performance.now();
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
