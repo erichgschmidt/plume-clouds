@@ -56,8 +56,8 @@
 
   // the style of the whole sky (the shade pass): one look for every cloud
   var sky = { softness: 1.0, noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, noiseBias2: 0, streak: 0, flow: 0.04, anchor: 1, smooth: 0.5, haze: 0.4, dither: 0, dissolve: 0, dotSize: 1, grain: 1,
-    atmos: 0.35, depthFall: 0.6, sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, baseShade: 0.5, stackShade: 0.4,
-    cirrus: 0.35, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, pixelated: true, pixel: 2, overhead: 0.7, rim: 0.5, puffRim: 0.5, cap: 0, contact: 0, cavity: 0, cavityReach: 8, cavityLit: 1, baseFall: 0.7 };
+    atmos: 0.35, depthFall: 0.6, sun: 86, elevation: 6, shadow: 0.64, highlight: 0.68, fill: 0.11, bands: 5, baseShade: 0.5, stackShade: 0.4,
+    cirrus: 0.35, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, pixelated: true, pixel: 2, overhead: 0.6, rim: 0.5, puffRim: 0.5, cap: 0, contact: 0, cavity: 0, cavityReach: 8, cavityLit: 1, baseFall: 0.7 };
   // the sky's own parameters
   // the eye: dragged in the canvas (an unlocked parallax, on top of the sway); double-click recentres
   var eye = { x: 0, y: 0 }, drag = null;
@@ -204,6 +204,24 @@
     ['Cirrus', ['cirrus', 'cirrusScale', 'cirrusAngle', 'cirrusFlow']]
   ];
   buildGroups($('groups'), GROUPS, [STYLE, LIGHT, CIRRUS], function () { return sky; });
+  // lighting presets: a small select at the top of the Light group sets these five values; the sliders stay free afterwards.
+  // The first is the default light (Gus's low side sun); 'Classic' is the light before 2026-11-03
+  var LIGHTS = [
+    { name: 'Low side sun', sun: 86, elevation: 6, overhead: 0.6, shadow: 0.64, fill: 0.11 },
+    { name: 'Classic (high sun)', sun: 60, elevation: 40, overhead: 0.7, shadow: 0.64, fill: 0.2 },
+    { name: 'Noon', sun: 90, elevation: 60, overhead: 0.7, shadow: 0.6, fill: 0.25 },
+    { name: 'Evening, sun from the left', sun: 172, elevation: 4, overhead: 0.6, shadow: 0.75, fill: 0.08 },
+    { name: 'Overcast, flat', sun: 90, elevation: 50, overhead: 0.3, shadow: 0.25, fill: 0.5 }
+  ];
+  function lightPicker(host, target, refresh) {
+    var d = Array.prototype.find.call(host.querySelectorAll('details.grp'), function (g) { return g.querySelector('summary').textContent.indexOf('Light') === 0; }); if (!d) return;
+    var row = document.createElement('div'); row.className = 'row'; var label = document.createElement('label'); label.textContent = 'Preset'; var sel = document.createElement('select'); sel.style.flex = '1';
+    var o0 = document.createElement('option'); o0.value = ''; o0.textContent = '(pick a light)'; sel.appendChild(o0);
+    LIGHTS.forEach(function (L, i) { var o = document.createElement('option'); o.value = i; o.textContent = L.name; sel.appendChild(o); });
+    sel.addEventListener('change', function () { var L = LIGHTS[+sel.value]; if (!L) return; var T = target(); for (var k in L) if (k !== 'name' && k in T) T[k] = L[k]; refresh(); sel.value = ''; });
+    row.appendChild(label); row.appendChild(sel); d.querySelector('div').insertBefore(row, d.querySelector('div').firstChild);
+  }
+  lightPicker($('groups'), function () { return sky; }, function () { for (var k in sliders) sliders[k](); });
 
   var playing = true;
   $('btnPlay').addEventListener('click', function () { playing = !playing; this.textContent = playing ? 'Pause' : 'Play'; });

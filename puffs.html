@@ -104,7 +104,7 @@
 
   var look = { children: 6, ratio: 0.62, levels: 3, life: 1, embed: 0.9, softness: 1.0, depth: 1, swayScale: 1, roll: 1,
     noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, noiseBias2: 0, flow: 0.04, smooth: 0.5, haze: 0.5, shear: 0, shearBias: 0, wind: 0, lean: 0, windSpeed: 0, gustSize: 1.5, topEmphasis: 0.5, erosion: 0, wispAmount: 0, wispLife: 8, streak: 0, prim: 'sphere', primAmt: 1, panX: 0, panY: 0, diag: 0, dither: 0, dissolve: 0, dotSize: 1, grain: 1, anchor: 1, zoom: 1,
-    sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, bands: 5, depthFall: 0, atmos: 0, cirrus: 0, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, veil: 0, baseShade: 0.5, stackShade: 0.4, pixelated: true, pixel: 2, rim: 0.5, puffRim: 0.5, cap: 0, contact: 0, cavity: 0, cavityReach: 8, cavityLit: 1, baseFall: 0.7,
+    sun: 86, elevation: 6, shadow: 0.64, highlight: 0.68, fill: 0.11, bands: 5, depthFall: 0, atmos: 0, cirrus: 0, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, veil: 0, baseShade: 0.5, stackShade: 0.4, pixelated: true, pixel: 2, rim: 0.5, puffRim: 0.5, cap: 0, contact: 0, cavity: 0, cavityReach: 8, cavityLit: 1, baseFall: 0.7,
     shapeVar: 0, stretchVar: 1, contourVar: 1, shapeSeed: 0, angular: 0, sides: 5, evapScale: 3, stipple: 0, stippleBias: 0, breakup: 0, breakupReach: 6, patternLock: 1 };
   // rimV 2: Puff rim and Rim soften are independent (the shader used max(Puff rim, Rim soften) for the lobe rims). A look
   // from before (no rimV) keeps its appearance by puffRim = max(puffRim, rim); the page default puffRim is 0.5 for the same reason
@@ -237,6 +237,24 @@
   var GROUP_KEYS = [].concat.apply([], GROUPS.map(function (g) { return g[1]; }));
   buildGroups($('groupsTop'), [VIEW_GROUP], [SURFACE, LIGHT, VIEW], function () { return look; }, null, GROUP_KEYS);   // the view controls at the top of the panel
   buildGroups($('groups'), GROUPS, [SURFACE, LIGHT, VIEW], function () { return look; }, null, VIEW_GROUP[1]);
+  // lighting presets: a small select at the top of the Light group sets these five values; the sliders stay free afterwards.
+  // The first is the default light (a low side sun); 'Classic' is the light before 2026-11-03
+  var LIGHTS = [
+    { name: 'Low side sun', sun: 86, elevation: 6, overhead: 0.6, shadow: 0.64, fill: 0.11 },
+    { name: 'Classic (high sun)', sun: 60, elevation: 40, overhead: 0.7, shadow: 0.64, fill: 0.2 },
+    { name: 'Noon', sun: 90, elevation: 60, overhead: 0.7, shadow: 0.6, fill: 0.25 },
+    { name: 'Evening, sun from the left', sun: 172, elevation: 4, overhead: 0.6, shadow: 0.75, fill: 0.08 },
+    { name: 'Overcast, flat', sun: 90, elevation: 50, overhead: 0.3, shadow: 0.25, fill: 0.5 }
+  ];
+  function lightPicker(host, target, refresh) {
+    var d = Array.prototype.find.call(host.querySelectorAll('details.grp'), function (g) { return g.querySelector('summary').textContent.indexOf('Light') === 0; }); if (!d) return;
+    var row = document.createElement('div'); row.className = 'row'; var label = document.createElement('label'); label.textContent = 'Preset'; var sel = document.createElement('select'); sel.style.flex = '1';
+    var o0 = document.createElement('option'); o0.value = ''; o0.textContent = '(pick a light)'; sel.appendChild(o0);
+    LIGHTS.forEach(function (L, i) { var o = document.createElement('option'); o.value = i; o.textContent = L.name; sel.appendChild(o); });
+    sel.addEventListener('change', function () { var L = LIGHTS[+sel.value]; if (!L) return; var T = target(); for (var k in L) if (k !== 'name' && k in T) T[k] = L[k]; refresh(); sel.value = ''; });
+    row.appendChild(label); row.appendChild(sel); d.querySelector('div').insertBefore(row, d.querySelector('div').firstChild);
+  }
+  lightPicker($('groups'), function () { return look; }, function () { refresh(); });
   // the Forces group (rebuilt per engine) remembers its open state like the others
   (function () { var d = $('forcesGrp'), st = {}; try { st = JSON.parse(localStorage.getItem('plume-puffs-groups') || '{}'); } catch (e) {} if (st.Forces !== undefined) d.open = !!st.Forces;
     d.addEventListener('toggle', function () { try { var o = JSON.parse(localStorage.getItem('plume-puffs-groups') || '{}'); o.Forces = d.open; localStorage.setItem('plume-puffs-groups', JSON.stringify(o)); } catch (e) {} }); })();
