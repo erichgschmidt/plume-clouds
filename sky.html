@@ -40,7 +40,7 @@
   </div>
 </div>
 <script src="src/sim.js?v=196"></script>
-<script src="src/puffs.js?v=210"></script>
+<script src="src/puffs.js?v=211"></script>
 <script src="src/motion.js?v=209"></script>
 <script src="src/layer.js?v=209"></script>
 <script src="src/presets.js?v=210"></script>
@@ -239,8 +239,15 @@
   window.sky = sky; window.P = P; window.renderer = renderer; window.SPECIES = SPECIES;
 
   var last = performance.now(), fpsT = 0, frames = 0, fps = 0, t = 0, camZ = 0, camWind = 0, camAlt = 0, worst = 0, stall = 0;   // camAlt: how far the player has climbed (the cirrus plane comes nearer)   // stall: the longest frame of the last half second, to pin a hitch   // where the camera has got to (the cirrus plane scrolls with it)
+  // the cost readout (Performance): CPU ms per frame for the sims, the tree build and the upload, GPU ms for the field and
+  // shade passes (timer queries; n/a without the extension), averaged over the same half second as the fps
+  var acc = { sim: 0, tree: 0, up: 0, cpu: 0, gf: 0, gs: 0, gn: 0 }, cost = '';
+  // ?bench in the URL drives the loop with a message channel instead of requestAnimationFrame, so a tab that is not on
+  // screen still runs frames (the browser pane here, a headless measurement): as fast as they go, not paced to the display
+  var raf = /[?&]bench\b/.test(location.search) ? (function () { var ch = new MessageChannel(), cb = null; ch.port1.onmessage = function () { var f = cb; cb = null; if (f) f(performance.now()); }; return function (f) { cb = f; ch.port2.postMessage(0); }; })() : function (f) { requestAnimationFrame(f); };
   function loop(now) { try {
     var dt = Math.min(0.1, (now - last) / 1000); worst = Math.max(worst, now - last); last = now;
+    var t0 = performance.now();
     var aspect = canvas.height / canvas.width;
     var vx = P.runX + keyVel.x, vy = P.climb + keyVel.y;   // the player's velocity: the sliders plus the held keys
     if (playing) {
@@ -285,14 +292,24 @@
     }
     sky.cam = { x: camX + camWind, z: camZ, hor: hor, alt: Math.max(0.15 * aspect, 1.05 * aspect - camAlt) };   // the cirrus veil: a plane above everything, travelling with the camera
     var flat = []; clouds.forEach(function (c) { c.sims.forEach(function (e) { flat.push(e); }); });
+    var t1 = performance.now();
     renderer.render(flat, t, P.motion === 1 ? sky : Object.assign({}, sky, { flow: sky.flow * P.motion, cirrusFlow: sky.cirrusFlow * P.motion }));   // Motion also slows the surface noise and the cirrus scroll
+    var t2 = performance.now();
+    acc.sim += t1 - t0; acc.tree += renderer.msTree; acc.up += renderer.msUpload; acc.cpu += t2 - t0;
+    if (renderer.gpuField >= 0) { acc.gf += renderer.gpuField; acc.gs += renderer.gpuShade; acc.gn++; }
     frames++; fpsT += dt;
-    if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; stall = Math.round(worst); worst = 0; }
-    hud.textContent = (window.PLUME_BUILD ? 'build ' + PLUME_BUILD.commit + ' ' + PLUME_BUILD.date + '   ' : '') + 'fps ' + fps + '   stall ' + stall + 'ms   clouds ' + clouds.length + '   puffs ' + renderer.count + (renderer.degrade < 1 ? '  (deepest level at ' + Math.round(renderer.degrade * 100) + '%)' : '') + '   t ' + t.toFixed(0) + 's';
-    requestAnimationFrame(loop);
+    if (fpsT >= 0.5) {
+      fps = Math.round(frames / fpsT); stall = Math.round(worst); worst = 0;
+      var ms = function (v, n) { return (v / Math.max(1, n)).toFixed(1); };
+      cost = 'cpu ' + ms(acc.cpu, frames) + 'ms (sims ' + ms(acc.sim, frames) + ' tree ' + ms(acc.tree, frames) + ' upload ' + ms(acc.up, frames) + ')   gpu ' + (renderer.gpuField >= 0 ? 'field ' + ms(acc.gf, acc.gn) + ' shade ' + ms(acc.gs, acc.gn) + 'ms' : 'n/a');
+      window.skyCost = { fps: fps, cpu: acc.cpu / frames, sim: acc.sim / frames, tree: acc.tree / frames, upload: acc.up / frames, gpuField: acc.gn ? acc.gf / acc.gn : -1, gpuShade: acc.gn ? acc.gs / acc.gn : -1, puffs: renderer.count };
+      frames = 0; fpsT = 0; for (var ak in acc) acc[ak] = 0;
+    }
+    hud.textContent = (window.PLUME_BUILD ? 'build ' + PLUME_BUILD.commit + ' ' + PLUME_BUILD.date + '   ' : '') + 'fps ' + fps + '   stall ' + stall + 'ms   clouds ' + clouds.length + '   puffs ' + renderer.count + (renderer.degrade < 1 ? '  (deepest level at ' + Math.round(renderer.degrade * 100) + '%)' : '') + '   t ' + t.toFixed(0) + 's\n' + cost;
+    raf(loop);
     } catch (err) { hud.textContent = 'ERR ' + err.stack; }
   }
-  requestAnimationFrame(loop);
+  raf(loop);
 })();
 </script>
 </body>

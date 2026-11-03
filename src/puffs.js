@@ -609,6 +609,10 @@
     this.resize(240);
     this.count = 0;
     this.degrade = 1;   // 1 = the full tree fitted; below 1 the deepest level is faded by this much
+    // the cost readout: CPU ms of the last tree build (msTree) and of the sphere and tile uploads (msUpload); GPU ms of the
+    // field and shade passes from timer queries (EXT_disjoint_timer_query_webgl2; -1 without it), a few frames late
+    this.msTree = 0; this.msUpload = 0; this.gpuField = -1; this.gpuShade = -1;
+    this._timer = gl.getExtension('EXT_disjoint_timer_query_webgl2'); this._queries = [];
   }
 
   // field resolution: `width` texels across, height by the canvas aspect
@@ -681,7 +685,7 @@
   // Build the puff tree for every cloud, breadth first across clouds (every root, then every
   // child, then every grandchild) so no cloud starves another of its skin.
   PuffRenderer.prototype._tree = function (clouds, time) {
-    var D = this._sphData, n = 0;
+    var D = this._sphData, n = 0, tA = performance.now();
     var LEVEL_DETAIL = [0.25, 0.6, 1.0];
     // the shape variation of one puff: rows 5 and 6 (see the field pass). The hashes are of the id and the seed only
     function vary(V, id) {
@@ -910,12 +914,29 @@
     }
     this._born = bornNow;
     this.count = n;
-    var gl = this.gl;
+    var gl = this.gl, tB = performance.now();
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, MAX_SPH);   // D is laid out MAX_SPH wide; upload only the used columns
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, Math.max(1, n), 8, gl.RGBA, gl.FLOAT, D, 0);
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
     this._bin();
+    this.msTree = tB - tA; this.msUpload = performance.now() - tB;
+  };
+
+  // GPU timing: one query round the field pass and one round the shade pass per frame; results are read when they
+  // arrive (a few frames later), a disjoint interval (a clock change) drops the pair
+  PuffRenderer.prototype._gpuBegin = function (which) { var gl = this.gl, tq = this._timer; if (!tq) return; var q = gl.createQuery(); gl.beginQuery(tq.TIME_ELAPSED_EXT, q); this._qCur = this._qCur || {}; this._qCur[which] = q; };
+  PuffRenderer.prototype._gpuEnd = function () { var tq = this._timer; if (tq) this.gl.endQuery(tq.TIME_ELAPSED_EXT); };
+  PuffRenderer.prototype._gpuPoll = function () {
+    var gl = this.gl, tq = this._timer, Q = this._queries; if (!tq) return;
+    if (this._qCur) { Q.push(this._qCur); this._qCur = null; }
+    var disjoint = gl.getParameter(tq.GPU_DISJOINT_EXT);
+    while (Q.length) {
+      var p = Q[0];
+      if (!disjoint && Q.length < 8 && !(gl.getQueryParameter(p.f, gl.QUERY_RESULT_AVAILABLE) && gl.getQueryParameter(p.s, gl.QUERY_RESULT_AVAILABLE))) break;
+      if (!disjoint && Q.length < 8) { this.gpuField = gl.getQueryParameter(p.f, gl.QUERY_RESULT) / 1e6; this.gpuShade = gl.getQueryParameter(p.s, gl.QUERY_RESULT) / 1e6; }
+      gl.deleteQuery(p.f); gl.deleteQuery(p.s); Q.shift();
+    }
   };
 
   PuffRenderer.prototype._growList = function (rows) {
@@ -998,7 +1019,7 @@
     gl.uniform4f(this._fu.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     gl.uniform1f(this._fu.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(this._fu.uContact, clamp(num(sky.contact, 0), 0, 1));
     gl.uniform1f(this._fu.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(this._fu.uCavityReach, Math.max(1, num(sky.cavityReach, 8)));
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    this._gpuBegin('f'); gl.drawArrays(gl.TRIANGLES, 0, 3); this._gpuEnd();
     // shade
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);
     if (px > 0) { gl.clearColor(0.075, 0.4525, 0.575, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.viewport(vx, vy, vw, vh); }
@@ -1037,7 +1058,8 @@
     gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0.5), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uCavityLit, clamp(num(sky.cavityLit, 1), 0, 1)); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0)); gl.uniform1f(su.uT, this._T);
     gl.uniform1f(su.uStipple, clamp(num(sky.stipple, 0), 0, 1)); gl.uniform1f(su.uStippleBias, clamp(num(sky.stippleBias, 0), -1, 1)); gl.uniform1f(su.uBreakup, clamp(num(sky.breakup, 0), 0, 1)); gl.uniform1f(su.uBreakupReach, Math.max(1, num(sky.breakupReach, 6))); gl.uniform1f(su.uLock, sky.patternLock === 0 ? 0 : 1);
     gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    this._gpuBegin('s'); gl.drawArrays(gl.TRIANGLES, 0, 3); this._gpuEnd();
+    this._gpuPoll();
   };
 
   PuffRenderer.MAX_SPH = MAX_SPH;
