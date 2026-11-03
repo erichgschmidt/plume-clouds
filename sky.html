@@ -40,7 +40,7 @@
   </div>
 </div>
 <script src="src/sim.js?v=196"></script>
-<script src="src/puffs.js?v=214"></script>
+<script src="src/puffs.js?v=217"></script>
 <script src="src/motion.js?v=209"></script>
 <script src="src/layer.js?v=209"></script>
 <script src="src/presets.js?v=211"></script>
@@ -284,7 +284,7 @@
   // the cost readout (Performance): CPU ms per frame for the sims, the tree build and the upload, GPU ms for the field and
   // shade passes (timer queries; n/a without the extension), averaged over the same half second as the fps. The upload
   // figure includes any wait for the GPU (the first blocking GL call of a frame absorbs the vsync and back-pressure wait)
-  var acc = { sim: 0, tree: 0, up: 0, cpu: 0, gf: 0, gs: 0, gn: 0 }, cost = '', frameNo = 0;
+  var acc = { sim: 0, tree: 0, up: 0, cpu: 0, gf: 0, gs: 0, gn: 0 }, cost = '', frameNo = 0, flatList = [], skyM = {};   // flatList, skyM: reused per frame
   // ?bench in the URL drives the loop with a message channel instead of requestAnimationFrame, so a tab that is not on
   // screen still runs frames (the browser pane here, a headless measurement): as fast as they go, not paced to the display
   var raf = /[?&]bench\b/.test(location.search) ? (function () { var ch = new MessageChannel(), cb = null; ch.port1.onmessage = function () { var f = cb; cb = null; if (f) f(performance.now()); }; return function (f) { cb = f; ch.port2.postMessage(0); }; })() : function (f) { requestAnimationFrame(f); };
@@ -343,16 +343,19 @@
         e = c.sims[j];
         var h = c.h - sy, flat = c.flat, span = c.span, cs = c.s * sepK;
         if (e.atTop) { h += (main.sim.baseY - e.sim.baseY) * cs; flat = 1; span = cs * 0.9; }   // the anvil spreads flat at the tower top
-        e.look.cam = { x: c.x - sx, z: c.z, h: h, s: cs, f: 1, hor: hor, flat: flat, span: span * sepK, sx: sx, sy: sy };   // sx/sy: the sway, re-projected per puff by its depth
+        var cm = e.look.cam || (e.look.cam = {});   // reused (no per-frame garbage); sx/sy: the sway, re-projected per puff by its depth
+        cm.x = c.x - sx; cm.z = c.z; cm.h = h; cm.s = cs; cm.f = 1; cm.hor = hor; cm.flat = flat; cm.span = span * sepK; cm.sx = sx; cm.sy = sy;
         e.look.far = fs;
         lod(e, c.far);
       }
     }
     sky.cam = { x: camX + camWind, z: camZ, hor: hor, alt: Math.max(0.15 * aspect, 1.05 * aspect - camAlt) };   // the cirrus veil: a plane above everything, travelling with the camera
-    var flat = []; clouds.forEach(function (c) { c.sims.forEach(function (e) { flat.push(e); }); });
+    flatList.length = 0; for (i = 0; i < clouds.length; i++) for (j = 0; j < clouds[i].sims.length; j++) flatList.push(clouds[i].sims[j]);
+    var skyNow = sky;
+    if (P.motion !== 1) { skyNow = Object.assign(skyM, sky); skyNow.flow = sky.flow * P.motion; skyNow.cirrusFlow = sky.cirrusFlow * P.motion; }   // Motion also slows the surface noise and the cirrus scroll
     renderer.budget = P.sceneCap;   // the scene puff cap (Performance): the renderer's budget, thinning the deepest level
     var t1 = performance.now();
-    renderer.render(flat, t, P.motion === 1 ? sky : Object.assign({}, sky, { flow: sky.flow * P.motion, cirrusFlow: sky.cirrusFlow * P.motion }));   // Motion also slows the surface noise and the cirrus scroll
+    renderer.render(flatList, t, skyNow);
     var t2 = performance.now();
     acc.sim += t1 - t0; acc.tree += renderer.msTree; acc.up += renderer.msUpload; acc.cpu += t2 - t0;
     if (renderer.gpuField >= 0) { acc.gf += renderer.gpuField; acc.gs += renderer.gpuShade; acc.gn++; }

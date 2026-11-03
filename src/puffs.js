@@ -33,6 +33,8 @@
   function smoothstep(a, b, x) { var t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
   function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
   function num(v, d) { return typeof v === 'number' && isFinite(v) ? v : d; }
+  function pick(L, sky, k, d) { return L[k] !== undefined ? num(L[k], d) : num(sky[k], d); }   // a cloud's own style value, else the sky's
+  function byR(a, b) { return b.r - a.r; }
 
   var VS = '#version 300 es\nprecision highp float;\nout vec2 vUv;\nvoid main(){ vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); vUv = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }';
 
@@ -691,8 +693,9 @@
     var D = this._sphData, n = 0, tA = performance.now();
     var LEVEL_DETAIL = [0.25, 0.6, 1.0];
     // the shape variation of one puff: rows 5 and 6 (see the field pass). The hashes are of the id and the seed only
-    function vary(V, id) {
-      if (V.amp <= 0 && V.ang <= 0) return { c: 1, s: 0, a: 0, b: 1, A1: 0, B1: 0, A3: 0, B3: 0, ang: 0, n: 5, rs: 1 };
+    // (written into o, a reused object: the tree allocates nothing per puff per frame)
+    function vary(V, id, o) {
+      if (V.amp <= 0 && V.ang <= 0) { o.c = 1; o.s = 0; o.a = 0; o.b = 1; o.A1 = 0; o.B1 = 0; o.A3 = 0; o.B3 = 0; o.ang = 0; o.n = 5; o.rs = 1; return o; }
       var k = id * 0.7311 + V.seed * 131.71, th = hash(k + 1.1) * Math.PI;
       var a = 0.35 * V.amp * V.st * (2 * hash(k + 2.2) - 1);
       var c1 = 0.2 * V.amp * V.ct * hash(k + 3.3), p1 = hash(k + 4.4) * 6.2832, c3 = 0.1 * V.amp * V.ct * hash(k + 5.5), p3 = hash(k + 6.6) * 6.2832;
@@ -702,17 +705,24 @@
       var hm = c1 + c3, rs = 1 + 0.5 * V.bulge * hm, hk = (1 - 0.5 * V.bulge) / rs; c1 *= hk; c3 *= hk;
       // the angular factor never grows the footprint (the polygon is inscribed), but a bound of exactly 1 is the shader's
       // 'no warp' mark, so it is nudged past 1 when the angle is on
-      return { c: Math.cos(th), s: Math.sin(th), a: a, b: (1 + Math.abs(a)) * (1 + c1 + c3) + (V.ang > 0 ? 1e-4 : 0), A1: c1 * Math.cos(p1), B1: c1 * Math.sin(p1), A3: c3 * Math.cos(p3), B3: c3 * Math.sin(p3), ang: V.ang, n: V.sides, rs: rs };
+      o.c = Math.cos(th); o.s = Math.sin(th); o.a = a; o.b = (1 + Math.abs(a)) * (1 + c1 + c3) + (V.ang > 0 ? 1e-4 : 0); o.A1 = c1 * Math.cos(p1); o.B1 = c1 * Math.sin(p1); o.A3 = c3 * Math.cos(p3); o.B3 = c3 * Math.sin(p3); o.ang = V.ang; o.n = V.sides; o.rs = rs;
+      return o;
     }
-    // the inverse warp: a point of the unit space (a child's seat on the shell) back to the field offset
+    // the inverse warp: a point of the unit space (a child's seat on the shell) back to the field offset (into VO, reused)
+    var VO = this._vo || (this._vo = [0, 0]);
     function varyOut(v, x, y) {
-      if (v.b === 1) return [x, y];
+      if (v.b === 1) { VO[0] = x; VO[1] = y; return VO; }
       var qx = v.c * x + v.s * y, qy = -v.s * x + v.c * y, ph = Math.atan2(qy, qx);
       var f = 1 + v.A1 * Math.cos(ph) + v.B1 * Math.sin(ph) + v.A3 * Math.cos(3 * ph) + v.B3 * Math.sin(3 * ph);
       if (v.ang > 0) { var hs = Math.PI / v.n, t = ((ph % (2 * hs)) + 2 * hs) % (2 * hs) - hs, u = clamp((Math.abs(t) - 0.65 * hs) / (0.35 * hs), 0, 1), sm = u * u * (3 - 2 * u); f *= 1 + v.ang * ((Math.cos(hs) / Math.cos(t)) * (1 - sm) + sm - 1); }
       qx *= f * (1 + v.a); qy *= f / (1 + v.a);
-      return [v.c * qx - v.s * qy, v.s * qx + v.c * qy];
+      VO[0] = v.c * qx - v.s * qy; VO[1] = v.s * qx + v.c * qy; return VO;
     }
+    // the puff queue: pooled entries (each with its own v), two arrays reused across frames, compacted in place
+    var pool = this._qpool || (this._qpool = []), poolN = 0, QA = this._qa || (this._qa = []), QB = this._qb || (this._qb = []); QA.length = 0; QB.length = 0;
+    function qget() { var e = pool[poolN]; if (!e) e = pool[poolN] = { v: {} }; poolN++; return e; }
+    function compact(arr, pred) { var w = 0; for (var i = 0; i < arr.length; i++) if (pred(arr[i])) arr[w++] = arr[i]; arr.length = w; }
+    var vScratch = this._vs || (this._vs = {});
     function put(x, y, r, z0, stack, detail, fresh, dis, stretch, anx, any, primPacked, wx, wy, band, dw, id, pid, v, wer) {
       if (n >= MAX_SPH || r <= 1e-4) return false;
       var o = n * 4, o2 = (MAX_SPH + n) * 4, o3 = (MAX_SPH * 2 + n) * 4, o4 = (MAX_SPH * 3 + n) * 4, o5 = (MAX_SPH * 4 + n) * 4, o6 = (MAX_SPH * 5 + n) * 4, o7 = (MAX_SPH * 6 + n) * 4;
@@ -725,7 +735,7 @@
       D[o4] = wx; D[o4 + 1] = wy; D[o4 + 2] = band; D[o4 + 3] = dw;
       OWN[n] = putC; n++; return true;
     }
-    var queue = [], q, j, c, F, OWN = this._owner || (this._owner = new Int32Array(MAX_SPH)), putC = 0, anyKeep = false;   // OWN: the cloud of each puff (for the kept blocks)
+    var queue = QA, q, j, c, F, OWN = this._owner || (this._owner = new Int32Array(MAX_SPH)), putC = 0, anyKeep = false;   // OWN: the cloud of each puff (for the kept blocks)
     // wind drift: an exposed lobe drifts downwind, the crown most and the body hardly, stretching as it goes. The drift is
     // accumulated per root id (in reference radii, bounded softly at 2 so a lobe stretches away but stays with its cloud)
     // and varied by a broad gust pattern that travels with the wind through the cloud (the surface detail travels with the
@@ -746,18 +756,21 @@
     // family, so they blend with it while they overlap and part on their own once clear. Keyed by the lobe's id
     // roots
     for (c = 0; c < clouds.length; c++) {
-      F = form(clouds[c], c);
+      F = (this._forms && this._forms[c]) || form(clouds[c], c);   // built by render() this frame (or here, for a direct call)
       var sim = F.sim, B = sim.blobs, A = sim.aux, S = sim.spin, Dt = sim.detail, STR = sim.stretch || null;
       var count = Math.min(sim.blobCount | 0, 128), baseStart = num(sim.baseStart, count);
       var ct = sim.time !== undefined ? sim.time : time, W = WS[c];
-      if (!W || ct < W.t) W = WS[c] = { t: ct, drift: new Map(), wear: new Map(), wisps: new Map(), hT: undefined, fresh: true, born: new Map(), bornNow: new Map(), keep: null, keepN: 0 };
+      // lobes: per root id (an integer key: the seed times 1000, rounded; a double key or value would be boxed on every get and
+      // set) its drift, wear and the frame it was last seen; born: per child key the birth angle and the frame last seen. Entries
+      // persist and are pruned every 64 of this cloud's frames when unseen for 64, so no map is rebuilt per frame
+      if (!W || ct < W.t) W = WS[c] = { t: ct, lobes: new Map(), wisps: new Map(), hT: undefined, fresh: true, born: new Map(), keep: null, keepN: 0, tick: 0 };
       F.W = W; W.F = F; putC = c;
       // a held cloud (hold 2, with a block kept from its last built frame): its puffs go in as they were, nothing else runs
       // for it (its wind state, wisps and child births wait for its next built frame); hold 1 keeps this frame's block below
       if (F.hold === 2 && W.keep) { var KB = W.keep, kn = Math.min(W.keepN, MAX_SPH - n); for (var kp = 0; kp < kn; kp++) { var kb = kp * 32; for (var kr = 0; kr < 8; kr++) { var ko = (MAX_SPH * kr + n) * 4, ki = kb + kr * 4; D[ko] = KB[ki]; D[ko + 1] = KB[ki + 1]; D[ko + 2] = KB[ki + 2]; D[ko + 3] = KB[ki + 3]; } OWN[n] = c; n++; } continue; }
       if (F.hold === 1) anyKeep = true;
       var dtW = clamp(ct - W.t, 0, 0.1); W.t = ct; F.t = ct; F.reborn = W.fresh; W.fresh = false;   // reborn: this frame's child births are now
-      var drift = W.drift, driftNow = new Map(), wear = W.wear, wearNow = new Map(), wisps = W.wisps;
+      var lobes = W.lobes, wisps = W.wisps, tick = ++W.tick;
       var hTop = 1e-3; for (var i0 = 0; i0 < count; i0++) if (B[i0 * 4 + 2] > 1e-4 && A[i0 * 4 + 3] > 1e-6) hTop = Math.max(hTop, (F.pivY - B[i0 * 4 + 1]) / F.spanY);
       var hT = W.hT; hT = hT === undefined ? hTop : hT + (hTop - hT) * Math.min(1, dtW * 0.5); W.hT = hT;   // the cloud's top, eased, so a crown parcel dying does not re-expose the rest at once
       for (var i = 0; i < count; i++) {
@@ -806,23 +819,24 @@
         if (F.windSpeed > 0 || F.erosion > 0) {
           var ex = Math.pow(clamp(hf, 0, 1), 1 + 4 * F.top), vs = F.windSpeed * 0.2, gs = F.ref * 4 * F.gust;
           var gx = (rx - F.wx * ct * vs * F.ref) / gs, gy = (ry - F.wy * ct * vs * F.ref) / gs;   // the gust pattern travels downwind at the wind speed
-          var g = vnoise2(gx, gy), g2 = vnoise2(gx + 31.7, gy + 17.3), dr = drift.get(id) || { x: 0, y: 0 };
+          var g = vnoise2(gx, gy), g2 = vnoise2(gx + 31.7, gy + 17.3), ik = Math.round(id * 1000), dr = lobes.get(ik);
+          if (!dr) { dr = { x: 0, y: 0, wear: 0, seen: tick }; lobes.set(ik, dr); } else dr.seen = tick;
           var ua = 0.3 + 0.7 * g, uc = 0.4 * (g2 - 0.5);   // along the wind, gusting; a little across, wandering
           if (F.windSpeed > 0) {
-            dr = { x: dr.x + (F.wx * ua - F.wy * uc) * vs * ex * dtW, y: dr.y + (F.wy * ua + F.wx * uc) * vs * ex * dtW };
-            driftNow.set(id, dr);
+            dr.x += (F.wx * ua - F.wy * uc) * vs * ex * dtW; dr.y += (F.wy * ua + F.wx * uc) * vs * ex * dtW;
             var al = Math.sqrt(dr.x * dr.x + dr.y * dr.y), sf = al > 1e-6 ? 2 * Math.tanh(al / 2) / al : 0;
             rx += dr.x * sf * F.ref; ry += dr.y * sf * F.ref; stretch *= 1 + 0.5 * al * sf;
           }
-          if (F.erosion > 0) { wer = clamp((wear.get(id) || 0) + F.erosion * (ex * ua - 0.15) * 0.15 * dtW, 0, 3.4); wearNow.set(id, wer); }
-          if (wer > 1 && F.wisps > 0 && !wisps.has(id)) {
+          if (F.erosion > 0) { wer = clamp(dr.wear + F.erosion * (ex * ua - 0.15) * 0.15 * dtW, 0, 3.4); dr.wear = wer; }
+          if (wer > 1 && F.wisps > 0 && !wisps.has(ik)) {
             var nw = 0; wisps.forEach(function (w) { if (w.c === c) nw++; });
-            if (nw < F.wisps) wisps.set(id, { c: c, x: rx + F.wx * r * 0.8, y: ry + F.wy * r * 0.8, r: r * 0.6, v: vs * ex * ua, age: 0, life: F.wispLife * (0.7 + 0.6 * hash(id + 9.9)), z: z0, dw: dwp, band: band, pid: pid, id: id + 0.5 + 1000 * hash(id * 0.53 + 3.3) });
+            if (nw < F.wisps) wisps.set(ik, { c: c, x: rx + F.wx * r * 0.8, y: ry + F.wy * r * 0.8, r: r * 0.6, v: vs * ex * ua, age: 0, life: F.wispLife * (0.7 + 0.6 * hash(id + 9.9)), z: z0, dw: dwp, band: band, pid: pid, id: id + 0.5 + 1000 * hash(id * 0.53 + 3.3) });
           }
         }
-        var vv = vary(F.vary, id); r *= vv.rs;   // (bulge: the outward-only contour rides on a larger radius)
+        var qe = qget(), vv = vary(F.vary, id, qe.v); r *= vv.rs;   // (bulge: the outward-only contour rides on a larger radius)
         if (!put(rx, ry, r, z0, stack0, (0.4 + 0.6 * fresh) * LEVEL_DETAIL[0], mixed, dis, stretch, rx, ry, F.primPacked, F.wx, F.wy, band, dwp, id, pid, vv, wer)) break;
-        queue.push({ id: id, v: vv, F: F, x: rx, y: ry, r: r, z: z0, zr: zr, seed: B[o + 3], ax: ax, ay: ay, az: az, angle: S[o + 3] * F.roll, fresh: fresh, mixed: mixed, stack: stack0, dis: dis, st: stretch, anx: rx, any: ry, dwp: dwp, band: band, zp: F.cam ? zp : 0, wer: wer });
+        qe.id = id; qe.F = F; qe.x = rx; qe.y = ry; qe.r = r; qe.z = z0; qe.zr = zr; qe.seed = B[o + 3]; qe.ax = ax; qe.ay = ay; qe.az = az; qe.angle = S[o + 3] * F.roll; qe.fresh = fresh; qe.mixed = mixed; qe.stack = stack0; qe.dis = dis; qe.st = stretch; qe.anx = rx; qe.any = ry; qe.dwp = dwp; qe.band = band; qe.zp = F.cam ? zp : 0; qe.wer = wer;
+        queue.push(qe);
       }
       // this cloud's wisps: moved, aged, drawn; retired past their life
       wisps.forEach(function (w, key) {
@@ -831,9 +845,9 @@
         var vw = Math.max(F.windSpeed, 0.25) * 0.4, uv = smoothstep(0, 0.3, u), v = w.v + (vw - w.v) * uv;   // from the lobe's pace up to the wind's
         w.x += F.wx * v * F.ref * dtW; w.y += F.wy * v * F.ref * dtW;
         var env = smoothstep(0, 0.15, u) * (1 - smoothstep(0.45, 1, u)), ws = 1.5 + 2.5 * u, wwear = 0.8 + 2.2 * u;   // swells in, stretches and frays out
-        var wv = vary(F.vary, w.id); put(w.x, w.y, w.r * env * wv.rs, w.z, 0, 0.3, 0, 1, ws, w.x, w.y, F.primPacked, F.wx, F.wy, w.band, w.dw, w.id, w.pid, wv, wwear);
+        var wv = vary(F.vary, w.id, vScratch); put(w.x, w.y, w.r * env * wv.rs, w.z, 0, 0.3, 0, 1, ws, w.x, w.y, F.primPacked, F.wx, F.wy, w.band, w.dw, w.id, w.pid, wv, wwear);
       });
-      W.drift = driftNow; W.wear = wearNow;   // entries of parcels gone are dropped
+      if ((tick & 63) === 0) { lobes.forEach(function (e, key) { if (tick - e.seen > 64) lobes.delete(key); }); W.born.forEach(function (e, key) { if (tick - e.seen > 64) W.born.delete(key); }); }   // entries of parcels and children gone are dropped
     }
     // plan the budget: how many puffs each deeper level wants; the deepest level that does not fit is
     // thinned in whole children (integer slots): each parent keeps floor(fd * children + its own hash)
@@ -846,8 +860,8 @@
     // second texel (cf below) instead of appearing whole at the first
     var minR = 1.0 / Math.max(1, this._w), k;
     function thinR(q) { return q.r * q.F.ratio * Math.min(1, q.st, 1 / Math.sqrt(Math.max(q.st, 1e-4))); }
-    queue = queue.filter(function (q) { return q.F.levels < 2 || thinR(q) >= minR; });
-    queue.sort(function (a, b) { return b.r - a.r; });
+    compact(queue, function (q) { return q.F.levels < 2 || thinR(q) >= minR; });
+    queue.sort(byR);
     var l1 = 0, l2 = 0;
     for (k = 0; k < queue.length; k++) { F = queue[k].F; if (F.levels >= 2) l1 += F.children * (F.levels === 2 ? F.lvFade : 1); if (F.levels >= 3) l2 += F.children * F.children * F.lvFade; }
     var fade = [1, 1, 1], cap = Math.min(MAX_SPH, this.budget || MAX_SPH);   // budget: a smaller cap for testing the thinning
@@ -877,7 +891,7 @@
     // a child's birth is the parent's roll angle then, kept while the child is seen (entries not refreshed this frame are dropped)
     // (per cloud, in its wind state W: a held cloud keeps its entries while it is not rebuilt)
     for (var level = 0; level < 2 && queue.length; level++) {
-      var next = [], fd = fade[level + 1];
+      var next = queue === QA ? QB : QA, fd = fade[level + 1]; next.length = 0;
       if (fd <= 0) break;
       // fd below 1 is taken with a 2% margin, since the hash rounding scatters the total by a few
       for (k = 0; k < queue.length && n < cap; k++) {
@@ -895,7 +909,8 @@
           var sraw = q.F.t * 0.12 * F.life + hash(q.seed + 5.5 + j * 7.1) * cyc;
           var ci = Math.floor(sraw / cyc), ph = sraw / cyc - ci;
           var cs = q.seed + ci * 101.3 + level * 17.9;   // reseeded every life
-          var ck = cs + j * 3.1, b0 = q.F.reborn ? undefined : q.F.W.born.get(ck); if (b0 === undefined) b0 = q.angle; q.F.W.bornNow.set(ck, b0);
+          var ck = Math.round((cs + j * 3.1) * 1000), bn = q.F.W.born.get(ck), b0;
+          if (!bn) { b0 = q.angle; q.F.W.born.set(ck, { b0: b0, seen: q.F.W.tick }); } else if (q.F.reborn) { b0 = bn.b0 = q.angle; bn.seen = q.F.W.tick; } else { b0 = bn.b0; bn.seen = q.F.W.tick; }
           var jit = hash(cs + j * 31.7) - 0.5;
           var zz = (1 - 2 * (j + 0.5 + jit * 0.55) / F.children) * 0.9;
           var azm = hash(cs + 1.3 + j * 13.9) * 6.2832;
@@ -936,17 +951,14 @@
           var pdw2 = clamp(0.5 + 0.5 * zr2 / (F.ref * 2), 0, 1) * F.dw, dwp2 = F.idx + pdw2 * 0.25;
           // the child's id: from its seed, scattered by a hash so that cousins never share one (seeds are linear in j, and a
           // grandchild of child 0 had the id of another of child 1); persistent for the child's life, so its shape is too
-          var cid = cs + j * 3.1 + 1.7 + 1000 * hash(cs * 0.37 + j * 5.9), cv = vary(F.vary, cid); cr *= cv.rs;
+          var ce = qget(), cid = cs + j * 3.1 + 1.7 + 1000 * hash(cs * 0.37 + j * 5.9), cv = vary(F.vary, cid, ce.v); cr *= cv.rs;
           putC = F.c;
           put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id, cv, q.wer);
-          next.push({ id: cid, v: cv, F: F, x: x, y: y, r: cr, z: z, zr: zr2, seed: cs + j * 3.1, ax: q.ax, ay: q.ay, az: q.az, angle: q.angle, fresh: q.fresh, mixed: q.mixed, stack: stack, dis: q.dis, st: q.st, anx: q.anx, any: q.any, band: band2, zp: q.zp, wer: q.wer });
+          ce.id = cid; ce.F = F; ce.x = x; ce.y = y; ce.r = cr; ce.z = z; ce.zr = zr2; ce.seed = cs + j * 3.1; ce.ax = q.ax; ce.ay = q.ay; ce.az = q.az; ce.angle = q.angle; ce.fresh = q.fresh; ce.mixed = q.mixed; ce.stack = stack; ce.dis = q.dis; ce.st = q.st; ce.anx = q.anx; ce.any = q.any; ce.band = band2; ce.zp = q.zp; ce.wer = q.wer;
+          next.push(ce);
         }
       }
-      queue = next.filter(function (q) { return thinR(q) >= minR; }).sort(function (a, b) { return b.r - a.r; });
-    }
-    for (c = 0; c < clouds.length; c++) {   // every built cloud: this frame's births become last frame's (entries not refreshed are dropped)
-      var Wc = WS[c]; if (!Wc || (Wc.keep && ((clouds[c].look || {}).hold | 0) === 2)) continue;
-      var bt = Wc.born; Wc.born = Wc.bornNow; Wc.bornNow = bt; bt.clear();
+      compact(next, function (q) { return thinR(q) >= minR; }); next.sort(byR); queue = next;
     }
     if (anyKeep) {   // keep the blocks of the clouds that asked (hold 1): their puffs gathered by owner, 32 floats each
       for (c = 0; c < clouds.length; c++) { var Wk = WS[c]; if (Wk) Wk.keepN = 0; }
@@ -960,9 +972,9 @@
     this.count = n;
     var gl = this.gl, tB = performance.now();
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
-    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, MAX_SPH);   // D is laid out MAX_SPH wide; upload only the used columns
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, Math.max(1, n), 8, gl.RGBA, gl.FLOAT, D, 0);
-    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+    // D is laid out MAX_SPH wide; the used columns of each row go up as one contiguous slice (eight calls: a row-length
+    // upload of the block made the browser pack a copy of it every frame, a quarter megabyte of garbage)
+    for (var row = 0; row < 8; row++) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, row, Math.max(1, n), 1, gl.RGBA, gl.FLOAT, D, row * MAX_SPH * 4);
     this._bin();
     this.msTree = tB - tA; this.msUpload = performance.now() - tB;
   };
@@ -997,7 +1009,8 @@
   // counts per tile, prefix offsets, then the indices; the list is one flat texture, 4096 wide
   PuffRenderer.prototype._bin = function () {
     var D = this._sphData, n = this.count, W = this._w, tx = this._tx, ty = this._ty, head = this._headData, list = this._tileData, cap = list.length, TS = this._tileSize;
-    var cnt = new Int32Array(tx * ty), box = new Int32Array(n * 4), i, o, x0, x1, y0, y1, x, y;
+    var cnt = this._cnt && this._cnt.length === tx * ty ? this._cnt : (this._cnt = new Int32Array(tx * ty)), box = this._box || (this._box = new Int32Array(MAX_SPH * 4)), i, o, x0, x1, y0, y1, x, y;   // reused
+    cnt.fill(0);
     for (i = 0; i < n; i++) {
       o = i * 4; var st = D[(MAX_SPH * 2 + i) * 4 + 2], reach = D[o + 2] * Math.max(1, st, 1 / Math.sqrt(Math.max(st, 1e-4))) * D[(MAX_SPH * 5 + i) * 4 + 3] * 1.6 * W / TS;
       var cx = D[o] * W / TS, cy = D[o + 1] * W / TS;
@@ -1032,8 +1045,9 @@
     var ref = 0.08;
     if (clouds.length) {   // from clouds in or near the frame only: an off-screen cloud must not change a visible one's blend
       ref = 0;
+      var forms = this._forms || (this._forms = []); forms.length = clouds.length;   // the forms, built once here and used by the tree
       for (var i = 0; i < clouds.length; i++) {
-        var Fi = form(clouds[i], i), Ci = Fi.cam;
+        var Fi = forms[i] = form(clouds[i], i), Ci = Fi.cam;
         if (Ci) { var scI = Ci.f / Math.max(0.05, Ci.z), cxI = 0.5 + Ci.x * scI, cyI = Ci.hor - Ci.h * scI; if (cxI < -0.4 || cxI > 1.4 || cyI < -0.4 || cyI > 1.4) continue; }
         ref = Math.max(ref, Ci ? Fi.ref * Math.min(1, 1.2 / Fi.zoom) : Fi.ref);
       }
@@ -1088,10 +1102,9 @@
     var SA = this._styleA || (this._styleA = new Float32Array(128)), SB = this._styleB || (this._styleB = new Float32Array(128));
     for (var ci = 0; ci < 32; ci++) {
       var L = ci < clouds.length ? (clouds[ci].look || {}) : {}, o4 = ci * 4;
-      var pick = function (k, d) { return L[k] !== undefined ? num(L[k], d) : num(sky[k], d); };
-      SA[o4] = clamp(num(L.far, 1), 0, 1); SA[o4 + 1] = clamp(pick('haze', 0.5), 0, 1); SA[o4 + 2] = clamp(pick('stackShade', 0.4), 0, 1); SA[o4 + 3] = clamp(pick('dither', 0), 0, 1);
-      SB[o4] = clamp(pick('shadow', 0.64), 0, 1); SB[o4 + 1] = clamp(pick('baseShade', 0.5), 0, 1); SB[o4 + 2] = (L.noise !== undefined && num(sky.noise, 0.3) >= 0.02) ? num(L.noise, 0.3) / num(sky.noise, 0.3) : 1;   // with the sky's noise at zero the ratio is meaningless (it silenced noise 2 too)
-      SB[o4 + 3] = clamp(pick('smooth', 0.5), 0, 1);
+      SA[o4] = clamp(num(L.far, 1), 0, 1); SA[o4 + 1] = clamp(pick(L, sky, 'haze', 0.5), 0, 1); SA[o4 + 2] = clamp(pick(L, sky, 'stackShade', 0.4), 0, 1); SA[o4 + 3] = clamp(pick(L, sky, 'dither', 0), 0, 1);
+      SB[o4] = clamp(pick(L, sky, 'shadow', 0.64), 0, 1); SB[o4 + 1] = clamp(pick(L, sky, 'baseShade', 0.5), 0, 1); SB[o4 + 2] = (L.noise !== undefined && num(sky.noise, 0.3) >= 0.02) ? num(L.noise, 0.3) / num(sky.noise, 0.3) : 1;   // with the sky's noise at zero the ratio is meaningless (it silenced noise 2 too)
+      SB[o4 + 3] = clamp(pick(L, sky, 'smooth', 0.5), 0, 1);
     }
     gl.uniform4fv(su.uStyleA, SA); gl.uniform4fv(su.uStyleB, SB);
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);
