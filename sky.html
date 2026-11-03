@@ -61,7 +61,7 @@
   // the sky's own parameters
   // the eye: dragged in the canvas (an unlocked parallax, on top of the sway); double-click recentres
   var eye = { x: 0, y: 0 }, drag = null;
-  var P = { clouds: 12, drift: 0.004, travel: 0.012, parallax: 0.03, sway: 57, near: 0.6, horizon: 0.86, simSpeed: 0.5, fadeIn: 0, motion: 1 };
+  var P = { clouds: 12, drift: 0.004, travel: 0.012, parallax: 0.03, sway: 57, near: 0.6, horizon: 0.86, simSpeed: 0.5, fadeIn: 0, motion: 1, farMasses: 0 };
   var Z_NEAR = 0.5, Z_FAR = 3.0;   // world distances: a cloud nearer than Z_NEAR has passed overhead and re-forms at Z_FAR
   // altitude by type, as a fraction of the frame height at distance 1 (low cloud at the bottom of the scale, cirrus at the top)
   var ALT = { humilis: 0.45, congestus: 0.45, massif: 0.5, cumulonimbus: 0.4, stratocumulus: 0.42, stratus: 0.36, altocumulus: 0.62, lenticular: 0.58, altostratus: 0.6, fractus: 0.36, undulatus: 0.56, cirrocumulus: 0.8, cirrus: 0.82, contrail: 0.84 };
@@ -97,9 +97,11 @@
     var asp = canvas.height / canvas.width;
     return eng === 'layer' ? new LayerSim({ seed: seed, preset: preset, aspect: asp }) : new ThermalSim({ seed: seed, preset: preset, aspect: asp, shape: shape });
   }
-  function makeCloud(rng, z, fade) {
+  // high: one of the far masses (Far masses): a cumulus massif placed high and far, its centre about an eighth of the frame from
+  // the top at any distance, three times the near size, so it reads as a huge formation overhead, hazed by its distance
+  function makeCloud(rng, z, fade, high) {
     var far = farOf(z), aspect = canvas.height / canvas.width;
-    var name = pick(rng, rng()), sp = SPECIES[name], seed = Math.floor(rng() * 1e6);   // the type's depth preference is a taste, not the spawn distance (every cloud starts far)
+    var name = high ? 'massif' : pick(rng, rng()), sp = SPECIES[name], seed = Math.floor(rng() * 1e6);   // the type's depth preference is a taste, not the spawn distance (every cloud starts far)
     var sim = makeSim(sp.engine, sp.preset, seed, sp.shape);
     if (sp.forces) for (var k in sp.forces) sim.params[k] = sp.forces[k];
     sim.params.parallax = 0;   // the camera sways, not the cloud
@@ -126,9 +128,10 @@
     if (fade > 0) sims.forEach(function (e) { if (e.atTop) return; e.sim.parcels.forEach(function (q) { q.link = Math.min(q.link, 1 - fade); }); e.sim._emit(); });
     // world placement: within the frustum at this distance (half width z / 2 on screen), at the
     // type's altitude; a sheet lies flat and recedes over span
-    var s = (sp.scale || 1) * P.near, flat = sp.engine === 'layer' ? (sim.params.mode === 'streak' ? 0.5 : 1) : 0;
+    var s = (high ? 3.2 : sp.scale || 1) * P.near, flat = sp.engine === 'layer' ? (sim.params.mode === 'streak' ? 0.5 : 1) : 0;
     var base = ALT[CLOUD_PRESETS[name] ? name : (sp.type || 'congestus')] || 0.3;
-    return { sims: sims, name: name, far: far, z: z, x: (rng() - 0.5) * 1.1 * z, h: (base + (rng() - 0.5) * 0.08) * aspect, s: s, flat: flat,
+    if (high) base = 0.74 * z + (rng() - 0.5) * 0.2;
+    return { sims: sims, name: name, far: far, z: z, x: (rng() - 0.5) * (high ? 1.4 : 1.1) * z, h: (base + (rng() - 0.5) * 0.08) * aspect, s: s, flat: flat, high: !!high,
       span: flat ? s * (sim.params.width || 1) * 1.2 : 0 };
   }
   var respawn = Math.random;   // seeded in build(): the same seed replays the whole animation
@@ -139,11 +142,13 @@
     var n = Math.max(1, Math.round(P.clouds));
     // stratified distances, more of them far away (the frustum widens with distance)
     for (var i = 0; i < n; i++) clouds.push(makeCloud(rng, Z_NEAR + 0.3 + Math.sqrt((i + rng()) / n) * (Z_FAR - Z_NEAR - 0.3)));
+    var nh = Math.max(0, Math.round(P.farMasses));
+    for (i = 0; i < nh; i++) clouds.push(makeCloud(rng, 2.0 + (i + rng()) / nh * (Z_FAR - 2.0), 0, true));
     clouds.sort(function (a, b) { return b.z - a.z; });
     window.clouds = clouds;
   }
 
-  var SKYP = [['clouds', 'Clouds', 1, 14, 1], ['near', 'Near size', 0.3, 1.4, 0.01], ['travel', 'Travel', 0, 0.05, 0.001], ['drift', 'Drift', -0.02, 0.02, 0.001], ['parallax', 'Parallax', 0, 0.08, 0.002], ['sway', 'Sway (s)', 5, 120, 1], ['horizon', 'Horizon', 0.5, 1, 0.01], ['simSpeed', 'Sim speed', 0.1, 1.5, 0.01], ['motion', 'Motion', 0, 1.5, 0.01], ['fadeIn', 'Fade in', 0, 1, 0.01]];
+  var SKYP = [['clouds', 'Clouds', 1, 14, 1], ['near', 'Near size', 0.3, 1.4, 0.01], ['travel', 'Travel', 0, 0.05, 0.001], ['drift', 'Drift', -0.02, 0.02, 0.001], ['parallax', 'Parallax', 0, 0.08, 0.002], ['sway', 'Sway (s)', 5, 120, 1], ['horizon', 'Horizon', 0.5, 1, 0.01], ['simSpeed', 'Sim speed', 0.1, 1.5, 0.01], ['motion', 'Motion', 0, 1.5, 0.01], ['fadeIn', 'Fade in', 0, 1, 0.01], ['farMasses', 'Far masses', 0, 4, 1]];
   var STYLE = [['pixel', 'Pixel size', 1, 6, 1], ['softness', 'Softness', 0.3, 4, 0.01], ['rim', 'Rim soften', 0, 1, 0.01], ['cap', 'Cap', 0, 1, 0.01], ['puffRim', 'Puff rim', 0, 1, 0.01], ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias2', 'Noise 2 bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['streak', 'Streak', 0, 1, 0.01], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['dissolve', 'Evaporation', 0, 1, 0.01], ['evapScale', 'Evap. scale', 0.5, 8, 0.1], ['stipple', 'Stipple', 0, 1, 0.01], ['stippleBias', 'Stipple bias', -1, 1, 0.01], ['breakup', 'Edge breakup', 0, 1, 0.01], ['breakupReach', 'Breakup reach', 1, 24, 1], ['dotSize', 'Dot size', 1, 4, 1], ['patternLock', 'Pattern lock', 0, 1, 1], ['grain', 'Palette dither', 0, 2, 0.01], ['atmos', 'Atmosphere', 0, 1, 0.01], ['depthFall', 'Depth falloff', 0, 1, 0.01]];
   var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['overhead', 'Overhead', 0, 1, 0.01], ['shadow', 'Shadow', 0, 1, 0.01], ['contact', 'Contact', 0, 1, 0.01], ['cavity', 'Cavity', 0, 1, 0.01], ['cavityReach', 'Cavity reach', 2, 24, 1], ['cavityLit', 'Cavity in light', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['baseFall', 'Base falloff', 0.1, 1.5, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
   var CIRRUS = [['cirrus', 'Cirrus', 0, 1, 0.01], ['cirrusScale', 'Scale', 0.5, 6, 0.1], ['cirrusAngle', 'Angle (deg)', -45, 45, 1], ['cirrusFlow', 'Flow', 0, 0.1, 0.001]];
@@ -153,7 +158,7 @@
     breakup: 'Edge breakup: coverage removed near the exposed silhouette by the ordered pattern (powdery, ragged outline). Shading inside is untouched.', breakupReach: 'How far in from the outline (field texels) the breakup reaches.', patternLock: 'Where the stipple and breakup patterns sit: 1 on the screen grid (a print), 0 riding with each parcel (material).',
     angular: 'Angular profile: each puff\'s outline pulled toward a regular polygon with rounded corners (0: round). Independent of Shape variation.', sides: 'Sides of the angular profile polygon.',
     clouds: 'How many clouds the sky holds (regenerates).', near: 'Size of a cloud at distance 1 (regenerates).', travel: 'Forward glide of the camera; a cloud that passes overhead re-forms far away.', drift: 'Sideways wind in world units; near clouds cross faster.',
-    parallax: 'Sway of the camera; near clouds sway more.', horizon: 'Where the horizon line sits (fraction of the height); far clouds converge on it.', simSpeed: 'How fast every cloud evolves (1: the editor speed).', motion: 'How much the clouds roil: one scale on the internal motion of the sims (parcel flow, roll, jitter, the drift and breathing of the layers), the life cycle of the child puffs, the wind drift, the surface noise flow and the camera sway. 1 is the behaviour of today; lower is calmer, 0 is still.', fadeIn: 'A cloud re-forming far away grows in from this much smaller instead of appearing whole (1: from nothing, over about 12 s; 0: off).', noiseBias2: 'Where noise 2 lives: -1 only in shadow, +1 only in light.', rim: 'Silhouette rim: turns the normal toward the viewer near the exposed outline of the cloud, so the dome edge is not a dark ring. Shading only; independent of Puff rim.', cap: 'Puff profile: 0 a sphere (its rim goes vertical, a thin dark crescent on the far side), 1 a parabola (a broad soft shadow side).', cavity: 'Less light in a valley between puffs (the surface below its surroundings), where the blended slopes otherwise face the viewer and draw a bright seam.', cavityReach: 'How far (field texels) the cavity shading reaches up the walls of a valley.', cavityLit: 'How much the cavity darkening reaches the direct light on a sunlit face: 1 all of it (as before), 0 none, so a lit crease keeps its light and loses only sky bounce (the shadow side is cut as always).', grain: 'Faint ordered dither added to the light before the bands (the palette grain); 0 is clean bands.', contact: 'Shadow cast by a puff onto the puff behind it, along the light: a dome\'s dark rim continues into shadow instead of ending in a line.', baseFall: 'How far up the cloud the base shade reaches, as a fraction of its height.', puffRim: 'Puff rim: turns the normal toward the viewer at each visible lobe\'s own rim inside the cloud, where one dome falls over the puff behind it (a crescent line). Shading only; independent of Rim soften.', overhead: 'How much the sun turns with the view: clouds high in the frame are seen from below, lit from beyond.', pixel: 'Size of one drawn pixel in canvas pixels; the whole picture sits on that grid.', sway: 'Period of the sway in seconds.', atmos: 'How much far clouds take on the sky colour.', depthFall: 'How much far clouds lose shadow, noise and crispness.',
+    parallax: 'Sway of the camera; near clouds sway more.', horizon: 'Where the horizon line sits (fraction of the height); far clouds converge on it.', simSpeed: 'How fast every cloud evolves (1: the editor speed).', motion: 'How much the clouds roil: one scale on the internal motion of the sims (parcel flow, roll, jitter, the drift and breathing of the layers), the life cycle of the child puffs, the wind drift, the surface noise flow and the camera sway. 1 is the behaviour of today; lower is calmer, 0 is still.', fadeIn: 'A cloud re-forming far away grows in from this much smaller instead of appearing whole (1: from nothing, over about 12 s; 0: off).', farMasses: 'How many huge cumulus masses sit high and far overhead, a distant formation above the other clouds (regenerates; 0: none).', noiseBias2: 'Where noise 2 lives: -1 only in shadow, +1 only in light.', rim: 'Silhouette rim: turns the normal toward the viewer near the exposed outline of the cloud, so the dome edge is not a dark ring. Shading only; independent of Puff rim.', cap: 'Puff profile: 0 a sphere (its rim goes vertical, a thin dark crescent on the far side), 1 a parabola (a broad soft shadow side).', cavity: 'Less light in a valley between puffs (the surface below its surroundings), where the blended slopes otherwise face the viewer and draw a bright seam.', cavityReach: 'How far (field texels) the cavity shading reaches up the walls of a valley.', cavityLit: 'How much the cavity darkening reaches the direct light on a sunlit face: 1 all of it (as before), 0 none, so a lit crease keeps its light and loses only sky bounce (the shadow side is cut as always).', grain: 'Faint ordered dither added to the light before the bands (the palette grain); 0 is clean bands.', contact: 'Shadow cast by a puff onto the puff behind it, along the light: a dome\'s dark rim continues into shadow instead of ending in a line.', baseFall: 'How far up the cloud the base shade reaches, as a fraction of its height.', puffRim: 'Puff rim: turns the normal toward the viewer at each visible lobe\'s own rim inside the cloud, where one dome falls over the puff behind it (a crescent line). Shading only; independent of Rim soften.', overhead: 'How much the sun turns with the view: clouds high in the frame are seen from below, lit from beyond.', pixel: 'Size of one drawn pixel in canvas pixels; the whole picture sits on that grid.', sway: 'Period of the sway in seconds.', atmos: 'How much far clouds take on the sky colour.', depthFall: 'How much far clouds lose shadow, noise and crispness.',
     cirrus: 'Amount of high streak cloud behind everything.', cirrusScale: 'Size of the cirrus streaks.', cirrusAngle: 'Direction of the streaks.', cirrusFlow: 'Scroll speed of the streaks.' };
   var sliders = {};
   function slider(parent, target, spec, onChange) {
@@ -167,7 +172,7 @@
     sliders[spec[0]] = show; show();
   }
   SKYP.forEach(function (s) { slider($('skyp'), function () { return P; }, s, function (k) {
-    if (k === 'clouds' || k === 'near') build();
+    if (k === 'clouds' || k === 'near' || k === 'farMasses') build();
   }); });
   // the sliders in collapsible groups (open state remembered per group); every spec of the lists above lands in
   // exactly one group, any left over in 'Other', so a new slider never goes missing
@@ -230,7 +235,8 @@
         c = clouds[i];
         // gone when its projection has left the frame: above the top (base line plus its own size) or past a side
         var top = P.horizon * aspect - (c.h - 0.7 * c.s) / c.z, side = (Math.abs(c.x) - 0.7 * c.s) / c.z;
-        if (c.z < 0.2 || top < 0 || side > 0.5) clouds[i] = makeCloud(mulberry(Math.floor(respawn() * 1e9)), Z_FAR + respawn() * 0.4, P.fadeIn);
+        if (c.high) { if (c.z < 1.4 || side > 0.6) clouds[i] = makeCloud(mulberry(Math.floor(respawn() * 1e9)), Z_FAR + respawn() * 0.6, P.fadeIn, true); }   // a far mass passes overhead and out of the top; it re-forms far away
+        else if (c.z < 0.2 || top < 0 || side > 0.5) clouds[i] = makeCloud(mulberry(Math.floor(respawn() * 1e9)), Z_FAR + respawn() * 0.4, P.fadeIn);
       }
     }
     // projection: camera sway in world units, the horizon line, each sim's world frame
