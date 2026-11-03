@@ -62,3 +62,7 @@ Two edits landed together. The second agent's: a bounds-checked field read, Cont
 - With both sliders at 1, no pixel within two texels of the exposed silhouette is darker than it is with both at 0 by more than a small tolerance, unless a legitimate blocker lies between it and the light.
 - No new sliders; the fixes should be mechanism fixes in `SHADE_FS`. Default look unchanged (both effects default to 0).
 - Ideally a lab rule in `lab.html` that renders the two cases above and checks them, since the shade pass has no gate today.
+
+## Rebuilt (after the resolution)
+
+Even with the step rule, Contact kept isolated dark texels: the march is a screen-space horizon shadow over a field that is a depth composite of domes, not a surface, and every rule for telling a cliff from a wall decides texel by texel. The parameter was rebuilt in object space in the field pass: a ray from the surface point toward the light, tested against every other puff as the sphere the union draws, the owner and the spheres the point sits on (within T) excluded, a penumbra widening along the ray, a fade by 0.6 r beyond the blocker's rim, blockers combined as transmittances. No height-field sample is read, so no depth wall exists for it. The term is stored in a fifth field target and mirrored by lab-ref.js; tools/shadow-test.html checks the GPU term against the CPU reference texel by texel. Cavity still runs in the shade pass with the step rule; the same move (sphere ambient occlusion from the same loop) is the natural follow-up.

@@ -53,6 +53,8 @@
   // (a = 0, harmonics 0, bound 1) skip the warp, so Shape variation 0 is the original puff to the bit
   var FIELD_FS = '#version 300 es\nprecision highp float; precision highp sampler2D;\n' +
   'uniform sampler2D uSph; uniform float uAspect; uniform float uT, uCap;\n' +
+  '// contact (object space): the light, the camera pitch (as the shade pass turns the light with it) and the slider (0: skipped)\n' +
+  'uniform vec3 uLight; uniform vec4 uCam; uniform float uOverhead, uContact;\n' +
   '// tiles: the spheres whose reach touches a 16-texel tile, as a list per tile (uTileHead: offset, count; uTileList: indices)\n' +
   'uniform sampler2D uTileHead, uTileList; uniform float uTexW, uTileSize; uniform ivec2 uTiles;\n' +
   '// dissolve: a dispersing puff (attribute w) loses texels on the dither grid HERE, in the union and the silhouette,\n' +
@@ -113,7 +115,7 @@
   '  g2 = vec2(g2.x / (1.0 + vr.z), g2.y * (1.0 + vr.z));\n' +
   '  return vec2(vr.x * g2.x - vr.y * g2.y, vr.y * g2.x + vr.x * g2.y);\n' +
   '}\n' +
-  'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3; layout(location = 3) out vec4 o4;\n' +
+  'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3; layout(location = 3) out vec4 o4; layout(location = 4) out vec4 o5;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
   '  // two sets: puffs that contain the pixel (I) and skirts of puffs that do not (O). The skirt set is\n' +
@@ -137,7 +139,7 @@
   '  // (a ninth is hidden by them anyway); the highest one is the owner, whose family the shade pass gets\n' +
   '  ivec2 tile = clamp(ivec2(p * uTexW / uTileSize), ivec2(0), uTiles - 1);\n' +
   '  vec2 thead = texelFetch(uTileHead, tile, 0).xy; int toff = int(thead.x), tcnt = int(thead.y);\n' +
-  '  float winId = -1.0, winPid = -2.0, winH = -1e9;\n' +
+  '  float winId = -1.0, winPid = -2.0, winH = -1e9; int winIdx = -1;\n' +
   '  float ph[8], pidA[8], ppA[8]; int pn = 0;\n' +
   '  for(int k = 0; k < 4096; k++){\n' +
   '    if(k >= tcnt) break;\n' +
@@ -160,7 +162,7 @@
   '    vec4 idp = texelFetch(uSph, ivec2(i, 4), 0);\n' +
   '    if(pn < 8){ ph[pn] = h; pidA[pn] = idp.x; ppA[pn] = idp.y; pn++; }\n' +
   '    else { int lo = 0; for(int q = 1; q < 8; q++) if(ph[q] < ph[lo]) lo = q; if(h > ph[lo]){ ph[lo] = h; pidA[lo] = idp.x; ppA[lo] = idp.y; } }\n' +
-  '    if(h > winH){ winH = h; winId = idp.x; winPid = idp.y; }\n' +
+  '    if(h > winH){ winH = h; winId = idp.x; winPid = idp.y; winIdx = i; }\n' +
   '  }\n' +
   '  for(int k = 0; k < 4096; k++){\n' +
   '    if(k >= tcnt) break;\n' +
@@ -249,6 +251,29 @@
   '  float Hm = max(HI, HO);\n' +
   '  float H = Hm > -1e8 ? Hm + T * log(exp((HI - Hm) / T) + exp((HO - Hm) / T)) : -1.0;\n' +
   '  if(acc <= 0.0) cIdx = cIdxO;\n' +
+  '  // contact shadow, in object space: a ray from the surface point toward the light, tested against every other puff as\n' +
+  '  // the sphere the union draws (centre at its depth offset, its eroded radius). Not a march over the height field: the\n' +
+  '  // depth wall at a front puff\'s rim is an artefact of flattening the domes to one height, and the ray never sees it.\n' +
+  '  // A puff never shades itself: the spheres the point sits on (within T, so a merged lobe too) are left out, their\n' +
+  '  // curvature is the normal\'s business. The penumbra widens along the ray (crisp at the contact, soft at the far\n' +
+  '  // edge); the shadow fades out by 0.6 r beyond the blocker\'s rim, inside the tile reach. Stored for the shade pass\n' +
+  '  float contact = 0.0;\n' +
+  '  if(uContact > 0.0 && H > -0.5){\n' +
+  '    vec3 Lv = uLight;\n' +
+  '    if(uCam.w > 0.0 && uOverhead > 0.0){ float pc = atan(max(0.0, uCam.z - (1.0 - vUv.y) * uAspect)) * uOverhead, cp = cos(pc), sp = sin(pc); float up = -uLight.y, tz = uLight.z; Lv = vec3(uLight.x, -(up * cp + tz * sp), tz * cp - up * sp); }\n' +
+  '    vec3 ro = vec3(p, H); float tr = 1.0;\n' +
+  '    for(int k = 0; k < 4096; k++){\n' +
+  '      if(k >= tcnt) break;\n' +
+  '      int i = int(texelFetch(uTileList, ivec2((toff + k) & 4095, (toff + k) >> 12), 0).x); if(i == winIdx) continue;\n' +
+  '      vec4 s = texelFetch(uSph, ivec2(i, 0), 0); float r = s.z * erode(i); if(r <= 1e-5) continue;\n' +
+  '      vec3 oc = vec3(s.xy, s.w) - ro; float oc2 = dot(oc, oc); if(oc2 < (r + T) * (r + T)) continue;\n' +
+  '      float t = dot(oc, Lv); if(t <= 0.0) continue;\n' +
+  '      float sxy = length(oc.xy) - r; if(sxy > 0.6 * r) continue;\n' +
+  '      float d = sqrt(max(0.0, oc2 - t * t)), w = T + 0.2 * t;\n' +
+  '      tr *= 1.0 - (1.0 - smoothstep(r - w, r + w, d)) * (1.0 - smoothstep(0.2 * r, 0.6 * r, sxy));\n' +
+  '    }\n' +
+  '    contact = 1.0 - tr;\n' +
+  '  }\n' +
   '  // the union\'s gradient: each set\'s mean slope by its share of the union (the skirt clamp is a shift, its\n' +
   '  // own slope left out, so a clamped skirt keeps the slope of the surface it came from)\n' +
   '  vec2 gI = acc > 0.0 ? GI / acc : vec2(0.0), gO = accO > 0.0 ? GO / accO : vec2(0.0);\n' +
@@ -276,10 +301,11 @@
   '  o2 = vec4(acc2 > 0.0 ? fSum * ia : 1.0, xSum * ia, anc * ia);\n' +
   '  o3 = vec4(bSum * ia, acc2 > 0.0 ? wSum * ia : 1.0, cIdx, clamp(rimW, 0.0, 1.0));\n' +
   '  o4 = vec4(G, sil, winPid);   // z: the signed distance to the silhouette line (field units); w: the owner\'s group (its parent id)\n' +
+  '  o5 = vec4(contact, 0.0, 0.0, 1.0);\n' +
   '}';
 
   var SHADE_FS = '#version 300 es\nprecision highp float;\n' +
-  'uniform sampler2D uField; uniform sampler2D uAux; uniform sampler2D uAux2; uniform sampler2D uAux3; uniform vec2 uTexel; uniform float uAspect; uniform vec3 uLight;\n' +
+  'uniform sampler2D uField; uniform sampler2D uAux; uniform sampler2D uAux2; uniform sampler2D uAux3; uniform sampler2D uAux4; uniform vec2 uTexel; uniform float uAspect; uniform vec3 uLight;\n' +
   'uniform float uHighlight, uFill, uBands, uNoise, uNoiseScale, uNoise2, uNoise2Scale, uNoiseBias, uNoiseBias2, uFlow, uTime, uRef, uPixelated, uAnchor, uStreak;\n' +
   'uniform vec2 uWindDir;\n' +
   '// directional streak (wind erosion, step 4): the surface noise squeezed along the wind by Streak, up to 3x, twice as much\n' +
@@ -481,41 +507,9 @@
   '  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), 0.7 * haze + 0.4 * far));\n' +
   '  float lambert = dot(n, Lv);\n' +
   '  float bounce = max(0.0, dot(n, normalize(vec3(-Lv.x, -Lv.y, 0.25))));\n' +
-  '  // contact shadow: march toward the light; a rise steeper than the light\'s slope means the puff in\n' +
-  '  // front shades this pixel (its dark rim continues into a shadow instead of ending in a line)\n' +
-  '  float occ = 0.0;\n' +
-  '  if(uContact > 0.0){\n' +
-  '    vec2 lxy = vec2(Lv.x, -Lv.y); float ll = length(lxy);   // toward the light in uv (world y is down, uv y is up)\n' +
-  '    if(ll > 1e-3){\n' +
-  '      vec2 ld = lxy / ll; float slope = Lv.z / ll, stepW = uTexel.x * 1.5;\n' +
-  '      // Read the receiver per texel too. Coverage confidence fades the shadow on partially covered pixels.\n' +
-  '      ivec2 c0 = ivec2(uv / uTexel); vec4 f0 = shadowField(c0); float h0 = f0.r, tol = uTexel.x * 0.25, hp = h0; ivec2 ckp = c0;\n' +
-  '      vec2 grad = texelFetch(uAux3, c0, 0).xy;   // geometric slope, before noise, smoothing or rim lift\n' +
-  '      for(int k = 1; k <= 8; k++){\n' +
-  '        float dW = stepW * float(k);\n' +
-  '        // the blocker\'s height read per texel, unfiltered (a filtered read at a silhouette mixed the background\'s\n' +
-  '        // height in), and weighted by its coverage confidence (the alpha past the mask ramp) instead of a threshold,\n' +
-  '        // so a step fades in across the outline instead of switching on. Any puff may be the blocker\n' +
-  '        ivec2 ck = ivec2(floor((uv + vec2(ld.x, ld.y / uAspect) * dW) / uTexel)); vec4 fk = shadowField(ck);\n' +
-  '        // the slope over the snapped texel\'s real distance (the nominal one was off by up to half a texel, enough for a flat\n' +
-  '        // face to shade itself), with a quarter texel of rise allowed before anything counts as shadow\n' +
-  '        vec2 dv = vec2(ck - c0) * uTexel; dv.y *= uAspect; float dk = max(dot(dv, ld), uTexel.x * 0.5);\n' +
-  '        // A convex dome already shades itself through its normal. Contact needs a blocker above BOTH\n' +
-  '        // the light ray and the receiver tangent; otherwise the dome adds a second dark rim to itself.\n' +
-  '        float tangent = dot(grad, vec2(dv.x, -dv.y));\n' +
-  '        // an occluding step (a jump over ten times the step, the test the normal smoothing uses) is a depth edge, not a\n' +
-  '        // wall to shade from: a front puff\'s rim stands on the surface behind it by its depth offset, and the sliver of\n' +
-  '        // that surface before the silhouette was shaded by it as a line along every outline. The march stops there\n' +
-  '        // (judged sample to sample over the distance between the snapped texels, at slope six: a narrow trench\n' +
-  '        // or a wall is a jump of ten or more texels of height per texel, a merged crease stays under three)\n' +
-  '        float dsk = length(vec2(ck - ckp)) * uTexel.x; if(abs(fk.r - hp) > 6.0 * max(dsk, uTexel.x * 0.5)) break; hp = fk.r; ckp = ck;\n' +
-  '        float conf = smoothstep(0.5, 1.0, fk.a);\n' +
-  '        // penumbra: a blocker close by casts a full shadow, one at the end of the march a faint one, so the\n' +
-  '        // shadow falls off away from the occluding puff instead of being one flat band\n' +
-  '        occ = max(occ, conf * smoothstep(0.0, 1.5, (fk.r - h0 - max(slope * dk, tangent) - tol) / dk) * (1.0 - 0.85 * float(k - 1) / 7.0));\n' +
-  '      }\n' +
-  '    }\n' +
-  '  }\n' +
+  '  // contact shadow: computed by the field pass in object space (a ray toward the light against the other puffs as spheres)\n' +
+  '  // and stored per texel; read unfiltered, so a silhouette texel is not mixed with the background\n' +
+  '  float occ = texelFetch(uAux4, ivec2(uv / uTexel), 0).r;\n' +
   '  float contact = uContact * occ * smoothstep(0.5, 1.0, texelFetch(uField, ivec2(uv / uTexel), 0).a);\n' +
   '  // cavity: the surface below the mean of its surroundings a few texels out is a valley between puffs;\n' +
   '  // its cancelling slopes face the viewer and would catch full light, so less reaches it\n' +
@@ -590,8 +584,8 @@
     this._float32 = !!gl.getExtension('OES_texture_float_linear');   // the height target is 32-bit when it can be filtered
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
-    this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTileSize', 'uTiles', 'uAspect', 'uT', 'uCap', 'uDissolve', 'uDotSize', 'uEvapScale', 'uRef']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStreak', 'uWindDir', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uCavityLit', 'uGrain', 'uDiag', 'uT', 'uStipple', 'uStippleBias', 'uBreakup', 'uBreakupReach', 'uLock']);
+    this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTileSize', 'uTiles', 'uAspect', 'uT', 'uCap', 'uDissolve', 'uDotSize', 'uEvapScale', 'uRef', 'uLight', 'uCam', 'uOverhead', 'uContact']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uAux4', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStreak', 'uWindDir', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uCavityLit', 'uGrain', 'uDiag', 'uT', 'uStipple', 'uStippleBias', 'uBreakup', 'uBreakupReach', 'uLock']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 8);   // eight rows: the fifth is (puff id, parent id), the sixth to eighth the shape variation
     this._sphTex = gl.createTexture();
     // tile lists: a head texture (offset, count) per 16-texel tile, sized in resize, and a flat index list
@@ -601,7 +595,7 @@
     gl.bindTexture(gl.TEXTURE_2D, this._sphTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, MAX_SPH, 8, 0, gl.RGBA, gl.FLOAT, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    this._fieldTex = gl.createTexture(); this._auxTex = gl.createTexture(); this._aux2Tex = gl.createTexture(); this._aux3Tex = gl.createTexture(); this._fbo = gl.createFramebuffer();
+    this._fieldTex = gl.createTexture(); this._auxTex = gl.createTexture(); this._aux2Tex = gl.createTexture(); this._aux3Tex = gl.createTexture(); this._aux4Tex = gl.createTexture(); this._fbo = gl.createFramebuffer();
     this._w = 0; this._h = 0;
     this.resize(240);
     this.count = 0;
@@ -616,7 +610,7 @@
     this._w = w; this._h = h;
     this._tileSize = 16; this._sizeTiles();
     var f32 = this._float32;
-    [this._fieldTex, this._auxTex, this._aux2Tex, this._aux3Tex].forEach(function (tex, ti) {
+    [this._fieldTex, this._auxTex, this._aux2Tex, this._aux3Tex, this._aux4Tex].forEach(function (tex, ti) {
       gl.bindTexture(gl.TEXTURE_2D, tex);
       if (ti === 0 && f32) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, null);
       else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
@@ -628,7 +622,8 @@
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, this._auxTex, 0);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT2, gl.TEXTURE_2D, this._aux2Tex, 0);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT3, gl.TEXTURE_2D, this._aux3Tex, 0);
-    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2, gl.COLOR_ATTACHMENT3]);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT4, gl.TEXTURE_2D, this._aux4Tex, 0);   // the contact term
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2, gl.COLOR_ATTACHMENT3, gl.COLOR_ATTACHMENT4]);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   };
 
@@ -988,6 +983,10 @@
     gl.uniform1i(this._fu.uSph, 0); gl.uniform1i(this._fu.uTileHead, 1); gl.uniform1i(this._fu.uTileList, 2); gl.uniform1f(this._fu.uTexW, this._w); gl.uniform1f(this._fu.uTileSize, this._tileSize); gl.uniform2i(this._fu.uTiles, this._tx, this._ty); gl.uniform1f(this._fu.uAspect, asp);
     var T = Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4)); this._T = T;
     gl.uniform1f(this._fu.uT, T); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0), 0, 1)); gl.uniform1f(this._fu.uDissolve, clamp(num(sky.dissolve, 0), 0, 1)); gl.uniform1f(this._fu.uDotSize, Math.max(1, Math.round(num(sky.dotSize, 1)))); gl.uniform1f(this._fu.uEvapScale, Math.max(0.1, num(sky.evapScale, 3))); gl.uniform1f(this._fu.uRef, ref);
+    var sunA = num(sky.sun, 60) * Math.PI / 180, el = num(sky.elevation, 40) * Math.PI / 180, cam = sky.cam;
+    gl.uniform3f(this._fu.uLight, Math.cos(sunA) * Math.cos(el), -Math.sin(sunA) * Math.cos(el), Math.sin(el));
+    gl.uniform4f(this._fu.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
+    gl.uniform1f(this._fu.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(this._fu.uContact, clamp(num(sky.contact, 0), 0, 1));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // shade
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);
@@ -997,9 +996,9 @@
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this._auxTex);
     gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this._aux2Tex);
     gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this._aux3Tex);
+    gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, this._aux4Tex);
     var su = this._su;
-    gl.uniform1i(su.uField, 1); gl.uniform1i(su.uAux, 2); gl.uniform1i(su.uAux2, 3); gl.uniform1i(su.uAux3, 4); gl.uniform2f(su.uTexel, 1 / this._w, 1 / this._h); gl.uniform1f(su.uAspect, asp);
-    var sunA = num(sky.sun, 60) * Math.PI / 180, el = num(sky.elevation, 40) * Math.PI / 180;
+    gl.uniform1i(su.uField, 1); gl.uniform1i(su.uAux, 2); gl.uniform1i(su.uAux2, 3); gl.uniform1i(su.uAux3, 4); gl.uniform1i(su.uAux4, 5); gl.uniform2f(su.uTexel, 1 / this._w, 1 / this._h); gl.uniform1f(su.uAspect, asp);
     gl.uniform3f(su.uLight, Math.cos(sunA) * Math.cos(el), -Math.sin(sunA) * Math.cos(el), Math.sin(el));
     gl.uniform1f(su.uHighlight, clamp(num(sky.highlight, 0.68), 0, 1));
     gl.uniform1f(su.uFill, num(sky.fill, 0.2)); gl.uniform1f(su.uBands, num(sky.bands, 5));
@@ -1026,7 +1025,7 @@
     // (puffRim default 0.5: before rimV 2 the shader floored it by Rim soften, whose default is 0.5; see puffs.html)
     gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0.5), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uCavityLit, clamp(num(sky.cavityLit, 1), 0, 1)); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0)); gl.uniform1f(su.uT, this._T);
     gl.uniform1f(su.uStipple, clamp(num(sky.stipple, 0), 0, 1)); gl.uniform1f(su.uStippleBias, clamp(num(sky.stippleBias, 0), -1, 1)); gl.uniform1f(su.uBreakup, clamp(num(sky.breakup, 0), 0, 1)); gl.uniform1f(su.uBreakupReach, Math.max(1, num(sky.breakupReach, 6))); gl.uniform1f(su.uLock, sky.patternLock === 0 ? 0 : 1);
-    var cam = sky.cam; gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
+    gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   };
 
