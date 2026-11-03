@@ -668,6 +668,7 @@
       prim: prim, pa: clamp(num(look.primAmt, 1), 0, 1), primPacked: prim + clamp(num(look.primAmt, 1), 0, 1) * 0.5,
       children: Math.max(0, Math.round(num(look.children, 4))), ratio: clamp(num(look.ratio, 0.42), 0.1, 0.8),
       levels: clamp(Math.round(num(look.levels, 3)), 1, 3), lvFade: clamp(num(look.levelFade, 1), 0, 1),   // levelFade: the deepest level thinned like the budget does (a host's LOD by distance), 1 whole
+      capN: Math.max(0, num(look.puffCap, 0) | 0),   // puffCap: this cloud's own puff budget, thinned like the scene's (0: none)
       life: Math.max(0, num(look.life, 1)) * num(look.motion, 1), embed: clamp(num(look.embed, 0.78), 0.3, 1),
       depthScale: num(look.depth, 1), roll: num(look.roll, 1),
       // step 4 (docs/core-audit.md): Depth scales the heights only (order and relief are one thing in a height
@@ -750,7 +751,7 @@
       var count = Math.min(sim.blobCount | 0, 128), baseStart = num(sim.baseStart, count);
       var ct = sim.time !== undefined ? sim.time : time, W = WS[c];
       if (!W || ct < W.t) W = WS[c] = { t: ct, drift: new Map(), wear: new Map(), wisps: new Map(), hT: undefined, fresh: true, born: new Map(), bornNow: new Map(), keep: null, keepN: 0 };
-      F.W = W; putC = c;
+      F.W = W; W.F = F; putC = c;
       // a held cloud (hold 2, with a block kept from its last built frame): its puffs go in as they were, nothing else runs
       // for it (its wind state, wisps and child births wait for its next built frame); hold 1 keeps this frame's block below
       if (F.hold === 2 && W.keep) { var KB = W.keep, kn = Math.min(W.keepN, MAX_SPH - n); for (var kp = 0; kp < kn; kp++) { var kb = kp * 32; for (var kr = 0; kr < 8; kr++) { var ko = (MAX_SPH * kr + n) * 4, ki = kb + kr * 4; D[ko] = KB[ki]; D[ko + 1] = KB[ki + 1]; D[ko + 2] = KB[ki + 2]; D[ko + 3] = KB[ki + 3]; } OWN[n] = c; n++; } continue; }
@@ -855,7 +856,25 @@
     var last = this._fade || [1, 1, 1];
     for (k = 1; k < 3; k++) { if (fade[k] < 1 && last[k] < 1 && Math.abs(fade[k] - last[k]) < 1 / 64) fade[k] = last[k]; }
     this._fade = fade;
-    this.degrade = fade[2] < 1 ? fade[2] : fade[1];    // a child's birth is the parent's roll angle then, kept while the child is seen (entries not refreshed this frame are dropped)
+    this.degrade = fade[2] < 1 ? fade[2] : fade[1];
+    // the per-cloud cap (look.puffCap, a host's slider; 0 none): the same plan per cloud, its roots so far (kept blocks and wisps
+    // too) against its own children levels, its fades with the same dead band, kept in its wind state; taken with the scene's
+    var capC = this._capC || (this._capC = []);
+    for (c = 0; c < clouds.length; c++) { var cc = capC[c] || (capC[c] = [0, 0, 0]); cc[0] = 0; cc[1] = 0; cc[2] = 0; }
+    for (k = 0; k < n; k++) capC[OWN[k]][0]++;
+    for (k = 0; k < queue.length; k++) { F = queue[k].F; cc = capC[F.c]; if (F.levels >= 2) cc[1] += F.children * (F.levels === 2 ? F.lvFade : 1); if (F.levels >= 3) cc[2] += F.children * F.children * F.lvFade; }
+    for (c = 0; c < clouds.length; c++) {
+      var Wf = WS[c]; if (!Wf || !Wf.F) continue;
+      var pc = Wf.F.capN, fc = Wf.capFade || (Wf.capFade = [1, 1, 1]), lc = Wf.capLast || (Wf.capLast = [1, 1, 1]);
+      lc[1] = fc[1]; lc[2] = fc[2]; fc[1] = 1; fc[2] = 1;
+      if (pc > 0) {
+        cc = capC[c];
+        if (cc[0] + cc[1] > pc) { fc[1] = Math.max(0, (pc - cc[0]) / Math.max(1, cc[1])); fc[2] = 0; }
+        else if (cc[0] + cc[1] + cc[2] > pc) fc[2] = Math.max(0, (pc - cc[0] - cc[1]) / Math.max(1, cc[2]));
+        for (k = 1; k < 3; k++) { if (fc[k] < 1 && lc[k] < 1 && Math.abs(fc[k] - lc[k]) < 1 / 64) fc[k] = lc[k]; }
+      }
+    }
+    // a child's birth is the parent's roll angle then, kept while the child is seen (entries not refreshed this frame are dropped)
     // (per cloud, in its wind state W: a held cloud keeps its entries while it is not rebuilt)
     for (var level = 0; level < 2 && queue.length; level++) {
       var next = [], fd = fade[level + 1];
@@ -864,7 +883,8 @@
       for (k = 0; k < queue.length && n < cap; k++) {
         q = queue[k]; F = q.F;
         if (F.levels < level + 2) continue;
-        var fdc = level + 2 === F.levels ? fd * F.lvFade : fd;   // the cloud's own fade of its deepest level (LOD), on top of the budget's
+        var fdc = Math.min(fd, F.W.capFade ? F.W.capFade[level + 1] : 1); if (level + 2 === F.levels) fdc *= F.lvFade;   // the cloud's own cap and the fade of its deepest level (LOD), on top of the budget's
+        if (fdc <= 0) continue;
         var keep = fdc >= 1 ? F.children : Math.floor(fdc * 0.98 * F.children + hash(q.seed + 77.7));
         for (j = 0; j < keep && n < cap; j++) {
           var cf = smoothstep(minR, 2 * minR, thinR(q));

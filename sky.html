@@ -40,7 +40,7 @@
   </div>
 </div>
 <script src="src/sim.js?v=196"></script>
-<script src="src/puffs.js?v=213"></script>
+<script src="src/puffs.js?v=214"></script>
 <script src="src/motion.js?v=209"></script>
 <script src="src/layer.js?v=209"></script>
 <script src="src/presets.js?v=211"></script>
@@ -61,7 +61,7 @@
   // the sky's own parameters
   // the eye: dragged in the canvas (an unlocked parallax, on top of the sway); double-click recentres
   var eye = { x: 0, y: 0 }, drag = null;
-  var P = { clouds: 12, drift: 0.004, travel: 0.012, parallax: 0.03, sway: 57, near: 0.6, horizon: 0.86, simSpeed: 0.5, fadeIn: 0, motion: 1, farMasses: 0, separation: 0, runX: 0, climb: 0, horizonBand: 0, poiCount: 0, poiLevels: 3, poiGap: 20, poiScale: 1, lod: 0, lod: 0, farRate: 1 };
+  var P = { clouds: 12, drift: 0.004, travel: 0.012, parallax: 0.03, sway: 57, near: 0.6, horizon: 0.86, simSpeed: 0.5, fadeIn: 0, motion: 1, farMasses: 0, separation: 0, runX: 0, climb: 0, horizonBand: 0, poiCount: 0, poiLevels: 3, poiGap: 20, poiScale: 1, lod: 0, farRate: 1, sceneCap: 4096, cloudCap: 0 };
   // the player: held keys (A/D or left/right run, W/S or up/down climb/descend) add to the Run / Climb sliders
   var keyVel = { x: 0, y: 0 }, KEYS = { a: [-1, 0], d: [1, 0], w: [0, 1], s: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }, held = {};
   function keys(e, down) { var k = KEYS[e.key.length === 1 ? e.key.toLowerCase() : e.key]; if (!k || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return; held[e.key] = down; keyVel.x = 0; keyVel.y = 0; for (var h in held) if (held[h]) { var v = KEYS[h.length === 1 ? h.toLowerCase() : h]; keyVel.x += v[0] * 0.15; keyVel.y += v[1] * 0.15; } e.preventDefault(); }
@@ -190,7 +190,7 @@
   var SKYP = [['clouds', 'Clouds', 1, 14, 1], ['near', 'Near size', 0.3, 1.4, 0.01], ['travel', 'Travel', 0, 0.05, 0.001], ['drift', 'Drift', -0.02, 0.02, 0.001], ['parallax', 'Parallax', 0, 0.08, 0.002], ['sway', 'Sway (s)', 5, 120, 1], ['horizon', 'Horizon', 0.5, 1, 0.01], ['simSpeed', 'Sim speed', 0.1, 1.5, 0.01], ['motion', 'Motion', 0, 1.5, 0.01], ['fadeIn', 'Fade in', 0, 1, 0.01], ['farMasses', 'Far masses', 0, 4, 1], ['separation', 'Separation', 0, 1, 0.01], ['horizonBand', 'Horizon band', 0, 1, 0.125], ['runX', 'Run', -0.3, 0.3, 0.005], ['climb', 'Climb', -0.3, 0.3, 0.005]];
   var STYLE = [['pixel', 'Pixel size', 1, 6, 1], ['softness', 'Softness', 0.3, 4, 0.01], ['rim', 'Rim soften', 0, 1, 0.01], ['cap', 'Cap', 0, 1, 0.01], ['puffRim', 'Puff rim', 0, 1, 0.01], ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias2', 'Noise 2 bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['streak', 'Streak', 0, 1, 0.01], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['dissolve', 'Evaporation', 0, 1, 0.01], ['evapScale', 'Evap. scale', 0.5, 8, 0.1], ['stipple', 'Stipple', 0, 1, 0.01], ['stippleBias', 'Stipple bias', -1, 1, 0.01], ['breakup', 'Edge breakup', 0, 1, 0.01], ['breakupReach', 'Breakup reach', 1, 24, 1], ['dotSize', 'Dot size', 1, 4, 1], ['patternLock', 'Pattern lock', 0, 1, 1], ['grain', 'Palette dither', 0, 2, 0.01], ['atmos', 'Atmosphere', 0, 1, 0.01], ['depthFall', 'Depth falloff', 0, 1, 0.01]];
   var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['overhead', 'Overhead', 0, 1, 0.01], ['shadow', 'Shadow', 0, 1, 0.01], ['contact', 'Contact', 0, 1, 0.01], ['cavity', 'Cavity', 0, 1, 0.01], ['cavityReach', 'Cavity reach', 2, 24, 1], ['cavityLit', 'Cavity in light', 0, 1, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['baseFall', 'Base falloff', 0.1, 1.5, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
-  var PERF = [['lod', 'LOD by distance', 0, 1, 0.01], ['farRate', 'Far rate', 1, 3, 1]];
+  var PERF = [['lod', 'LOD by distance', 0, 1, 0.01], ['farRate', 'Far rate', 1, 3, 1], ['sceneCap', 'Scene puff cap', 256, 4096, 64], ['cloudCap', 'Cloud puff cap', 0, 800, 10]];
   var CIRRUS = [['cirrus', 'Cirrus', 0, 1, 0.01], ['cirrusScale', 'Scale', 0.5, 6, 0.1], ['cirrusAngle', 'Angle (deg)', -45, 45, 1], ['cirrusFlow', 'Flow', 0, 0.1, 0.001]];
   var TIPS = { dither: 'Dispersing puffs keep a hard, stippled edge instead of a hazy fade (per type). It does not remove pixels: that is Evaporation (Dissolve), tone is Stipple, ragged outlines are Edge breakup.',
     dissolve: 'Evaporation: how far a dispersing puff is eroded from its outline inward, raggedly, by a broad noise riding with the parcel (no interior holes). A rising value only takes more.', dotSize: 'Cell size of the stipple, breakup and evaporation patterns in texels.',
@@ -202,6 +202,8 @@
     poiCount: 'Points of interest: how many composed groups (a large cloud far, a medium in the middle, a small one near, placed to frame one another) may be in the sky at once (0: none, today\u2019s sky).', poiLevels: 'Members per POI group: 1 the large hero alone, 2 a pair, 3 the trio.', poiGap: 'Seconds between one POI group leaving the frame and the next one forming far away (varied by a quarter either way).', poiScale: 'Size of the POI members (applies to the next group).',
     lod: 'Level of detail by distance: far clouds drop their deepest puff level (3 levels near, 2 in the middle, 1 far; the thresholds scale with the slider, each a band where the level thins child by child like the budget, so nothing pops). 0 is today: every cloud at its type\'s own depth. Watch puffs and tree ms in the HUD.',
     farRate: 'Update rate by distance: a far cloud (beyond distance 1.4, the horizon band too) steps its sim and rebuilds its puffs every 2nd or 3rd frame only, staggered across the clouds, reusing its puffs in between; the skipped time is stepped in one go, so its motion keeps pace. Near clouds update every frame. 1 is today.',
+    sceneCap: 'Scene puff cap: the renderer\'s budget for the whole sky. Past it the deepest level thins child by child, biggest parents served first (the HUD shows the deepest level\'s share). 4096 is today (the table\'s size).',
+    cloudCap: 'Cloud puff cap: a budget per cloud, thinned the same way within the cloud. 0 is today: none.',
     cirrus: 'Amount of high streak cloud behind everything.', cirrusScale: 'Size of the cirrus streaks.', cirrusAngle: 'Direction of the streaks.', cirrusFlow: 'Scroll speed of the streaks.' };
   var sliders = {};
   function slider(parent, target, spec, onChange) {
@@ -245,7 +247,7 @@
     ['Dither', ['dither', 'dissolve', 'evapScale', 'stipple', 'stippleBias', 'breakup', 'breakupReach', 'dotSize', 'patternLock']],
     ['Atmosphere', ['atmos', 'depthFall']],
     ['Cirrus', ['cirrus', 'cirrusScale', 'cirrusAngle', 'cirrusFlow']],
-    ['Performance', ['lod', 'farRate'], function () { return P; }]   // the cost toggles (every default is today's behaviour; the HUD's second line shows their effect)
+    ['Performance', ['lod', 'farRate', 'sceneCap', 'cloudCap'], function () { return P; }]   // the cost toggles (every default is today's behaviour; the HUD's second line shows their effect)
   ];
   buildGroups($('groups'), GROUPS, [STYLE, LIGHT, CIRRUS, PERF], function () { return sky; });
   // lighting presets: a small select at the top of the Light group sets these five values; the sliders stay free afterwards.
@@ -304,7 +306,7 @@
         for (var j = 0; j < c.sims.length; j++) {
           var e = c.sims[j];
           e.sim.aspect = aspect; e.sim.motion = P.motion; e.look.motion = P.motion;
-          e.look.hold = farHeld ? (live ? 1 : 2) : 0;
+          e.look.hold = farHeld ? (live ? 1 : 2) : 0; e.look.puffCap = P.cloudCap;
           if (!live) continue;
           if (e.atTop) { e.sim.params.level = (main.sim.topY + e.dy) / main.sim.aspect; e.sim.params.wind = main.look.wind || 0; if (main.sim.time < 0.6 * (main.sim.params.formTime || 0)) continue; }
           e.sim.step(c.dtAcc * P.simSpeed * Math.min(1, Math.max(0.35, c.z / 1.5)));   // a big near cloud evolves slowly
@@ -348,6 +350,7 @@
     }
     sky.cam = { x: camX + camWind, z: camZ, hor: hor, alt: Math.max(0.15 * aspect, 1.05 * aspect - camAlt) };   // the cirrus veil: a plane above everything, travelling with the camera
     var flat = []; clouds.forEach(function (c) { c.sims.forEach(function (e) { flat.push(e); }); });
+    renderer.budget = P.sceneCap;   // the scene puff cap (Performance): the renderer's budget, thinning the deepest level
     var t1 = performance.now();
     renderer.render(flat, t, P.motion === 1 ? sky : Object.assign({}, sky, { flow: sky.flow * P.motion, cirrusFlow: sky.cirrusFlow * P.motion }));   // Motion also slows the surface noise and the cirrus scroll
     var t2 = performance.now();
