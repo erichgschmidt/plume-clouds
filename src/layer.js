@@ -114,6 +114,7 @@
 
   LayerSim.prototype.step = function (dt) {
     var P = this.params, rng = this.rng, i, p;
+    dt *= this.motion === undefined ? 1 : this.motion;   // motion: a host's scale on the layer's whole evolution (drift, undulation, breathing, recycling)
     this.time += dt;
     this.reseat();
     var wa = (P.wind || 0) * Math.PI / 180, wx = Math.cos(wa), wy = -Math.sin(wa);

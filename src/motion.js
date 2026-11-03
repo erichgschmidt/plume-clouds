@@ -166,7 +166,9 @@
     // the thermal rises off the fixed base, but stays in frame: the crown stops near the top edge
     this.cy = Math.max(H * 1.15 + 0.22 * this.aspect, this.cy - P.rise * dt);
     this.width = W; this.height = H;
-    var U = P.updraft;
+    // motion: a host's scale on the whole flow (velocities, roll, jitter, surge, the reservoir's wander); ageing, mixing and
+    // the population run on unchanged, so a lower value is a calmer cloud, not a slower film
+    var U = P.updraft * (this.motion === undefined ? 1 : this.motion);
     var baseZ = (this.cy - this.baseY) / H;   // condensation level in the unit frame (negative: below centre)
 
     // ---- population: cohorts (bubbles) or a steady trickle ----

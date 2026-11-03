@@ -650,13 +650,14 @@
       shear: Math.max(0, num(look.shear, 0)), shearBias: clamp(num(look.shearBias, 0), -1, 1), wx: Math.cos(wa), wy: -Math.sin(wa), lean: num(look.lean, 0),
       // wind drift (wind erosion, step 1): speed in fifths of a reference radius per second at full exposure, gust size in
       // reference radii, top emphasis: how much the exposure concentrates toward the crown
-      windSpeed: Math.max(0, num(look.windSpeed, 0)), gust: Math.max(0.2, num(look.gustSize, 1.5)), top: clamp(num(look.topEmphasis, 0.5), 0, 1),
+      // (look.motion, the sky's Motion slider, slows the wind drift and the child cycle with the sims)
+      windSpeed: Math.max(0, num(look.windSpeed, 0)) * num(look.motion, 1), gust: Math.max(0.2, num(look.gustSize, 1.5)), top: clamp(num(look.topEmphasis, 0.5), 0, 1),
       erosion: Math.max(0, num(look.erosion, 0)),   // wind erosion, step 2: how fast an exposed lobe wears away
       wisps: clamp(Math.round(num(look.wispAmount, 0) * 8), 0, 8), wispLife: Math.max(1, num(look.wispLife, 8)),   // step 3: wisps per cloud at most, and their life in seconds
       spanY: Math.max(1e-3, baseY - topY),   // the sim's height range (base to nominal top), for the exposure
       prim: prim, pa: clamp(num(look.primAmt, 1), 0, 1), primPacked: prim + clamp(num(look.primAmt, 1), 0, 1) * 0.5,
       children: Math.max(0, Math.round(num(look.children, 4))), ratio: clamp(num(look.ratio, 0.42), 0.1, 0.8),
-      levels: clamp(Math.round(num(look.levels, 3)), 1, 3), life: Math.max(0, num(look.life, 1)), embed: clamp(num(look.embed, 0.78), 0.3, 1),
+      levels: clamp(Math.round(num(look.levels, 3)), 1, 3), life: Math.max(0, num(look.life, 1)) * num(look.motion, 1), embed: clamp(num(look.embed, 0.78), 0.3, 1),
       depthScale: num(look.depth, 1), roll: num(look.roll, 1),
       // step 4 (docs/core-audit.md): Depth scales the heights only (order and relief are one thing in a height
       // union); the sway of child puffs has its own scale, and a puff's depth weight (its fade) comes from its
