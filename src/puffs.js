@@ -139,7 +139,7 @@
   '  // (a ninth is hidden by them anyway); the highest one is the owner, whose family the shade pass gets\n' +
   '  ivec2 tile = clamp(ivec2(p * uTexW / uTileSize), ivec2(0), uTiles - 1);\n' +
   '  vec2 thead = texelFetch(uTileHead, tile, 0).xy; int toff = int(thead.x), tcnt = int(thead.y);\n' +
-  '  float winId = -1.0, winPid = -2.0, winH = -1e9, winZ = 0.0; int winIdx = -1;\n' +
+  '  float winId = -1.0, winPid = -2.0, winH = -1e9, winZ = 0.0, winU = 0.0, winR = 0.0; int winIdx = -1;\n' +
   '  float ph[8], pidA[8], ppA[8]; int pn = 0;\n' +
   '  for(int k = 0; k < 4096; k++){\n' +
   '    if(k >= tcnt) break;\n' +
@@ -162,7 +162,7 @@
   '    vec4 idp = texelFetch(uSph, ivec2(i, 4), 0);\n' +
   '    if(pn < 8){ ph[pn] = h; pidA[pn] = idp.x; ppA[pn] = idp.y; pn++; }\n' +
   '    else { int lo = 0; for(int q = 1; q < 8; q++) if(ph[q] < ph[lo]) lo = q; if(h > ph[lo]){ ph[lo] = h; pidA[lo] = idp.x; ppA[lo] = idp.y; } }\n' +
-  '    if(h > winH){ winH = h; winId = idp.x; winPid = idp.y; winIdx = i; winZ = s.w; }\n' +
+  '    if(h > winH){ winH = h; winId = idp.x; winPid = idp.y; winIdx = i; winZ = s.w; winU = u; winR = r; }\n' +
   '  }\n' +
   '  for(int k = 0; k < 4096; k++){\n' +
   '    if(k >= tcnt) break;\n' +
@@ -261,6 +261,7 @@
   '  // solid angle (1 - sqrt(1 - r^2 / d^2)) times the share of the sphere above the point\'s level, fading out over Cavity\n' +
   '  // reach (at most 0.6 r, inside the tile reach) beyond the sphere\'s rim; the shares combine as transmittances and\n' +
   '  // the floor of a crease between two domes reaches about 0.8. No height-field sample, so no step and no outline\n' +
+  '  float sil = (sacc > 0.0) ? (sm + log(min(sacc, 2.0))) * T : -1.0;\n' +
   '  float contact = 0.0, cav = 0.0;\n' +
   '  if((uContact > 0.0 || uCavity > 0.0) && H > -0.5){\n' +
   '    vec3 Lv = uLight;\n' +
@@ -268,8 +269,19 @@
   '    vec3 ro = vec3(p, H); float tr = 1.0, sky = 1.0, creach = uCavityReach / uTexW;\n' +
   '    for(int k = 0; k < 4096; k++){\n' +
   '      if(k >= tcnt) break;\n' +
-  '      int i = int(texelFetch(uTileList, ivec2((toff + k) & 4095, (toff + k) >> 12), 0).x); if(i == winIdx) continue;\n' +
+  '      int i = int(texelFetch(uTileList, ivec2((toff + k) & 4095, (toff + k) >> 12), 0).x);\n' +
   '      vec4 s = texelFetch(uSph, ivec2(i, 0), 0); float r = s.z * erode(i); if(r <= 1e-5) continue;\n' +
+  '      if(i == winIdx){\n' +
+  '        // the owner: its own limb joins the shadow it casts on the puff behind where the sphere\'s true normal turns from the\n' +
+  '        // light (the rim lift turns that normal to the viewer and lit the limb, a bright crescent standing against the cast\n' +
+  '        // shadow; a ray test missed the terminator, where the crescent was brightest). Weighted by the rim band (1 at the\n' +
+  '        // edge, 0 a third of a radius in) and by the band lying inside the cloud: at the exposed silhouette a lone puff gets none\n' +
+  '        if(uContact <= 0.0) continue;\n' +
+  '        float wself = (1.0 - smoothstep(0.0, 0.3, 1.0 - winU)) * smoothstep(T, 3.0 * T, sil - winR * (1.0 - winU)); if(wself <= 0.0) continue;\n' +
+  '        vec3 oo = vec3(s.xy, s.w) - ro; float nl = -dot(oo, Lv) / max(length(oo), 1e-6);\n' +
+  '        tr *= 1.0 - 0.5 * wself * (1.0 - smoothstep(0.0, 0.5, nl));   // half: the cast shadow beside it is a penumbra of about that strength at the contact\n' +
+  '        continue;\n' +
+  '      }\n' +
   '      vec3 oc = vec3(s.xy, s.w) - ro; float oc2 = dot(oc, oc), sxy = length(oc.xy) - r; if(sxy > 0.6 * r) continue;\n' +
   '      // the point sits on this sphere (inside its footprint, within T of its surface: the owner or a merged lobe): neither\n' +
   '      // a blocker nor an occluder. Outside the footprint it is the puff behind, even within T (a bright strip hugged\n' +
@@ -309,7 +321,6 @@
   '  }\n' +
   '  // the silhouette union gains at most T log 2 over the nearest puff (a pair blends as before; a pile of\n' +
   '  // overlapping skirts no longer pushes the outline T log n beyond the domes that are shaded)\n' +
-  '  float sil = (sacc > 0.0) ? (sm + log(min(sacc, 2.0))) * T : -1.0;\n' +
   '  float mask = smoothstep(-0.5 * T, 0.5 * T, sil);\n' +
   '  float ia = acc2 > 0.0 ? 1.0 / acc2 : 0.0;\n' +
   '  // alpha: the mask (0..1), plus ten times the distance inside the silhouette past the mask ramp, so the\n' +

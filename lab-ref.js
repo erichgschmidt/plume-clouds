@@ -67,7 +67,7 @@
     var i, o0, o1, o2, o3, o4, dx, dy, r, st, prim, pa, q, len, d2, u, h, along, across;
 
     // ownership pre-pass: the highest puff containing the pixel
-    var winId = -1, winPid = -2, winH = -1e9, winIdx = -1, winZ = 0, ph = [], pidA = [], ppA = [];
+    var winId = -1, winPid = -2, winH = -1e9, winIdx = -1, winZ = 0, winU = 0, winR = 0, ph = [], pidA = [], ppA = [];
     for (i = 0; i < count; i++) {
       o0 = i * 4; o2 = (M * 2 + i) * 4; o3 = (M * 3 + i) * 4; o4 = (M * 4 + i) * 4;
       dx = px - D[o0]; dy = py - D[o0 + 1]; r = D[o0 + 2] * erode(i); st = D[o2 + 2]; if (r <= 1e-5) continue;
@@ -85,7 +85,7 @@
       h = D[o0 + 3] + r * mix(Math.sqrt(1 - u * u), 1 - u * u, cap);
       if (ph.length < 8) { ph.push(h); pidA.push(D[o4]); ppA.push(D[o4 + 1]); }
       else { var lo = 0; for (var qq = 1; qq < 8; qq++) if (ph[qq] < ph[lo]) lo = qq; if (h > ph[lo]) { ph[lo] = h; pidA[lo] = D[o4]; ppA[lo] = D[o4 + 1]; } }
-      if (h > winH) { winH = h; winId = D[o4]; winPid = D[o4 + 1]; winIdx = i; winZ = D[o0 + 3]; }
+      if (h > winH) { winH = h; winId = D[o4]; winPid = D[o4 + 1]; winIdx = i; winZ = D[o0 + 3]; winU = u; winR = r; }
     }
 
     var m = -1e9, acc = 0, mO = -1e9, accO = 0, ins = 0;
@@ -160,10 +160,16 @@
     // other puff as a sphere; the spheres the point sits on (within T) and the owner are left out
     var contact = 0, cavity = 0, wantC = P.light && P.contact > 0, wantV = P.cavity > 0;
     if ((wantC || wantV) && Hf > -0.5) {
-      var L = P.light || [0, 0, 1], tr = 1, sky = 1, creach = (P.cavityReach || 8) / W;
+      var L = P.light || [0, 0, 1], tr = 1, sky = 1, creach = (P.cavityReach || 8) / W, silC = sacc > 0 ? (sm + Math.log(Math.min(sacc, 2))) * T : -1;
       for (i = 0; i < count; i++) {
-        if (i === winIdx) continue;
         o0 = i * 4; r = D[o0 + 2] * erode(i); if (r <= 1e-5) continue;
+        if (i === winIdx) {   // the owner's own far-side limb joins its cast shadow (see the shader)
+          if (!wantC) continue;
+          var wself = (1 - smoothstep(0, 0.3, 1 - winU)) * smoothstep(T, 3 * T, silC - winR * (1 - winU)); if (wself <= 0) continue;
+          var sox = D[o0] - px, soy = D[o0 + 1] - py, soz = D[o0 + 3] - Hf, nl = -(sox * L[0] + soy * L[1] + soz * L[2]) / Math.max(Math.sqrt(sox * sox + soy * soy + soz * soz), 1e-6);
+          tr *= 1 - 0.5 * wself * (1 - smoothstep(0, 0.5, nl));
+          continue;
+        }
         var ox = D[o0] - px, oy = D[o0 + 1] - py, oz = D[o0 + 3] - Hf, oc2 = ox * ox + oy * oy + oz * oz, sxy = Math.sqrt(ox * ox + oy * oy) - r; if (sxy > 0.6 * r) continue;
         if (sxy < 0 && oc2 < (r + T) * (r + T)) continue;
         if (wantV) { var ozv = Math.min(oz, winZ - Hf), ocv = ox * ox + oy * oy + ozv * ozv, qq = Math.min(1, r * r / Math.max(ocv, 1e-12)), above = clamp(0.5 + ozv / (2 * r), 0, 1); sky *= 1 - (1 - Math.sqrt(1 - qq)) * above * (1 - smoothstep(0, Math.min(creach, 0.6 * r), sxy)); }
