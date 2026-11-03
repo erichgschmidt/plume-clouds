@@ -20,10 +20,12 @@
       depth: [0, 0], scale: 1 },
     humilis: { label: 'Cumulus humilis', engine: 'thermal', preset: 'humilis', shape: 'flat', prim: 'sphere', primAmt: 1,
       forces: { width: 0.24, height: 0.1, count: 18, size: 0.07, pulse: 0, mixing: 14, formTime: 40, reservoir: 0.4 },
-      look: { children: 4, ratio: 0.6, levels: 2, life: 1, embed: 0.85, depth: 1, shear: 0.3, lean: 0.1 },
+      // near-depth form (Gus, 2026-11-03): lobes sunk into one another, per-puff shape variation, surface noise above the sky's and less
+      // haze (haze flattens the normal and hid the noise), so the lobes are not clean separate balls up close; the motion is unchanged
+      look: { children: 4, ratio: 0.6, levels: 2, life: 1, embed: 1.0, depth: 1, shear: 0.3, lean: 0.1, shapeVar: 0.5, stretchVar: 1, contourVar: 1, noise: 0.35, smooth: 0.5, haze: 0.25 },
       depth: [0.25, 1], scale: 0.8 },
     congestus: { label: 'Cumulus congestus', engine: 'thermal', preset: 'congestus', shape: 'ring', prim: 'sphere', primAmt: 1,
-      forces: {}, look: { children: 4, ratio: 0.62, levels: 3, life: 1, embed: 0.9, depth: 1 },
+      forces: {}, look: { children: 4, ratio: 0.62, levels: 3, life: 1, embed: 1.0, depth: 1, shapeVar: 0.5, stretchVar: 1, contourVar: 1, noise: 0.3, smooth: 0.5 },   // near-depth form, as humilis
       depth: [0.4, 1], scale: 1.0 },
     // a big, calm cumulus mass (the pixel-art game sky): wide and low, many large parcels with a weak updraft, little
     // jitter and no bubbles, long mixing, so the lobes are gently rounded and nearly still; smooth, pale, a touch of
@@ -36,7 +38,7 @@
       depth: [0.15, 0.8], scale: 2.2 },
     cumulonimbus: { label: 'Cumulonimbus', engine: 'thermal', preset: 'tower', shape: 'tower', prim: 'sphere', primAmt: 1,
       forces: { height: 0.4, count: 44, pulse: 18, formTime: 150, parallax: 0.02 },
-      look: { children: 4, ratio: 0.6, levels: 3, life: 1, embed: 0.9, depth: 1, lean: 0.25, wind: 0, shear: 0.6, baseShade: 0.75 },
+      look: { children: 4, ratio: 0.6, levels: 3, life: 1, embed: 1.0, depth: 1, lean: 0.25, wind: 0, shear: 0.6, baseShade: 0.75, shapeVar: 0.5, stretchVar: 1, contourVar: 1, noise: 0.3, smooth: 0.5 },   // near-depth form, as humilis
       extra: { engine: 'layer', preset: 'anvil', atTop: true, dy: -0.03, look: { levels: 1, prim: 'disc', primAmt: 0.9, shear: 1.2, lean: 0 } },
       depth: [0.5, 1], scale: 1.3 },
     stratocumulus: { label: 'Stratocumulus', engine: 'layer', preset: 'stratocumulus', shape: 'ring', prim: 'disc', primAmt: 0.5,
