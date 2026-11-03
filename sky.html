@@ -207,9 +207,9 @@
   build();
   window.sky = sky; window.P = P; window.renderer = renderer; window.SPECIES = SPECIES;
 
-  var last = performance.now(), fpsT = 0, frames = 0, fps = 0, t = 0, camZ = 0, camWind = 0;   // where the camera has got to (the cirrus plane scrolls with it)
+  var last = performance.now(), fpsT = 0, frames = 0, fps = 0, t = 0, camZ = 0, camWind = 0, worst = 0, stall = 0;   // stall: the longest frame of the last half second, to pin a hitch   // where the camera has got to (the cirrus plane scrolls with it)
   function loop(now) { try {
-    var dt = Math.min(0.1, (now - last) / 1000); last = now;
+    var dt = Math.min(0.1, (now - last) / 1000); worst = Math.max(worst, now - last); last = now;
     var aspect = canvas.height / canvas.width;
     if (playing) {
       t += dt;
@@ -249,8 +249,8 @@
     var flat = []; clouds.forEach(function (c) { c.sims.forEach(function (e) { flat.push(e); }); });
     renderer.render(flat, t, sky);
     frames++; fpsT += dt;
-    if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
-    hud.textContent = (window.PLUME_BUILD ? 'build ' + PLUME_BUILD.commit + ' ' + PLUME_BUILD.date + '   ' : '') + 'fps ' + fps + '   clouds ' + clouds.length + '   puffs ' + renderer.count + (renderer.degrade < 1 ? '  (deepest level at ' + Math.round(renderer.degrade * 100) + '%)' : '') + '   t ' + t.toFixed(0) + 's';
+    if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; stall = Math.round(worst); worst = 0; }
+    hud.textContent = (window.PLUME_BUILD ? 'build ' + PLUME_BUILD.commit + ' ' + PLUME_BUILD.date + '   ' : '') + 'fps ' + fps + '   stall ' + stall + 'ms   clouds ' + clouds.length + '   puffs ' + renderer.count + (renderer.degrade < 1 ? '  (deepest level at ' + Math.round(renderer.degrade * 100) + '%)' : '') + '   t ' + t.toFixed(0) + 's';
     requestAnimationFrame(loop);
     } catch (err) { hud.textContent = 'ERR ' + err.stack; }
   }
