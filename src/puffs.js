@@ -553,7 +553,8 @@
   '  float stack = sA.z * f.b;\n' +
   '  float direct = 0.84 * pow(max(0.0, lambert), mix(1.5, 0.55, uHighlight)) * (1.0 - 0.7 * band) * (1.0 - 0.5 * stack);\n' +
   '  float ambient = (0.18 + uFill * bounce) * (1.0 - band) * (1.0 - 0.8 * stack);\n' +
-  '  direct *= (1.0 - contact) * (1.0 - 0.6 * cavD); ambient *= (1.0 - 0.5 * contact) * (1.0 - 0.7 * cavity);\n' +
+  '  // (cavity cuts 0.85 of the direct and 0.9 of the ambient light at full strength; 0.6 and 0.7 read as conservative)\n' +
+  '  direct *= (1.0 - contact) * (1.0 - 0.85 * cavD); ambient *= (1.0 - 0.5 * contact) * (1.0 - 0.9 * cavity);\n' +
   '  // shadow: faces turning away from the light lose ambient too (the old term scaled only the direct light,\n' +
   '  // which is already zero where the face turns away, so the slider did nothing)\n' +
   '  float sh = sB.x * (1.0 - 0.6 * far) * (1.0 - smoothstep(-0.25, 0.25, lambert));\n' +
