@@ -923,20 +923,18 @@
     this.msTree = tB - tA; this.msUpload = performance.now() - tB;
   };
 
-  // GPU timing: one query round the field pass and one round the shade pass per frame; results are read when they
-  // arrive (a few frames later), a disjoint interval (a clock change) drops the pair
-  PuffRenderer.prototype._gpuBegin = function (which) { var gl = this.gl, tq = this._timer; if (!tq) return; var q = gl.createQuery(); gl.beginQuery(tq.TIME_ELAPSED_EXT, q); this._qCur = this._qCur || {}; this._qCur[which] = q; };
-  PuffRenderer.prototype._gpuEnd = function () { var tq = this._timer; if (tq) this.gl.endQuery(tq.TIME_ELAPSED_EXT); };
+  // GPU timing: one query round the field pass and one round the shade pass, a single pair in flight (the result takes up
+  // to a second to arrive, whatever the frame rate), read when it is available; a disjoint interval (a clock change) drops it
+  PuffRenderer.prototype._gpuBegin = function (which) { var gl = this.gl, tq = this._timer; if (!tq || this._qPending) return; var q = gl.createQuery(); gl.beginQuery(tq.TIME_ELAPSED_EXT, q); this._qCur = this._qCur || {}; this._qCur[which] = q; };
+  PuffRenderer.prototype._gpuEnd = function () { var tq = this._timer; if (tq && !this._qPending) this.gl.endQuery(tq.TIME_ELAPSED_EXT); };
   PuffRenderer.prototype._gpuPoll = function () {
-    var gl = this.gl, tq = this._timer, Q = this._queries; if (!tq) return;
-    if (this._qCur) { Q.push(this._qCur); this._qCur = null; }
+    var gl = this.gl, tq = this._timer; if (!tq) return;
+    if (!this._qPending && this._qCur) { this._qPending = this._qCur; this._qCur = null; return; }
+    var p = this._qPending; if (!p) return;
     var disjoint = gl.getParameter(tq.GPU_DISJOINT_EXT);
-    while (Q.length) {
-      var p = Q[0];
-      if (!disjoint && Q.length < 8 && !(gl.getQueryParameter(p.f, gl.QUERY_RESULT_AVAILABLE) && gl.getQueryParameter(p.s, gl.QUERY_RESULT_AVAILABLE))) break;
-      if (!disjoint && Q.length < 8) { this.gpuField = gl.getQueryParameter(p.f, gl.QUERY_RESULT) / 1e6; this.gpuShade = gl.getQueryParameter(p.s, gl.QUERY_RESULT) / 1e6; }
-      gl.deleteQuery(p.f); gl.deleteQuery(p.s); Q.shift();
-    }
+    if (!disjoint && !(gl.getQueryParameter(p.f, gl.QUERY_RESULT_AVAILABLE) && gl.getQueryParameter(p.s, gl.QUERY_RESULT_AVAILABLE))) return;
+    if (!disjoint) { this.gpuField = gl.getQueryParameter(p.f, gl.QUERY_RESULT) / 1e6; this.gpuShade = gl.getQueryParameter(p.s, gl.QUERY_RESULT) / 1e6; }
+    gl.deleteQuery(p.f); gl.deleteQuery(p.s); this._qPending = null;
   };
 
   PuffRenderer.prototype._growList = function (rows) {
