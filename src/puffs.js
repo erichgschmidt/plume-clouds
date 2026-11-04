@@ -25,6 +25,7 @@
   var PRIMS = ['sphere', 'disc', 'drop', 'box', 'diamond'];
 
   function hash(x) { var s = Math.sin(x * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); }
+  function mix(a, b, t) { return a + (b - a) * t; }
   function vnoise2(x, y) {   // value noise on the unit lattice, smooth, 0..1 (the wind's gust pattern)
     var ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
     var a = hash(ix + iy * 57.17), b = hash(ix + 1 + iy * 57.17), c = hash(ix + (iy + 1) * 57.17), d = hash(ix + 1 + (iy + 1) * 57.17);
@@ -56,7 +57,7 @@
   var FIELD_FS = '#version 300 es\nprecision highp float; precision highp sampler2D;\n' +
   'uniform sampler2D uSph; uniform float uAspect; uniform float uT, uCap;\n' +
   '// contact (object space): the light, the camera pitch (as the shade pass turns the light with it) and the slider (0: skipped)\n' +
-  'uniform vec3 uLight; uniform vec4 uCam; uniform float uOverhead, uContact, uCavity, uCavityReach;\n' +
+  'uniform vec3 uLight; uniform vec4 uCam; uniform float uOverhead, uContact, uCavity, uCavityReach, uBody, uBodySoft;\n' +
   '// tiles: the spheres whose reach touches a 16-texel tile, as a list per tile (uTileHead: offset, count; uTileList: indices)\n' +
   'uniform sampler2D uTileHead, uTileList; uniform float uTexW, uTileSize; uniform ivec2 uTiles;\n' +
   '// dissolve: a dispersing puff (attribute w) loses texels on the dither grid HERE, in the union and the silhouette,\n' +
@@ -160,8 +161,8 @@
   '    else if(prim == 4) d *= mix(1.0, (abs(d.x) + abs(d.y)) / max(length(d), 1e-6), pa);\n' +
   '    float d2 = dot(d, d); if(d2 >= r * r) continue;\n' +
   '    float u = sqrt(d2) / r;\n' +
-  '    float h = s.w + r * mix(sqrt(1.0 - u * u), 1.0 - u * u, uCap);\n' +
   '    vec4 idp = texelFetch(uSph, ivec2(i, 4), 0);\n' +
+  '    float h = s.w + idp.z * r * mix(sqrt(1.0 - u * u), 1.0 - u * u, uCap);   // idp.z: the relief of the puff\'s level (Relief 1 / 2)\n' +
   '    if(pn < 8){ ph[pn] = h; pidA[pn] = idp.x; ppA[pn] = idp.y; pn++; }\n' +
   '    else { int lo = 0; for(int q = 1; q < 8; q++) if(ph[q] < ph[lo]) lo = q; if(h > ph[lo]){ ph[lo] = h; pidA[lo] = idp.x; ppA[lo] = idp.y; } }\n' +
   '    if(h > winH){ winH = h; winId = idp.x; winPid = idp.y; winIdx = i; winZ = s.w; winU = u; winR = r; }\n' +
@@ -203,7 +204,8 @@
   '    float u = dist / r;\n' +
   '    float sph = u < 1.0 ? sqrt(1.0 - u * u) : -(u - 1.0) * 2.0647;\n' +
   '    float par = u < 1.0 ? 1.0 - u * u : -2.0 * (u - 1.0);\n' +
-  '    float h = s.w + r * mix(sph, par, uCap) - pen;\n' +
+  '    float rel = texelFetch(uSph, ivec2(i, 4), 0).z;   // relief by generation: the dome\'s height amplitude, not its footprint\n' +
+  '    float h = s.w + rel * (r * mix(sph, par, uCap) - pen);\n' +
   '    // the puff\'s own slope, analytic: d h / d dist along d, mapped back through the stretch (the other\n' +
   '    // primitive distortions are left as the identity, a small error in direction only)\n' +
   '    float dsph = u < 1.0 ? max(-20.0, -u / sqrt(max(1e-6, 1.0 - u * u))) : -2.0647;\n' +
@@ -215,7 +217,7 @@
   '    if(prim == 1) dirp.y *= 1.0 + 1.5 * pa;\n' +
   '    if(vr.w != 1.0) dirp = varyGrad(dirp, d, vr, vh, va);\n' +
   '    if(sh.z != 1.0) dirp = dirp.x * wd.xy / sh.z + dirp.y * vec2(wd.y, -wd.x) * sqrt(sh.z);\n' +
-  '    vec2 gd = (mix(dsph, dpar, uCap) - dpen) * dirp;\n' +
+  '    vec2 gd = rel * (mix(dsph, dpar, uCap) - dpen) * dirp;\n' +
   '    if(inside) ins = max(ins, smoothstep(0.0, T, r - dist));\n' +
   '    float wa = 1.0;   // hidden by every unattached containing puff above it\n' +
   '    if(inside){ vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); for(int q = 0; q < 8; q++){ if(q >= pn) break; if(!(idp.x == pidA[q] || idp.y == ppA[q] || idp.y == pidA[q] || idp.x == ppA[q])) wa *= smoothstep(-0.25 * T, 0.0, h - ph[q]); } }\n' +
@@ -258,6 +260,47 @@
   '  float Hm = max(HI, HO);\n' +
   '  float H = Hm > -1e8 ? Hm + T * log(exp((HI - Hm) / T) + exp((HO - Hm) / T)) : -1.0;\n' +
   '  if(acc <= 0.0 || HO > HI) cIdx = cIdxO;   // the style of whichever union is the surface (a skirt standing over a far puff is the near cloud)\n' +
+  '  // body lighting: a much softer union of the same puffs (temperature Body softness reference radii), restricted to the\n' +
+  '  // texel\'s own cloud and to the puffs the ownership rule lets show (wa), each by its generation weight (idp.w: roots and\n' +
+  '  // first children 1, deeper less). Its slope is a function of the point alone inside one cloud, so it has no seam of its\n' +
+  '  // own; it never reaches another cloud or the sky. The shade pass blends the normal\'s slope toward it by Body\n' +
+  '  vec2 GB = vec2(0.0); bool hasB = false;\n' +
+  '  if(uBody > 0.0 && H > -0.5){\n' +
+  '    float Tb = max(uBodySoft * uRef, T), mB = -1e9, accB = 0.0;\n' +
+  '    for(int k = 0; k < 4096; k++){\n' +
+  '      if(k >= tcnt) break;\n' +
+  '      int i = int(texelFetch(uTileList, ivec2((toff + k) & 4095, (toff + k) >> 12), 0).x);\n' +
+  '      vec4 wd = texelFetch(uSph, ivec2(i, 3), 0); if(floor(wd.w) != cIdx) continue;\n' +
+  '      vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); if(idp.w <= 0.0) continue;\n' +
+  '      vec4 s = texelFetch(uSph, ivec2(i, 0), 0); vec2 d = p - s.xy; float r = s.z * erode(i); if(r <= 1e-5) continue;\n' +
+  '      vec4 sh = texelFetch(uSph, ivec2(i, 2), 0), vr = texelFetch(uSph, ivec2(i, 5), 0);\n' +
+  '      float rr = r * max(1.0, sh.z) * vr.w; if(dot(d, d) > rr * rr * 2.5) continue;\n' +
+  '      if(sh.z != 1.0){ float along = dot(d, wd.xy), across = d.x * wd.y - d.y * wd.x; d = vec2(along / sh.z, across * sqrt(sh.z)); }\n' +
+  '      vec4 vh = vec4(0.0), va = vec4(0.0); if(vr.w != 1.0){ vh = texelFetch(uSph, ivec2(i, 6), 0); va = texelFetch(uSph, ivec2(i, 7), 0); d = varyIn(d, vr, vh, va); }\n' +
+  '      int prim = int(floor(sh.w + 0.01)); float pa = (sh.w - floor(sh.w + 0.01)) * 2.0;\n' +
+  '      if(prim == 1) d.y *= 1.0 + 1.5 * pa;\n' +
+  '      else if(prim == 2) d.x *= 1.0 + 2.0 * pa * max(0.0, -d.y) / r;\n' +
+  '      else if(prim == 3){ vec2 q = d * d; d *= mix(1.0, sqrt(sqrt(dot(q, q))) / max(length(d), 1e-6), pa); }\n' +
+  '      else if(prim == 4) d *= mix(1.0, (abs(d.x) + abs(d.y)) / max(length(d), 1e-6), pa);\n' +
+  '      // footprints only, each weighted by (1 - u^2)^2 across its whole disc (no skirts: at this temperature their steep slopes\n' +
+  '      // outside the rim carried real weight and drew a jagged terminator through the parent; a fade over the outer rim only\n' +
+  '      // turned a buried child\'s rim into a narrow, steep change of the body slope)\n' +
+  '      float d2 = dot(d, d); if(d2 >= r * r) continue;\n' +
+  '      float dist = sqrt(d2), u = dist / r;\n' +
+  '      float h = s.w + idp.z * r * mix(sqrt(1.0 - u * u), 1.0 - u * u, uCap);\n' +
+  '      float dsph = max(-20.0, -u / sqrt(max(1e-6, 1.0 - u * u))), dpar = -2.0 * u;\n' +
+  '      vec2 dirp = d / max(dist, 1e-6);\n' +
+  '      if(prim == 1) dirp.y *= 1.0 + 1.5 * pa;\n' +
+  '      if(vr.w != 1.0) dirp = varyGrad(dirp, d, vr, vh, va);\n' +
+  '      if(sh.z != 1.0) dirp = dirp.x * wd.xy / sh.z + dirp.y * vec2(wd.y, -wd.x) * sqrt(sh.z);\n' +
+  '      vec2 gd = idp.z * mix(dsph, dpar, uCap) * dirp;\n' +
+  '      float wb = idp.w * (1.0 - u * u) * (1.0 - u * u);\n' +
+  '      { for(int q = 0; q < 8; q++){ if(q >= pn) break; if(!(idp.x == pidA[q] || idp.y == ppA[q] || idp.y == pidA[q] || idp.x == ppA[q])) wb *= smoothstep(-0.25 * T, 0.0, h - ph[q]); } }\n' +
+  '      if(wb <= 0.0) continue;\n' +
+  '      if(h > mB){ float wq = exp((mB - h) / Tb); accB = accB * wq + wb; GB = GB * wq + wb * gd; mB = h; } else { float wq = wb * exp((h - mB) / Tb); accB += wq; GB += wq * gd; }\n' +
+  '    }\n' +
+  '    if(accB > 0.0){ GB /= accB; hasB = true; }\n' +
+  '  }\n' +
   '  // contact shadow, in object space: a ray from the surface point toward the light, tested against every other puff as\n' +
   '  // the sphere the union draws (centre at its depth offset, its eroded radius). Not a march over the height field: the\n' +
   '  // depth wall at a front puff\'s rim is an artefact of flattening the domes to one height, and the ray never sees it.\n' +
@@ -336,7 +379,7 @@
   '  o2 = vec4(acc2 > 0.0 ? fSum * ia : 1.0, xSum * ia, anc * ia);\n' +
   '  o3 = vec4(bSum * ia, acc2 > 0.0 ? wSum * ia : 1.0, cIdx, clamp(rimW, 0.0, 1.0));\n' +
   '  o4 = vec4(G, sil, winPid);   // z: the signed distance to the silhouette line (field units); w: the owner\'s group (its parent id)\n' +
-  '  o5 = vec4(contact, cav, 0.0, 1.0);\n' +
+  '  o5 = vec4(contact, cav, hasB ? GB : G);   // ba: the body slope (the detail slope where there is none, so filtering never mixes in a zero)\n' +
   '}';
 
   var SHADE_FS = '#version 300 es\nprecision highp float;\n' +
@@ -350,7 +393,7 @@
   'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
   'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow, uDissolve, uDotSize, uVeil;\n' +
   'uniform vec3 uSkyColor;\n' +
-  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach, uCavityLit, uGrain, uDiag, uT;\n' +
+  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach, uCavityLit, uGrain, uDiag, uT, uBody;\n' +
   'uniform float uStipple, uStippleBias, uBreakup, uBreakupReach, uLock;\n' +
   'float bayer8(vec2 p){ vec2 q = mod(floor(p), 8.0); int x = int(q.x), y = int(q.y), v = 0; for(int b = 0; b < 3; b++){ v = v * 4 + ((x >> (2 - b)) & 1) * 2 + ((((x ^ y) >> (2 - b)) & 1)); } return float(v) / 64.0 - 0.5; }\n' +
   'uniform vec4 uCam;   // camera x, camera z, horizon (field y), cirrus altitude; w <= 0: no camera (the flat veil)\n' +
@@ -477,6 +520,7 @@
   '    }\n' +
   '    G = mix(G, acc / wsum, sm);\n' +
   '  }\n' +
+  '  if(uBody > 0.0) G = mix(G, texelFetch(uAux4, ivec2(uv / uTexel), 0).ba, uBody);   // body lighting: toward the cloud\'s shared soft-union slope (unfiltered: a bilinear read mixed in the slope of the cloud across an occluding edge)\n' +
   '  float nL = dispAt(uv - dx, uv, bias, bias2, namp), nR = dispAt(uv + dx, uv, bias, bias2, namp), nU = dispAt(uv - dy, uv, bias, bias2, namp), nD = dispAt(uv + dy, uv, bias, bias2, namp);\n' +
   '  // field y is down, uv y is up: the stored gradient is in field units, the noise difference in uv\n' +
   '  return normalize(vec3(-G.x - (nR - nL) / wx, -G.y + (nD - nU) / wy, 1.0));\n' +
@@ -595,8 +639,8 @@
     this._float32 = !!gl.getExtension('OES_texture_float_linear');   // the height target is 32-bit when it can be filtered
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
-    this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTileSize', 'uTiles', 'uAspect', 'uT', 'uCap', 'uDissolve', 'uDotSize', 'uEvapScale', 'uRef', 'uLight', 'uCam', 'uOverhead', 'uContact', 'uCavity', 'uCavityReach']);
-    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uAux4', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStreak', 'uWindDir', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uCavityLit', 'uGrain', 'uDiag', 'uT', 'uStipple', 'uStippleBias', 'uBreakup', 'uBreakupReach', 'uLock']);
+    this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTileSize', 'uTiles', 'uAspect', 'uT', 'uCap', 'uDissolve', 'uDotSize', 'uEvapScale', 'uRef', 'uLight', 'uCam', 'uOverhead', 'uContact', 'uCavity', 'uCavityReach', 'uBody', 'uBodySoft']);
+    this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uAux4', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStreak', 'uWindDir', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uCavityLit', 'uGrain', 'uDiag', 'uT', 'uStipple', 'uStippleBias', 'uBreakup', 'uBreakupReach', 'uLock', 'uBody']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 8);   // eight rows: the fifth is (puff id, parent id), the sixth to eighth the shape variation
     this._sphTex = gl.createTexture();
     // tile lists: a head texture (offset, count) per 16-texel tile, sized in resize, and a flat index list
@@ -672,6 +716,8 @@
       levels: clamp(Math.round(num(look.levels, 3)), 1, 3), lvFade: clamp(num(look.levelFade, 1), 0, 1),   // levelFade: the deepest level thinned like the budget does (a host's LOD by distance), 1 whole
       capN: Math.max(0, num(look.puffCap, 0) | 0),   // puffCap: this cloud's own puff budget, thinned like the scene's (0: none)
       life: Math.max(0, num(look.life, 1)) * num(look.motion, 1), embed: clamp(num(look.embed, 0.78), 0.3, 1),
+      relief1: clamp(num(look.relief1, 1), 0, 1), relief2: clamp(num(look.relief2, 1), 0, 1),   // lobe relief by generation: the height amplitude of first and second children (not their size or seat)
+      cluster: clamp(num(look.cluster, 0), 0, 1),   // lobe grouping: a parent's children in two or three seeded clusters (0: independent seats)
       depthScale: num(look.depth, 1), roll: num(look.roll, 1),
       // step 4 (docs/core-audit.md): Depth scales the heights only (order and relief are one thing in a height
       // union); the sway of child puffs has its own scale, and a puff's depth weight (its fade) comes from its
@@ -723,12 +769,12 @@
     function qget() { var e = pool[poolN]; if (!e) e = pool[poolN] = { v: {} }; poolN++; return e; }
     function compact(arr, pred) { var w = 0; for (var i = 0; i < arr.length; i++) if (pred(arr[i])) arr[w++] = arr[i]; arr.length = w; }
     var vScratch = this._vs || (this._vs = {});
-    function put(x, y, r, z0, stack, detail, fresh, dis, stretch, anx, any, primPacked, wx, wy, band, dw, id, pid, v, wer) {
+    function put(x, y, r, z0, stack, detail, fresh, dis, stretch, anx, any, primPacked, wx, wy, band, dw, id, pid, v, wer, rel, bw) {
       if (n >= MAX_SPH || r <= 1e-4) return false;
       var o = n * 4, o2 = (MAX_SPH + n) * 4, o3 = (MAX_SPH * 2 + n) * 4, o4 = (MAX_SPH * 3 + n) * 4, o5 = (MAX_SPH * 4 + n) * 4, o6 = (MAX_SPH * 5 + n) * 4, o7 = (MAX_SPH * 6 + n) * 4;
       D[o6] = v.c; D[o6 + 1] = v.s; D[o6 + 2] = v.a; D[o6 + 3] = v.b; D[o7] = v.A1; D[o7 + 1] = v.B1; D[o7 + 2] = v.A3; D[o7 + 3] = v.B3;
       var o8 = (MAX_SPH * 7 + n) * 4; D[o8] = v.ang; D[o8 + 1] = v.n; D[o8 + 2] = wer || 0; D[o8 + 3] = 0;   // z: the wind erosion amount
-      D[o5] = id; D[o5 + 1] = pid; D[o5 + 2] = 0; D[o5 + 3] = 0;   // ownership: the puff's id (1-based upload index) and its parent's (roots: a virtual core per cloud, -(cloud + 1), or sim.parent[i] when the sim gives one)
+      D[o5] = id; D[o5 + 1] = pid; D[o5 + 2] = rel === undefined ? 1 : rel; D[o5 + 3] = bw === undefined ? 1 : bw;   // zw: the relief of its level (height amplitude) and its body-lighting weight (generation)   // ownership: the puff's id (1-based upload index) and its parent's (roots: a virtual core per cloud, -(cloud + 1), or sim.parent[i] when the sim gives one)
       D[o] = x; D[o + 1] = y; D[o + 2] = r; D[o + 3] = z0;
       D[o2] = stack; D[o2 + 1] = detail; D[o2 + 2] = fresh; D[o2 + 3] = dis;
       D[o3] = anx; D[o3 + 1] = any; D[o3 + 2] = stretch; D[o3 + 3] = primPacked;
@@ -914,7 +960,16 @@
           var jit = hash(cs + j * 31.7) - 0.5;
           var zz = (1 - 2 * (j + 0.5 + jit * 0.55) / F.children) * 0.9;
           var azm = hash(cs + 1.3 + j * 13.9) * 6.2832;
-          var sr = Math.sqrt(Math.max(1 - zz * zz, 0));
+          // lobe grouping (Cluster): the parent's children dealt into two or three clusters, seeded from the parent's persistent id
+          // (so the arrangement lasts the parent's life), spaced evenly over the upper shell with quiet arcs between; each child
+          // is pulled toward its cluster's seat (and below, its size and shape toward the cluster's) by the amount. 0: as before
+          var kC = F.cluster, nC = hash(q.id + 0.71) < 0.5 ? 2 : 3, cj = j % nC;
+          if (kC > 0) {
+            var wC = Math.PI / nC, aC = Math.PI + (cj + 0.5 + 0.3 * (hash(q.id + 2.3 + cj * 7.7) - 0.5)) * wC, zC = 1.2 * (hash(q.id + 3.1 + cj * 5.3) - 0.5);
+            var dA = aC + 0.6 * wC * (hash(cs + 8.1 + j * 3.7) - 0.5) - azm; dA -= 6.2832 * Math.round(dA / 6.2832);
+            azm += kC * dA; zz = mix(zz, clamp(zC + 0.3 * (hash(cs + 9.2 + j * 2.9) - 0.5), -0.9, 0.9), kC);
+          }
+          var sr =Math.sqrt(Math.max(1 - zz * zz, 0));
           var vx = sr * Math.cos(azm), vy = sr * Math.sin(azm), vz = zz;
           if (vy > 0) { vx = -vx; vy = -vy; }   // born on the upper shell (world y is down)
           // carried round by the parent's roll since birth (born on top, whatever the parent's angle then)
@@ -927,7 +982,8 @@
           // shape change while the child is at zero size), eased in to 24% and out from 76% with zero velocity at both ends.
           // The old sin^0.6 had infinite slope at birth and death: a child was an eighth of its size 1% into its life
           var env = smoothstep(0.04, 0.24, ph) * (1 - smoothstep(0.76, 0.96, ph));
-          var cr = q.r * F.ratio * (0.8 + 0.4 * hash(cs + 5.1 + j * 23.0)) * env * cf;
+          var szH = hash(cs + 5.1 + j * 23.0); if (kC > 0) szH = mix(szH, 0.75 * hash(q.id + 4.4 + cj * 3.9) + 0.25 * szH, kC);   // neighbours in a cluster are of a size
+          var cr = q.r * F.ratio * (0.8 + 0.4 * szH) * env * cf;
           if (cr <= 1e-4) continue;
           var shell = q.r * F.embed * (0.7 + 0.3 * env);
           // the child sits on the parent's shell, which follows the primitive and the shear
@@ -952,8 +1008,13 @@
           // the child's id: from its seed, scattered by a hash so that cousins never share one (seeds are linear in j, and a
           // grandchild of child 0 had the id of another of child 1); persistent for the child's life, so its shape is too
           var ce = qget(), cid = cs + j * 3.1 + 1.7 + 1000 * hash(cs * 0.37 + j * 5.9), cv = vary(F.vary, cid, ce.v); cr *= cv.rs;
+          if (kC > 0 && cv.b !== 1) {   // ... and of a stretch and direction: the orientation and the aspect pulled toward the cluster's (the bound follows the aspect)
+            var thC = hash(q.id + 6.6 + cj * 4.1) * 6.2832, th0 = Math.atan2(cv.s, cv.c), dT = thC - th0; dT -= 6.2832 * Math.round(dT / 6.2832);
+            var th1 = th0 + kC * dT, aN = mix(cv.a, 0.35 * F.vary.amp * F.vary.st * (2 * hash(q.id + 7.7 + cj * 2.3) - 1), kC), nud = cv.ang > 0 ? 1e-4 : 0;
+            cv.b = (cv.b - nud) / (1 + Math.abs(cv.a)) * (1 + Math.abs(aN)) + nud; cv.a = aN; cv.c = Math.cos(th1); cv.s = Math.sin(th1);
+          }
           putC = F.c;
-          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id, cv, q.wer);
+          put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id, cv, q.wer, level === 0 ? F.relief1 : F.relief2, level === 0 ? 1 : 0.5);
           ce.id = cid; ce.F = F; ce.x = x; ce.y = y; ce.r = cr; ce.z = z; ce.zr = zr2; ce.seed = cs + j * 3.1; ce.ax = q.ax; ce.ay = q.ay; ce.az = q.az; ce.angle = q.angle; ce.fresh = q.fresh; ce.mixed = q.mixed; ce.stack = stack; ce.dis = q.dis; ce.st = q.st; ce.anx = q.anx; ce.any = q.any; ce.band = band2; ce.zp = q.zp; ce.wer = q.wer;
           next.push(ce);
         }
@@ -1075,6 +1136,7 @@
     gl.uniform4f(this._fu.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     gl.uniform1f(this._fu.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(this._fu.uContact, clamp(num(sky.contact, 0), 0, 1));
     gl.uniform1f(this._fu.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(this._fu.uCavityReach, Math.max(1, num(sky.cavityReach, 8)));
+    gl.uniform1f(this._fu.uBody, clamp(num(sky.body, 0), 0, 1)); gl.uniform1f(this._fu.uBodySoft, Math.max(0, num(sky.bodySoft, 1.5)));
     this._gpuBegin('f'); gl.drawArrays(gl.TRIANGLES, 0, 3); this._gpuEnd();
     // shade
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);
@@ -1110,7 +1172,7 @@
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);
     gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);
     // (puffRim default 0.5: before rimV 2 the shader floored it by Rim soften, whose default is 0.5; see puffs.html)
-    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0.5), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uCavityLit, clamp(num(sky.cavityLit, 1), 0, 1)); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0)); gl.uniform1f(su.uT, this._T);
+    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0.5), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uCavityLit, clamp(num(sky.cavityLit, 1), 0, 1)); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0)); gl.uniform1f(su.uT, this._T); gl.uniform1f(su.uBody, clamp(num(sky.body, 0), 0, 1));
     gl.uniform1f(su.uStipple, clamp(num(sky.stipple, 0), 0, 1)); gl.uniform1f(su.uStippleBias, clamp(num(sky.stippleBias, 0), -1, 1)); gl.uniform1f(su.uBreakup, clamp(num(sky.breakup, 0), 0, 1)); gl.uniform1f(su.uBreakupReach, Math.max(1, num(sky.breakupReach, 6))); gl.uniform1f(su.uLock, sky.patternLock === 0 ? 0 : 1);
     gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     this._gpuBegin('s'); gl.drawArrays(gl.TRIANGLES, 0, 3); this._gpuEnd();

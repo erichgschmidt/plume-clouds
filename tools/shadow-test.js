@@ -120,6 +120,22 @@
       if(maxd>0.02)failures.push('Stored '+effect+' differs from the CPU reference by '+maxd.toFixed(3));
       if(shaded<10)failures.push('The CPU reference finds no '+effect+' on the '+name);
     });
+    // The stored body slope (COLOR_ATTACHMENT4 .ba) against the CPU reference, on the overlap and the valley.
+    ['overlap','valley'].forEach(function(name){
+      var c=capture(cases[name],{body:1,bodySoft:1.5}),R=renderer,gl=R.gl,fw=R._w,fh=R._h,buf=new Float32Array(fw*fh*4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER,R._fbo);gl.readBuffer(gl.COLOR_ATTACHMENT4);gl.readPixels(0,0,fw,fh,gl.RGBA,gl.FLOAT,buf);
+      gl.readBuffer(gl.COLOR_ATTACHMENT0);gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+      var P={W:fw,H:fh,T:R._T,cap:0,ref:REF,body:1,bodySoft:1.5},maxd=0,texels=0,moved=0;
+      for(var y=0;y<fh;y++)for(var x=0;x<fw;x++){
+        var i=(y*fw+x)*4;if(c.field[i+3]<0.5)continue;
+        var ref=fieldRef(R._sphData,R.count,P,x,y);texels++;
+        if(Math.abs(ref.Bx-ref.Gx)+Math.abs(ref.By-ref.Gy)>0.05)moved++;
+        maxd=Math.max(maxd,Math.abs(ref.Bx-buf[i+2]),Math.abs(ref.By-buf[i+3]));
+      }
+      results.push({fixture:'body vs CPU reference ('+name+')',max:maxd,count:moved,texels:texels});
+      if(maxd>0.02)failures.push('Stored body slope differs from the CPU reference on the '+name+' by '+maxd.toFixed(3));
+      if(name==='valley'&&moved<10)failures.push('The body union does not change the slope on the valley');
+    });
     window.shadowResults={ok:!failures.length,failures:failures,results:results};
     document.getElementById('status').textContent=(failures.length?'FAIL':'PASS')+' — '+results.length+' comparisons. '+failures.join('; ');
     document.getElementById('results').textContent=JSON.stringify(window.shadowResults,null,2);
