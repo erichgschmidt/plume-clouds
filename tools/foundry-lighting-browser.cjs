@@ -28,7 +28,14 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
     const a=render(0,az,alt),b=render(1,az,alt);for(let i=0;i<a.length;i++){const d=Math.abs(a[i]-b[i]);maxUnblockedDiff=Math.max(maxUnblockedDiff,d);if(d>1)unblockedChanged++;}
    }
    const axes=[[[1,0,0],90,0],[[-1,0,0],-90,0],[[0,1,0],0,90],[[0,-1,0],0,-90],[[0,0,1],0,0],[[0,0,-1],180,0]],axisLoss=[];
-   for(const [n,az,alt] of axes){R.load(asset(n,.25));const a=render(0,az,alt),b=render(1,az,alt),i=(120*320+160)*4;axisLoss.push(a[i]-b[i]);}
+   for(const [n,az,alt] of axes){
+    // A front interval's outward normal faces its capture camera. Inspect each
+    // signed axis from that direction instead of inventing backfacing surfaces
+    // in a front-only depth map (which a valid reprojection must reject).
+    const capture=asset(n,.25);capture.views=[{yaw:az,pitch:alt}];packet.yaw=az;packet.pitch=alt;R.load(capture);
+    const a=render(0,az,alt),b=render(1,az,alt),i=(120*320+160)*4;axisLoss.push(a[i]-b[i]);
+   }
+   packet.yaw=0;packet.pitch=0;
    const left=asset([.2,0,Math.sqrt(.96)]),right=asset([-.2,0,Math.sqrt(.96)]);
    R.load({...left,views:[{yaw:-10,pitch:0},{yaw:10,pitch:0}],data:[left.data[0],right.data[0]],lighting:[left.lighting[0],right.lighting[0]]});
    let blendedUnblockedDiff=0;for(const az of [-60,-30,0,30,60]){const a=render(0,az,20),b=render(1,az,20);for(let i=0;i<a.length;i++)blendedUnblockedDiff=Math.max(blendedUnblockedDiff,Math.abs(a[i]-b[i]));}

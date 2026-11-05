@@ -5,8 +5,43 @@ const DEG=Math.PI/180;
 const finite=(v,d)=>Number.isFinite(v)?v:d;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function basis(yaw,pitch){const cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);return new Float32Array([cy,0,-sy,-sy*sp,cp,-cy*sp,sy*cp,sp,cy*cp]);}
+function selectViews(capture,yaw,pitch){
+ const axis=(key,value)=>{const values=[...new Set(capture.map(v=>v[key]))].sort((a,b)=>a-b);let lo=values[0],hi=values[values.length-1];for(const v of values){if(v<=value)lo=v;if(v>=value){hi=v;break;}}const t=hi===lo?0:clamp((value-lo)/(hi-lo),0,1);return [[lo,1-t],[hi,t]];};
+ const corners=[];let complete=true;
+ for(const [y,wy]of axis('yaw',yaw))for(const [p,wp]of axis('pitch',pitch)){
+  if(wy*wp<=0)continue;const i=capture.findIndex(v=>v.yaw===y&&v.pitch===p);
+  if(i<0){complete=false;break;}const existing=corners.find(v=>v.i===i);if(existing)existing.weight+=wy*wp;else corners.push({i,weight:wy*wp});
+ }
+ // Rectangular captures have fixed corner identities through a cell. A view
+ // reaches zero weight before leaving the stencil, including at grid lines.
+ if(complete&&corners.length)return corners;
+ const ranked=capture.map((v,i)=>({i,d:Math.acos(clamp(Math.cos(pitch)*Math.cos(v.pitch)*Math.cos(yaw-v.yaw)+Math.sin(pitch)*Math.sin(v.pitch),-1,1))})).sort((a,b)=>a.d-b.d);
+ if(ranked[0].d<1e-7)return [{i:ranked[0].i,weight:1}];
+ const radius=ranked[4]?.d||Math.PI+1,selected=ranked.slice(0,4);
+ for(const v of selected)v.weight=Math.pow(Math.max(0,1/v.d-1/radius),2);
+ let sum=selected.reduce((s,v)=>s+v.weight,0);
+ if(sum<1e-20){selected.forEach(v=>v.weight=1);sum=selected.length;}
+ return selected.map(v=>({i:v.i,weight:v.weight/sum}));
+}
+function captureDepthBounds(level,range){
+ return level.data.map(maps=>{
+  let min=Infinity,max=-Infinity,left=level.w,right=0,bottom=level.h,top=0;
+  for(const layer of [0,2])for(let i=0;i<maps[layer].length;i+=4)if(maps[layer+1][i+3]>127){
+   const front=((maps[layer][i]*256+maps[layer][i+1])/65535*2-1)*range;
+   const back=((maps[layer][i+2]*256+maps[layer][i+3])/65535*2-1)*range;
+   min=Math.min(min,front,back);max=Math.max(max,front,back);
+   const pixel=i/4,x=pixel%level.w,y=Math.floor(pixel/level.w);left=Math.min(left,x);right=Math.max(right,x+1);bottom=Math.min(bottom,y);top=Math.max(top,y+1);
+  }
+  // Tangent reconstruction reaches the texel boundary. Bounds also include
+  // one texel of numerical/sampling slack; empty captures remain inexpensive.
+  const margin=4*level.halfHeight/level.h;
+  const bounds=Number.isFinite(min)?[min-margin,max+margin]:[0,0];
+  bounds.xy=Number.isFinite(min)?[(left/level.w-.5)*2*level.halfHeight*level.w/level.h-margin,(bottom/level.h-.5)*2*level.halfHeight-margin,(right/level.w-.5)*2*level.halfHeight*level.w/level.h+margin,(top/level.h-.5)*2*level.halfHeight+margin]:[0,0,0,0];
+  return bounds;
+ });
+}
 function validateAsset(a){
- if(!a||!Number.isInteger(a.w)||!Number.isInteger(a.h)||a.w<1||a.h<1||a.w>4096||a.h>4096)throw Error('Cloud maps require integer dimensions 1–4096.');
+ if(!a||!Number.isInteger(a.w)||!Number.isInteger(a.h)||a.w<1||a.h<1||a.w>1024||a.h>1024)throw Error('Cloud maps require integer dimensions 1–1024, matching the asset format.');
  if(!Number.isFinite(a.halfHeight)||a.halfHeight<=0||!Number.isFinite(a.range)||a.range<=0)throw Error('Cloud maps require positive halfHeight and range.');
  if(!Array.isArray(a.views)||a.views.length<1||a.views.length>64)throw Error('Cloud maps require 1–64 explicit capture views.');
  if(!Array.isArray(a.data)||a.data.length!==a.views.length)throw Error('Cloud map view count does not match capture metadata.');
@@ -64,7 +99,7 @@ class BakedCloudRenderer{
    // from the master without modifying the imported asset's ordering.
    const lods=[...(asset.lods||[])].sort((a,b)=>b.h-a.h||b.w-a.w);
    for(const level of [asset,...lods]){
-    const record={w:level.w,h:level.h,textures:[],hasLighting:!!level.lighting};levels.push(record);
+    const record={w:level.w,h:level.h,textures:[],hasLighting:!!level.lighting,bounds:captureDepthBounds({...level,halfHeight:asset.halfHeight},asset.range)};levels.push(record);
     for(let m=0;m<(record.hasLighting?8:4);m++){
     const t=gl.createTexture();next.push(t);record.textures.push(t);gl.bindTexture(gl.TEXTURE_2D_ARRAY,t);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
@@ -78,6 +113,7 @@ class BakedCloudRenderer{
   }catch(e){next.forEach(t=>gl.deleteTexture(t));throw e;}
   this.textures.forEach(t=>gl.deleteTexture(t));this.textures=next;this.levels=levels;this.lodState.clear();this.asset=asset;
   this.capture=asset.views.map(v=>({yaw:v.yaw*DEG,pitch:v.pitch*DEG,basis:basis(v.yaw*DEG,v.pitch*DEG)}));
+  this.renderBounds=this.capture.map((_,i)=>{const bounds=levels.map(l=>l.bounds[i]),all=[Math.min(...bounds.map(b=>b[0])),Math.max(...bounds.map(b=>b[1]))];all.xy=[Math.min(...bounds.map(b=>b.xy[0])),Math.min(...bounds.map(b=>b.xy[1])),Math.max(...bounds.map(b=>b.xy[2])),Math.max(...bounds.map(b=>b.xy[3]))];return all;});
   // Supported angles are a non-wrapped capture rectangle, not a full orbit.
   // Out-of-range cameras keep moving in the sky while the asset view holds.
   this.angleBounds={yaw:[Math.min(...this.capture.map(v=>v.yaw)),Math.max(...this.capture.map(v=>v.yaw))],pitch:[Math.min(...this.capture.map(v=>v.pitch)),Math.max(...this.capture.map(v=>v.pitch))]};
@@ -137,17 +173,18 @@ class BakedCloudRenderer{
     const requestedYaw=finite(it.yaw,0)*DEG,requestedPitch=finite(it.pitch,0)*DEG;
     let yaw=clamp(requestedYaw,...this.angleBounds.yaw),pitch=clamp(requestedPitch,...this.angleBounds.pitch);
     const ranked=this.capture.map((v,i)=>({i,d:Math.acos(clamp(Math.cos(pitch)*Math.cos(v.pitch)*Math.cos(yaw-v.yaw)+Math.sin(pitch)*Math.sin(v.pitch),-1,1))})).sort((a,b)=>a.d-b.d);
-    const first=ranked[0],second=ranked[1],s0=this.capture[first.i],s1=second?this.capture[second.i]:s0;
+    const first=ranked[0],s0=this.capture[first.i];
     // Sparse arbitrary capture sets may leave holes inside their rectangle.
     // Hold the nearest capture rather than extrapolating an unsupported ray.
     if(first.d>40*DEG){yaw=s0.yaw;pitch=s0.pitch;}
+    const selected=selectViews(this.capture,yaw,pitch),sources=selected.map(v=>this.capture[v.i]);
     if(Math.abs(yaw-requestedYaw)>1e-7||Math.abs(pitch-requestedPitch)>1e-7)this.stats.clampedViews++;
     // Conservative rectangle includes rotation of the complete baked depth box.
     const target=basis(yaw,pitch);let rx=0,ry=0;
-    for(const src of [s0,s1])for(const x of [-a.halfHeight*a.w/a.h,a.halfHeight*a.w/a.h])for(const y of [-a.halfHeight,a.halfHeight])for(const z of [-a.range,a.range]){
+    for(const entry of selected){const src=this.capture[entry.i],bounds=this.renderBounds[entry.i];for(const x of [bounds.xy[0],bounds.xy[2]])for(const y of [bounds.xy[1],bounds.xy[3]])for(const z of bounds){
      const q=[0,1,2].map(k=>src.basis[k]*x+src.basis[3+k]*y+src.basis[6+k]*z);
      rx=Math.max(rx,Math.abs(q[0]*target[0]+q[1]*target[1]+q[2]*target[2]));ry=Math.max(ry,Math.abs(q[0]*target[3]+q[1]*target[4]+q[2]*target[5]));
-    }
+    }}
     rx=(rx/a.halfHeight+breathing*1.4)*it.scale;ry=(ry/a.halfHeight+breathing)*it.scale;
     const rect=[Math.max(-1,(centerX-rx)/aspect),Math.max(-1,centerY-ry),Math.min(1,(centerX+rx)/aspect),Math.min(1,centerY+ry)];
     if(rect[0]>=rect[2]||rect[1]>=rect[3]){this.stats.culled++;continue;}
@@ -164,9 +201,12 @@ class BakedCloudRenderer{
     this._u(p,'uInstance','1f',instanceIndex);
     this._u(p,'uDepthScale','1f',finite(it.depthScale,it.scale*it.distance/a.halfHeight));
     this._u(p,'uOpacity','1f',clamp(finite(it.opacity,1),0,1));this._u(p,'uTime','1f',finite(time,0)+finite(it.phase,0));
-    this._u(p,'uTarget','m3',target);this._u(p,'uSource0','m3',s0.basis);this._u(p,'uSource1','m3',s1.basis);
-    const exactCapture=Math.hypot(yaw-s0.yaw,pitch-s0.pitch)<1e-4;
-    this._u(p,'uViews','2f',first.i,second&&!exactCapture?second.i:-1);this._u(p,'uBlend','1f',second&&!exactCapture?first.d/(first.d+second.d+1e-8):0);
+    this._u(p,'uTarget','m3',target);
+    for(let k=0;k<4;k++)this._u(p,'uSource'+k,'m3',(sources[k]||sources[0]).basis);
+    this._u(p,'uViews','4f',...[0,1,2,3].map(k=>selected[k]?.i??-1));
+    this._u(p,'uWeights','4f',...[0,1,2,3].map(k=>selected[k]?.weight||0));
+    this._u(p,'uMinDepth','4f',...[0,1,2,3].map(k=>level.bounds[selected[k]?.i??selected[0].i][0]));
+    this._u(p,'uMaxDepth','4f',...[0,1,2,3].map(k=>level.bounds[selected[k]?.i??selected[0].i][1]));
     gl.drawArrays(gl.TRIANGLES,0,3);this.stats.drawn++;
    }
    for(const id of this.lodState.keys())if(!activeIds.has(id))this.lodState.delete(id);
@@ -185,5 +225,6 @@ class BakedCloudRenderer{
  dispose(){const gl=this.gl;this._freeTarget();this.textures.forEach(t=>gl.deleteTexture(t));this.textures=[];for(const p of [this.cloud,this.post])if(p)gl.deleteProgram(p.p);this.canvas.removeEventListener('webglcontextlost',this._lost);this.canvas.removeEventListener('webglcontextrestored',this._restored);this.asset=null;}
 }
 BakedCloudRenderer.validateAsset=validateAsset;
+BakedCloudRenderer.selectViews=selectViews;
 global.BakedCloudRenderer=BakedCloudRenderer;
 })(window);

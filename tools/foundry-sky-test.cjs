@@ -54,14 +54,29 @@ const server = http.createServer((req, res) => {
       const probe = new FoundryScene({settings:{count:1,sway:0,size:1,lookElevation:80}});
       probe.clouds=[{id:73,x:.001,y:5,z:1,radius:1,born:-10,phase:0}];
       const poleViews=[];
-      for(const dz of [.001,0,-.001]){probe.camera.z=1-dz;a.renderer.render(probe.project(1.5),0,a.settings);poleViews.push(Array.from(gl.getUniform(a.renderer.cloud.p,gl.getUniformLocation(a.renderer.cloud.p,'uViews'))));}
+      for(const dz of [.001,0,-.001]){
+        probe.camera.z=1-dz;a.renderer.render(probe.project(1.5),0,a.settings);
+        const uniform=name=>Array.from(gl.getUniform(a.renderer.cloud.p,gl.getUniformLocation(a.renderer.cloud.p,name)));
+        poleViews.push({views:uniform('uViews'),weights:uniform('uWeights'),target:uniform('uTarget')});
+      }
       a.renderer.render(a.scene.project(a.renderer.canvas.width/a.renderer.canvas.height),a.clock.time,a.settings);
       return { above, centeredCloudPixels, badReplacement, poleViews, cameraPitch:a.settings.cameraPitch, error:gl.getError() };
     });
     assert(overhead.above && Math.abs(overhead.above.y)<.2 && overhead.above.pitch < -75);
     assert(overhead.centeredCloudPixels > 500, 'underside is actually visible near the image center, not just conservative bounds');
     assert.equal(overhead.badReplacement,0); assert.equal(overhead.cameraPitch,80); assert.equal(overhead.error,0);
-    assert.deepEqual(overhead.poleViews[0],overhead.poleViews[1]); assert.deepEqual(overhead.poleViews[1],overhead.poleViews[2], 'crossing zenith retains the same baked capture pair');
+    const poleContributions=overhead.poleViews.map(p=>{
+      assert.equal(p.views.length,4);assert.equal(p.weights.length,4);assert.equal(p.target.length,9);
+      assert(p.target.every(Number.isFinite));assert(p.weights.every(w=>Number.isFinite(w)&&w>=0));
+      assert(Math.abs(p.weights.reduce((sum,w)=>sum+w,0)-1)<1e-6,'capture weights are normalized');
+      const totals=new Map();p.views.forEach((view,i)=>{if(p.weights[i]>0){assert(Number.isInteger(view)&&view>=0);totals.set(view,(totals.get(view)||0)+p.weights[i]);}});
+      return totals;
+    });
+    for(let i=1;i<overhead.poleViews.length;i++){
+      const a=poleContributions[i-1],b=poleContributions[i];
+      for(const view of new Set([...a.keys(),...b.keys()]))assert(Math.abs((a.get(view)||0)-(b.get(view)||0))<1e-4,'crossing zenith keeps continuous per-capture contribution');
+      overhead.poleViews[i].target.forEach((value,k)=>assert(Math.abs(value-overhead.poleViews[i-1].target[k])<1e-4,'crossing zenith keeps continuous target orientation'));
+    }
     await page.screenshot({path:path.join(os.tmpdir(),'foundry-sky-overhead.png')});
     await page.evaluate(()=>{const c=document.querySelector('#param-lookElevation');c.value=0;c.dispatchEvent(new Event('input'));});
     await page.waitForTimeout(150);

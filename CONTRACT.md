@@ -34,11 +34,25 @@ source for this integration and is preserved in `reference/cloud-foundry-v2.1.ht
 - `BakedCloudRenderer` shares uploaded maps between cloud instances. Its instance
   packet uses height-normalized screen coordinates (center zero, positive Y up),
   half-height scale, positive camera distance, and yaw/pitch in degrees.
+- Capture selection uses the four surrounding grid views with continuous weights,
+  rather than changing silhouette ownership at the nearest-view midpoint. Sparse
+  imported capture layouts use a distance-weighted stencil with a vanishing outer
+  weight. Lookup traverses the 2D map along the projected viewing line, intersecting
+  continuous bilinear patches of decoded depth. Empty/discontinuous patches keep
+  their original covered texel footprints; there is no screen-space hole dilation
+  or tangent-plane extrusion. Normals and directional lighting use the same patch
+  weights. View appearance blends continuously, with geometric support weighted
+  by capture contribution; an infinitesimal new view cannot veto the whole cloud.
+  Established front samples fully occlude farther samples. Newly entering views
+  introduce their depth correction over the first 8% of capture contribution;
+  this prevents a nearly zero-weight view from snapping the depth buffer and
+  cast shadows. Only vanishing capture support fades coverage at disocclusions.
+  The renderer uses occupied map bounds for scissoring and depth lookup.
 - Capture coverage must include the requested viewpoint. The default asset has
   15 front/underside captures; a narrow front-only atlas cannot reveal an underside.
-  Requests outside the capture range hold a supported view. Capture boundaries
-  can still switch silhouettes, and finite depth layers can leave small gaps at
-  newly exposed surfaces; this is not unrestricted 360-degree geometry.
+  Requests outside the capture range hold a supported view. Surfaces absent from
+  every participating capture cannot be reconstructed exactly; the finite captures
+  and two depth intervals are not unrestricted 360-degree geometry.
 - Depth-map shadows approximate visibility in the current screen. They cannot
   account for offscreen blockers or geometry absent from the baked captures.
   The runtime screen-space shadow pass applies between instances only. Internal
@@ -80,7 +94,11 @@ and `tools/foundry-renderer-test.cjs`. Browser regressions:
 `tools/foundry-author-test.cjs`, `tools/foundry-renderer-browser.cjs`,
 `tools/foundry-sky-test.cjs`, and `tools/foundry-bundle-test.cjs`.
 Pixel-grid checks are `tools/foundry-pixel-grid-test.cjs` and
-`tools/foundry-pixel-grid-browser.cjs`. `tools/bake-foundry-default.cjs` rebuilds
+`tools/foundry-pixel-grid-browser.cjs`. Capture transitions are checked by
+`tools/foundry-view-selection-test.cjs` and `tools/foundry-transition-browser.cjs`,
+using independently generated sphere captures and a known open gap. Real-cloud
+hole counts are diagnostics, since a real cloud can contain intentional holes.
+`tools/bake-foundry-default.cjs` rebuilds
 the bundled starter through the actual authoring pipeline.
 Run them with Node; browser tests accept `PLAYWRIGHT_MODULE` and `CHROME_PATH`.
 The author test expects this repository served at `http://127.0.0.1:8765`,
