@@ -27,7 +27,7 @@ const old = clone(s.clouds);
 s.advance(0, 0, {}); assert.deepEqual(s.clouds, old);
 s.camera.x = 100; assert.equal(s.project(2).length, 0, 'offscreen conservative bounds culled');
 assert.equal(s.clouds[0].id, 7, 'projection never deletes source instances');
-s.camera.x = 0; s.camera.z = 9.8;
+s.camera.x = 0; s.camera.z = 9.4;
 assert(s.opacity(s.clouds[0]) < 1 && s.opacity(s.clouds[0]) > 0, 'near-plane crossing fades continuously');
 s.camera.z = 10;
 assert.equal(s.project(2).length, 0, 'fully behind camera is absent');
@@ -65,3 +65,27 @@ let lastYaw = null, poleStep = 0;
 for (let i = 0; i <= 200; i++) { pole.camera.z = .9 + i * .001; const packet = pole.packet(pole.clouds[0]); if (lastYaw !== null) poleStep = Math.max(poleStep, Math.abs(packet.yaw-lastYaw)); lastYaw = packet.yaw; assert(pole.visible(packet)); }
 assert(poleStep < .1 && Math.abs(lastYaw) < 1, 'limited-view pole fallback never flips the billboard 180 degrees');
 console.log('PASS authored sky scene: determinism, pause, camera, projection, overhead, bounds, near crossing, recycling, time partition');
+
+// Baked exterior maps cannot represent entering a cloud. Hide them smoothly
+// before perspective scale diverges, without retiring their source identity.
+const near = new Scene({seed:2,settings:{count:1,sway:0,travel:1,drift:0,size:1}});
+near.clouds=[{id:99,x:0,y:0,z:6,radius:2,born:-10,phase:.75}];
+let previousOpacity=1,maxOpacityStep=0,maximumDrawScale=0;
+for(let step=0;step<=300;step++){
+ const source=near.clouds[0],beforePacket=near.packet(source);assert.equal(source.id,99,'approaching cloud is not replaced before its world plane');
+ const drawn=near.project(1.5);if(drawn.length)maximumDrawScale=Math.max(maximumDrawScale,drawn[0].scale);
+ assert(drawn.every(p=>p.scale<2.25),'CPU projection must reject unsupported near scales');
+ maxOpacityStep=Math.max(maxOpacityStep,Math.abs(beforePacket.opacity-previousOpacity));previousOpacity=beforePacket.opacity;
+ if(step<300)near.advance(.02,0,{});
+}
+assert(maximumDrawScale>1.25&&maximumDrawScale<2.25);assert(maxOpacityStep<.05,'near fade progresses continuously');
+assert.equal(near.project(1.5).length,0,'fully faded instance never reaches renderer');
+const fadedId=near.clouds[0].id;near.advance(0,1,{});assert.equal(near.clouds[0].id,fadedId,'pause preserves faded source');
+for(const size of [.25,1,3]){
+ const n=new Scene({seed:1,settings:{count:1,size,sway:0,travel:0,drift:0}}),cloud={id:8,x:0,y:0,z:10,radius:2,born:-10,phase:0};n.clouds=[cloud];
+ cloud.z=cloud.radius*size/1.25;assert.equal(n.opacity(cloud),1,'full opacity at supported exterior limit');
+ cloud.z=cloud.radius*size/1.75;assert(n.opacity(cloud)>0&&n.opacity(cloud)<1,'intermediate scale fades for every authored size');
+ cloud.z=cloud.radius*size/2.25;assert.equal(n.opacity(cloud),0,'scale-based near cutoff respects custom cloud size');assert.equal(n.project(1.5).length,0);
+}
+assert.equal(up.opacity,1,'ordinary overhead flyby stays fully opaque');
+console.log('PASS near-impostor safety: bounded submitted scale, continuous fade, size invariance, paused identity, overhead visibility');

@@ -1,6 +1,10 @@
 /* Authored 2D cloud instances. No particle population or geometry simulation. */
 (function (root) {
   'use strict';
+  // An authored frame at scale 1 fills one viewport height. Frozen exterior
+  // maps cannot represent interior flythroughs: fade from 125% to 225% frame
+  // height instead of approaching infinite scale at the camera plane.
+  var NEAR_FRAME_FULL = 1.25, NEAR_FRAME_HIDDEN = 2.25;
   function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
   function finite(x, fallback) { return Number.isFinite(x) ? x : fallback; }
   function smooth(a, b, x) { var t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
@@ -38,7 +42,12 @@
       y: this.camera.y + this.eye.y + this.settings.sway * .35 * Math.sin(this.swayPhase * .66 + 1) };
   };
   FoundryScene.prototype.opacity = function (cloud) {
-    return smooth(.12, .6, this.coordinates(cloud).depth) * smooth(0, 2, this.time - cloud.born);
+    var halfHeight = Math.max(0, cloud.radius * this.settings.size);
+    var hiddenDepth = Math.max(.05, halfHeight / NEAR_FRAME_HIDDEN);
+    var fullDepth = Math.max(.1, halfHeight / NEAR_FRAME_FULL);
+    // Depth-space easing keeps approach continuous. This is an exterior-view
+    // safety fade, not volumetric flythrough; it does not mutate/recycle roots.
+    return smooth(hiddenDepth, fullDepth, this.coordinates(cloud).depth) * smooth(0, 2, this.time - cloud.born);
   };
   FoundryScene.prototype.coordinates = function (cloud) {
     var view = this.view(), dx = cloud.x - view.x, dy = cloud.y - view.y, dz = cloud.z - this.camera.z;

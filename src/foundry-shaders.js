@@ -87,11 +87,13 @@ Hit reproject(vec2 xy,mat3 source,int view,int layer,float minDepth,float maxDep
  // Patches share decoded depths on texel-center edges. Unlike independent
  // tangent planes, compatible interior patches meet without geometric cracks.
  float cursor=high;
+ ivec2 cell=ivec2(floor((origin+velocity*high)*size-.5));
+ ivec2 cellStep=ivec2(velocity.x>0.?-1:1,velocity.y>0.?-1:1);
  // 1024x1024 maps plus the two outer half-patches on each axis.
  for(int stepIndex=0;stepIndex<2052;stepIndex++){
-  vec2 at=origin+velocity*(cursor-1e-5);ivec2 cell=ivec2(floor(at*size-.5));float exitT=low;
-  for(int axis=0;axis<2;axis++)if(abs(velocity[axis])>1e-8){float edge=(float(cell[axis])+(velocity[axis]<0.?1.5:.5))/size[axis];exitT=max(exitT,(edge-origin[axis])/velocity[axis]);}
-  exitT=min(exitT,cursor);
+  vec2 crossing=vec2(-1e30);
+  for(int axis=0;axis<2;axis++)if(abs(velocity[axis])>1e-8){float edge=(float(cell[axis])+(velocity[axis]<0.?1.5:.5))/size[axis];crossing[axis]=(edge-origin[axis])/velocity[axis];}
+  float exitT=min(max(low,max(crossing.x,crossing.y)),cursor);
   vec4 z=vec4(0),coverage=vec4(0);vec3 normals[4];
   for(int k=0;k<4;k++){
    ivec2 id=cell+ivec2(k%2,k/2);vec2 uv=(vec2(id)+.5)/size;vec4 nm=normalAt(uv,view,layer);
@@ -119,6 +121,12 @@ Hit reproject(vec2 xy,mat3 source,int view,int layer,float minDepth,float maxDep
    if(chosen>=0){vec4 weights=vec4(0);weights[chosen]=1.;return patchSample(cell,weights,view,layer,nearest);}
   }
   if(exitT<=low+1e-6)break;
+  // Advance the integer cell, not a floating-point probe of the boundary.
+  // At shallow ray angles a probe can round back into the same cell forever.
+  // Exact corner ties advance both axes; near ties visit the thin intervening
+  // patch. Even a zero-length boundary interval advances without skipping depth.
+  if(crossing.x>=crossing.y)cell.x+=cellStep.x;
+  if(crossing.y>=crossing.x)cell.y+=cellStep.y;
   cursor=exitT;
  }
  return emptyHit();

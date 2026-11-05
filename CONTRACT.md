@@ -34,6 +34,11 @@ source for this integration and is preserved in `reference/cloud-foundry-v2.1.ht
   The packet carries camera pitch separately from the capture direction. Target
   screen axes follow the tilted camera, preventing unwanted billboard roll during
   sideways translation. Translation still changes the apparent viewing angle.
+  Exterior captures fade smoothly as their projected authored frame grows from
+  125% to 225% of viewport height, then are omitted before renderer submission.
+  This bounds near-camera enlargement without lowering map detail or retiring
+  source instances early. It is not an interior volume/fog simulation, and uses
+  projected frame size rather than testing the actual cloud surface for entry.
 - `BakedCloudRenderer` shares uploaded maps between cloud instances. Its instance
   packet uses height-normalized screen coordinates (center zero, positive Y up),
   half-height scale, positive camera distance, and yaw/pitch in degrees.
@@ -41,7 +46,11 @@ source for this integration and is preserved in `reference/cloud-foundry-v2.1.ht
   rather than changing silhouette ownership at the nearest-view midpoint. Sparse
   imported capture layouts use a distance-weighted stencil with a vanishing outer
   weight. Lookup traverses the 2D map along the projected viewing line, intersecting
-  continuous bilinear patches of decoded depth. Empty/discontinuous patches keep
+  continuous bilinear patches of decoded depth. Traversal advances integer map
+  cells explicitly at each crossed boundary, including corner ties, rather than
+  rediscovering a cell with a floating-point epsilon. This prevents repeated-cell
+  stalls, missing stripes and iteration-budget spikes at shallow viewing angles.
+  Empty/discontinuous patches keep
   their original covered texel footprints; there is no screen-space hole dilation
   or tangent-plane extrusion. Normals and directional lighting use the same patch
   weights. View appearance blends continuously, with geometric support weighted
@@ -121,6 +130,8 @@ smooth spatial and moving-blocker falloff, unchanged surfaces and no self-shadow
 `tools/foundry-edge-browser.cjs` reports remaining fringe gaps and verifies a flat
 front/broad underside ellipsoid retains its distinct silhouettes. Its `--strict`
 mode enforces the currently unmet edge-cleanup target; normal mode is diagnostic.
+`tools/foundry-traversal-browser.cjs` instruments the production lookup to check
+bounded traversal across near-capture angles, panning and enlarged projections.
 `tools/bake-foundry-default.cjs` rebuilds
 the bundled starter through the actual authoring pipeline.
 Run them with Node; browser tests accept `PLAYWRIGHT_MODULE` and `CHROME_PATH`.
