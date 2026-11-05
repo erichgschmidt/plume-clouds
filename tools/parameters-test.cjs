@@ -1,0 +1,64 @@
+const assert = require('node:assert/strict');
+const P = require('../src/parameters.js');
+
+const old = { rimV: 2, look: { softness: 4, dither: 0.37, relief1: 0.45, custom: 17 } };
+P.migratePreset(old);
+assert.equal(old.look.cavityLit, 1, 'old omitted cavity value keeps its prior default');
+assert.equal(old.look.modelVersion, 1, 'old preset retains the old rendering model');
+assert.equal(old.look.dither, 0.37, 'compatibility control preserves fractional amounts');
+assert.equal(old.look.custom, 17, 'unknown future keys survive migration');
+const once = JSON.stringify(old); P.migratePreset(old); assert.equal(JSON.stringify(old), once);
+const modern = { parameterVersion: P.VERSION, look: { cavityLit: 0, modelVersion: 2 } };
+P.migratePreset(modern); assert.equal(modern.look.cavityLit, 0); assert.equal(modern.look.modelVersion, 2);
+const preRims = { look: { rim: 0.8, puffRim: 0.2 } }; P.migratePreset(preRims); assert.equal(preRims.look.puffRim, 0.8);
+assert(P.reason('bodySoft', { body: 0 }).includes('Body lighting'));
+assert.equal(P.reason('bodySoft', { body: 0.2 }), '');
+assert.equal(P.reason('bodySoft', { body: 0, shadowQuiet: 0.5 }), '', 'shadow simplification also uses the broad lighting scale');
+assert(P.reason('relief2', { children: 4, levels: 2 }).includes('three levels'));
+assert(P.reason('noiseScale', { noise: 0 }).includes('Broad texture'));
+assert.equal(P.reason('noiseScale', { noise: 0.1 }), '');
+assert(P.reason('flow', { noise: 0, noise2: 0 }));
+assert.equal(P.reason('flow', { noise: 0, noise2: 0.1 }), '');
+assert(P.reason('evapScale', { dissolve: 0, erosion: 0 }));
+assert.equal(P.reason('evapScale', { dissolve: 0, erosion: 0.5 }), '');
+const retired = ['cohesion', 'cohesionYield', 'bondLife', 'releaseSpeed', 'bondMerge', 'bondAgitation', 'bondTempo'];
+const newDefaults = { childShape: 1, shapeFollow: 0, contourCohesion: 0, shadowQuiet: 0, contourFilter: 0, filterReach: 0.35, erosionType: 0 };
+assert.deepEqual(P.featureDefaults, newDefaults, 'absorption has no active defaults');
+for (const key of retired) {
+  assert(!Object.hasOwn(P.definitions, key), key + ' definition retired');
+  assert(!P.featureSpecs.some(s => s[0] === key), key + ' control retired');
+}
+const previous = { parameterVersion: 1, rimV: 2, look: { modelVersion: 2, cavityLit: 0, childShape: 0.4 } };
+P.migratePreset(previous);
+assert.equal(previous.look.childShape, 0.4, 'explicit feature values survive migration');
+assert(!Object.hasOwn(previous.look, 'cohesion')); assert.equal(previous.look.shapeFollow, 0);
+assert.equal(previous.look.modelVersion, 2); assert.equal(previous.look.cavityLit, 0);
+assert.equal(previous.parameterVersion, P.VERSION);
+assert(P.reason('childShape', { children: 0, shapeVar: 1 }).includes('Children'));
+assert(P.reason('shapeFollow', { children: 2, levels: 2, childShape: 0, shapeVar: 1 }).includes('Child deformation'));
+assert(P.reason('contourCohesion', { modelVersion: 1 }).includes('Updated'));
+assert.equal(P.reason('contourCohesion', { modelVersion: 2 }), '');
+assert.equal(P.reason('childShape', { children: 2, levels: 2, shapeVar: 0, angular: 0.5 }), '');
+assert(P.reason('filterReach', { contourFilter: 0 }).includes('Contour filter'));
+assert.equal(P.reason('filterReach', { contourFilter: -0.5 }), '', 'inward filters also use the reach');
+assert(P.reason('contourFilter', { shapeVar: 0, contourVar: 1, angular: 0 }).includes('Angular'));
+assert(P.reason('contourFilter', { shapeVar: 1, contourVar: 0, angular: 0 }).includes('Angular'));
+assert.equal(P.reason('contourFilter', { shapeVar: 0, contourVar: 0, angular: 0.5 }), '');
+assert.equal(P.reason('contourFilter', { shapeVar: 1, contourVar: 1, angular: 0 }), '');
+assert(P.reason('erosionType', { dissolve: 0, erosion: 0 }).includes('Evaporation'));
+assert.equal(P.reason('erosionType', { dissolve: 0, erosion: 0.5 }), '');
+assert.deepEqual(P.overrides.erosionType.options, [[0, 'Soft'], [1, 'Cellular'], [2, 'Ridged']]);
+const v2 = { parameterVersion: 2, rimV: 2, look: { cohesion: 0.8, childShape: 0.2, modelVersion: 2 } };
+P.migratePreset(v2);
+assert.deepEqual([v2.look.cohesion, v2.look.childShape, v2.look.contourFilter, v2.look.filterReach, v2.look.erosionType], [0.8, 0.2, 0, 0.35, 0]);
+const v3 = { parameterVersion: 3, rimV: 2, look: { cohesion: 1, bondMerge: 1 } };
+P.migratePreset(v3); assert(!Object.hasOwn(v3.look, 'bondAgitation')); assert(!Object.hasOwn(v3.look, 'bondTempo'));
+const quietFusion = { parameterVersion: 3, rimV: 2, look: { bondAgitation: 0, bondTempo: 0.7 } };
+P.migratePreset(quietFusion); assert.equal(quietFusion.look.bondAgitation, 0); assert.equal(quietFusion.look.bondTempo, 0.7);
+const legacy = ['simSpeed', 'Sim speed', 0.1, 1.5, 0.01], decorated = P.decorate(legacy);
+assert.equal(decorated[1], 'Playback speed'); assert.equal(decorated[2], 0); assert.equal(legacy[2], 0.1);
+for (const groups of [P.puffGroups, P.skyGroups]) {
+  const keys = groups.flatMap(g => g[1]); assert.equal(new Set(keys).size, keys.length, 'one home per control');
+  assert(retired.every(key => !keys.includes(key)), 'no retired controls in either editor');
+}
+console.log('Parameter schema, migration, and dependencies: PASS');

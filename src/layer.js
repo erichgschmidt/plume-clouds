@@ -65,6 +65,7 @@
     this.params = {}; for (var k in def) this.params[k] = def[k];
     if (forces) for (var fk in forces) this.params[fk] = forces[fk];
     this.time = 0;
+    this.rollAngle = 0;
     this.cx = 0.5;
     this.parcels = [];
     this.off = 0;            // lattice / line drift offset
@@ -113,12 +114,14 @@
   };
 
   LayerSim.prototype.step = function (dt) {
+    if (!(dt > 0) || !isFinite(dt)) return;
     var P = this.params, rng = this.rng, i, p;
-    dt *= this.motion === undefined ? 1 : this.motion;   // motion: a host's scale on the layer's whole evolution (drift, undulation, breathing, recycling)
+    var turbulence = this.motion === undefined ? 1 : Math.max(0, this.motion), moveDt = dt * turbulence;
     this.time += dt;
+    this.rollAngle += moveDt * 0.05; // integrate edits; never multiply the accumulated time by a slider
     this.reseat();
     var wa = (P.wind || 0) * Math.PI / 180, wx = Math.cos(wa), wy = -Math.sin(wa);
-    this.off += P.drift * dt;
+    this.off += P.drift * moveDt;
     if (P.mode === 'streak' && P.source === 'line') {
       // the plane crosses the layer laying a head every `plane` units; the line is a FIFO of `heads`
       // elements, so age grows steadily from the plane back to the tail, and the tail end recycles
@@ -146,8 +149,8 @@
     for (i = 0; i < this.parcels.length; i++) {
       p = this.parcels[i];
       p.age += dt;
-      if (P.mode !== 'cells' && !P.fixed) { p.x += P.drift * wx * dt; p.y += P.drift * wy * dt * 0.3; }
-      if (P.fixed) { p.x += P.drift * dt; if (p.x > P.width * 0.5) p.x -= P.width; }   // air flows through a standing shape
+      if (P.mode !== 'cells' && !P.fixed) { p.x += P.drift * wx * moveDt; p.y += P.drift * wy * moveDt * 0.3; }
+      if (P.fixed) { p.x += P.drift * moveDt; if (p.x > P.width * 0.5) p.x -= P.width; }   // air flows through a standing shape
       // life: grow in, live, fade out, then recycle
       var dying = p.retire || (p.age > p.life && !(P.mode === 'streak' && P.source === 'line'));
       if (dying) p.link = Math.max(0, p.link - dt / 4); else p.link = Math.min(1, p.link + dt / 5);
@@ -160,6 +163,7 @@
 
   LayerSim.prototype._emit = function () {
     var B = this.blobs, A = this.aux, S = this.spin, D = this.detail, ST = this.stretch, P = this.params;
+    var turbulence = this.motion === undefined ? 1 : Math.max(0, this.motion);
     var size = P.size, rMax = size * 3, n = 0, i, p, o;
     var wa = (P.wind || 0) * Math.PI / 180, wx = Math.cos(wa), wy = -Math.sin(wa);
     var sw = 6.2832 / Math.max(5, P.sway || 57);
@@ -184,20 +188,20 @@
     for (i = 0; i < this.parcels.length; i++) {
       p = this.parcels[i];
       var ageF = clamp(p.age / p.life, 0, 1);
-      var breathe = 1 + 0.12 * Math.sin(this.time * 6.2832 / Math.max(2, P.breathe || 20) + p.ph);
+      var breathe = 1 + 0.12 * turbulence * Math.sin(this.time * 6.2832 / Math.max(2, P.breathe || 20) + p.ph);
       var fresh = P.fresh * (1 - 0.5 * ageF * ageF);
       if (P.mode === 'cells') {
         if (p.gap) continue;
         var cell = P.cell * (1 + 0.8 * (P.streets || 0));   // streets: wider spacing along the wind
         var lx = ((p.col * cell + this.off) % (cols * cell) + cols * cell) % (cols * cell) - cols * cell * 0.5;
         var edge = smoothstep(0, 0.12, cols * cell * 0.5 - Math.abs(lx));   // recycle round the lattice without a pop
-        var ly = (p.row - (rows - 1) * 0.5) * P.thick / Math.max(1, rows - 1) + p.jy + 0.006 * Math.sin(this.time * 0.4 + p.ph);
+        var ly = (p.row - (rows - 1) * 0.5) * P.thick / Math.max(1, rows - 1) + p.jy + 0.006 * turbulence * Math.sin(this.time * 0.4 + p.ph);
         var ce = endE(Math.abs(lx) / (cols * cell * 0.5)); ly *= 1 - 0.5 * ce;
         // the row is laid along the wind
         var x = this.cx + (lx + p.jx) * wx - ly * wy, y = this.cy + (lx + p.jx) * wy + ly * wx;
-        put(x, y, size * p.size * breathe * (1 - 0.45 * ce), p.seed, 0.5 + 0.3 * (p.depth - 0.5) + 0.15 * (p.row / Math.max(1, rows - 1) - 0.5), p.link * edge, p.roll + this.time * 0.05, fresh * (1 - 0.5 * ce), (1 + 1.2 * (P.streets || 0)) * (1 + 1.2 * ce));
+        put(x, y, size * p.size * breathe * (1 - 0.45 * ce), p.seed, 0.5 + 0.3 * (p.depth - 0.5) + 0.15 * (p.row / Math.max(1, rows - 1) - 0.5), p.link * edge, p.roll + this.rollAngle, fresh * (1 - 0.5 * ce), (1 + 1.2 * (P.streets || 0)) * (1 + 1.2 * ce));
       } else if (P.mode === 'sheet') {
-        var und = (P.undulate || 0) * Math.sin(p.x * 6.2832 * (P.wave || 2) + this.time * 0.15 + p.ph * 0.2);
+        var und = (P.undulate || 0) * turbulence * Math.sin(p.x * 6.2832 * (P.wave || 2) + this.time * 0.15 + p.ph * 0.2);
         var ex = smoothstep(0, 0.1, P.width * 0.5 + 0.05 - Math.abs(p.x));
         if (P.patch) ex *= smoothstep(0, 0.35, 0.5 + 0.5 * Math.sin(p.x * 6.2832 * P.patch + p.i * 0.9 + this.time * 0.01) - (P.hole || 0.4));   // a broken sheet: holes across it, drifting slowly
         var lead = (P.lead || 0) * (p.x / (P.width * 0.5));   // an anvil thins toward its downwind edge

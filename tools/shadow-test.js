@@ -136,6 +136,31 @@
       if(maxd>0.02)failures.push('Stored body slope differs from the CPU reference on the '+name+' by '+maxd.toFixed(3));
       if(name==='valley'&&moved<10)failures.push('The body union does not change the slope on the valley');
     });
+    // Tiny translations across a merged junction must not switch shadow terms on/off.
+    // These positions straddle the old owner switch and sphere-exclusion threshold.
+    capture([[.43,.375,.14,0],[.59,.375,.1,.05]],{contact:1,cavity:1,cavityReach:8});
+    var R=renderer,ang=86*Math.PI/180,el=6*Math.PI/180;
+    var P={W:R._w,H:R._h,T:R._T,cap:0,ref:REF,contact:1,cavity:1,cavityReach:8,light:[Math.cos(ang)*Math.cos(el),-Math.sin(ang)*Math.cos(el),Math.sin(el)]};
+    [269.1056022644043,269.60837173461914].forEach(function(x){
+      var a=fieldRef(R._sphData,R.count,P,x-.001,153),b=fieldRef(R._sphData,R.count,P,x+.001,153);
+      var dc=Math.abs(a.contact-b.contact),dv=Math.abs(a.cavity-b.cavity);
+      results.push({fixture:'moving junction',x:x,contactJump:dc,cavityJump:dv});
+      if(dc>.01||dv>.01)failures.push('Shadow discontinuity at moving junction '+x+': '+dc+', '+dv);
+      function stored(dx){
+        var shift=(269-x+dx)/512;
+        capture([[.43+shift,.375,.14,0],[.59+shift,.375,.1,.05]],{sun:86,elevation:6,contact:1,cavity:1,cavityReach:8,body:.69});
+        var gl=R.gl,out=new Float32Array(4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER,R._fbo);gl.readBuffer(gl.COLOR_ATTACHMENT4);
+        gl.readPixels(269,153,1,1,gl.RGBA,gl.FLOAT,out);
+        gl.readBuffer(gl.COLOR_ATTACHMENT0);gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+        return out;
+      }
+      var ga=stored(-.01),gb=stored(.01),gc=Math.abs(ga[0]-gb[0]),gv=Math.abs(ga[1]-gb[1]);
+      results.push({fixture:'GPU moving junction',x:x,contactJump:gc,cavityJump:gv});
+      if(gc>.02||gv>.02)failures.push('GPU shadow discontinuity at moving junction '+x+': '+gc+', '+gv);
+      // Restore the records used by the next CPU sample.
+      capture([[.43,.375,.14,0],[.59,.375,.1,.05]],{contact:1,cavity:1,cavityReach:8});
+    });
     window.shadowResults={ok:!failures.length,failures:failures,results:results};
     document.getElementById('status').textContent=(failures.length?'FAIL':'PASS')+' — '+results.length+' comparisons. '+failures.join('; ');
     document.getElementById('results').textContent=JSON.stringify(window.shadowResults,null,2);

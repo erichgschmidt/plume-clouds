@@ -55,14 +55,14 @@
   // is not a distance field). bound = (1 + a) f_max expands the coarse rejects and the tile reach. Identity rows
   // (a = 0, harmonics 0, bound 1) skip the warp, so Shape variation 0 is the original puff to the bit
   var FIELD_FS = '#version 300 es\nprecision highp float; precision highp sampler2D;\n' +
-  'uniform sampler2D uSph; uniform float uAspect; uniform float uT, uCap;\n' +
+  'uniform sampler2D uSph; uniform float uAspect; uniform float uT, uCap, uModelVersion;\n' +
   '// contact (object space): the light, the camera pitch (as the shade pass turns the light with it) and the slider (0: skipped)\n' +
-  'uniform vec3 uLight; uniform vec4 uCam; uniform float uOverhead, uContact, uCavity, uCavityReach, uBody, uBodySoft;\n' +
+  'uniform vec3 uLight; uniform vec4 uCam; uniform float uOverhead, uContact, uCavity, uCavityReach, uBody, uBodySoft, uShadowQuiet, uContourCohesion;\n' +
   '// tiles: the spheres whose reach touches a 16-texel tile, as a list per tile (uTileHead: offset, count; uTileList: indices)\n' +
   'uniform sampler2D uTileHead, uTileList; uniform float uTexW, uTileSize; uniform ivec2 uTiles;\n' +
   '// dissolve: a dispersing puff (attribute w) loses texels on the dither grid HERE, in the union and the silhouette,\n' +
   '// so the holes show the cloud behind it (the shade pass used to drop the pixel to sky instead)\n' +
-  'uniform float uDissolve, uDotSize, uEvapScale, uRef;\n' +
+  'uniform float uDissolve, uDotSize, uEvapScale, uRef, uErosionType;\n' +
   '// an 8x8 ordered pattern (64 thresholds, -0.5 .. 0.5) for the new effects; the 4x4 one stays for the palette grain\n' +
   'float bayer8(vec2 p){ vec2 q = mod(floor(p), 8.0); int x = int(q.x), y = int(q.y), v = 0; for(int b = 0; b < 3; b++){ v = v * 4 + ((x >> (2 - b)) & 1) * 2 + ((((x ^ y) >> (2 - b)) & 1)); } return float(v) / 64.0 - 0.5; }\n' +
   '// an integer lattice hash (exact in 32-bit, so the CPU reference reproduces it bit for bit; a sine hash did not)\n' +
@@ -77,15 +77,29 @@
   '// the strength: a rising value only takes more\n' +
   '// ... plus the wind erosion amount (row 7 z: accumulated per lobe by the tree, step 2 of the wind erosion), the same\n' +
   '// ragged retreat from the outline, so an eroded lobe reveals what is behind it (the union sees the smaller radius)\n' +
+  '// Cellular uses compact rounded bites, smoothly combined across lattice boundaries.\n' +
+  '// Ridged follows smooth channels around the middle contours of the original value noise.\n' +
+  'float erosionNoise(vec2 q){\n' +
+  '  if(uErosionType < 0.5) return vnoise(q);\n' +
+  '  if(uErosionType > 1.5) return 1.0-smoothstep(0.0,0.45,abs(2.0*vnoise(q)-1.0));\n' +
+  '  vec2 cell=floor(q), local=fract(q); float keep=1.0;\n' +
+  '  for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++){\n' +
+  '    vec2 offset=vec2(float(x),float(y)), id=cell+offset;\n' +
+  '    vec2 center=0.2+0.6*vec2(hash21(id),hash21(id+vec2(47.0,113.0)));\n' +
+  '    float bite=1.0-smoothstep(0.12,0.62,length(offset+center-local));\n' +
+  '    keep*=1.0-0.92*bite;\n' +
+  '  }\n' +
+  '  return 1.0-keep;\n' +
+  '}\n' +
   'float erode(int i){ float dis = texelFetch(uSph, ivec2(i, 1), 0).w; float amt = uDissolve * dis + texelFetch(uSph, ivec2(i, 7), 0).z; if(amt <= 0.001) return 1.0;\n' +
   '  vec2 anc = texelFetch(uSph, ivec2(i, 2), 0).xy; float pid = texelFetch(uSph, ivec2(i, 4), 0).y;\n' +
   '  vec2 p = vec2(gl_FragCoord.x, uTexW * uAspect - gl_FragCoord.y) / uTexW;   // the field position (vUv is declared below this function)\n' +
-  '  float n = vnoise((p - anc) / uRef * uEvapScale + hash21(vec2(floor(pid * 64.0), 7.0)) * vec2(37.1, 11.7));\n' +
+  '  float n = erosionNoise((p - anc) / uRef * uEvapScale + hash21(vec2(floor(pid * 64.0), 7.0)) * vec2(37.1, 11.7));\n' +
   '  return max(0.0, 1.0 - amt * (0.3 + 0.7 * n)); }\n' +
   '// the contour factor f(phi) of the shape variation and its derivative: the harmonics (row 6) times the angular factor\n' +
   '// (row 7: amount, sides): a regular polygon inscribed in the circle, cos(pi/n) / cos(t) over each sector, its corners\n' +
   '// rounded by blending to the circle over the outer 35 % of the sector (C1, so no crease runs out to a corner)\n' +
-  'float shapeF(float ph, vec4 vh, vec4 va, out float df){\n' +
+  'float rawShapeF(float ph, vec4 vh, vec4 va, out float df){\n' +
   '  float f = 1.0 + vh.x * cos(ph) + vh.y * sin(ph) + vh.z * cos(3.0 * ph) + vh.w * sin(3.0 * ph);\n' +
   '  df = -vh.x * sin(ph) + vh.y * cos(ph) - 3.0 * vh.z * sin(3.0 * ph) + 3.0 * vh.w * cos(3.0 * ph);\n' +
   '  if(va.x > 0.0){\n' +
@@ -95,6 +109,38 @@
   '    float g = mix(a, 1.0, sm), dg = da * (1.0 - sm) + (1.0 - a) * dsm;\n' +
   '    float P = mix(1.0, g, va.x), dP = va.x * dg;\n' +
   '    df = df * P + f * dP; f *= P;\n' +
+  '  }\n' +
+  '  return f;\n' +
+  '}\n' +
+  'float harmonicF(float ph,vec4 vh,out float df){\n' +
+  '  df=-vh.x*sin(ph)+vh.y*cos(ph)-3.0*vh.z*sin(3.0*ph)+3.0*vh.w*cos(3.0*ph);\n' +
+  '  return 1.0+vh.x*cos(ph)+vh.y*sin(ph)+vh.z*cos(3.0*ph)+vh.w*sin(3.0*ph);\n' +
+  '}\n' +
+  '// Original polygon sector profile, monotone from face centre to corner.\n' +
+  'float sectorF(float t,float hs,out float dg){\n' +
+  '  float cp=cos(hs),ct=cos(t),a=cp/ct,da=cp*sin(t)/(ct*ct);\n' +
+  '  float u=clamp((t-0.65*hs)/(0.35*hs),0.0,1.0),sm=u*u*(3.0-2.0*u),ds=6.0*u*(1.0-u)/(0.35*hs);\n' +
+  '  dg=da*(1.0-sm)+(1.0-a)*ds; return mix(a,1.0,sm);\n' +
+  '}\n' +
+  '// Filter low harmonics locally; move along the monotone angular sector analytically.\n' +
+  '// Sampling shifted polygon corners duplicated them into radial fans. Separate positive\n' +
+  '// factors preserve outward/inward movement without making extra angular features.\n' +
+  'float shapeF(float ph, vec4 vh, vec4 va, out float df){\n' +
+  '  if(va.w==0.0) return rawShapeF(ph,vh,va,df);\n' +
+  '  float f=harmonicF(ph,vh,df);\n' +
+  '  float code=abs(va.w), reach=floor(code)*0.01, amt=fract(code)*2.0, sg=sign(va.w), total=0.0, deriv=0.0;\n' +
+  '  for(int j=0;j<4;j++){ float offset=(float(j)<2.0?float(j)-2.0:float(j)-1.0)*0.5*reach, dn;\n' +
+  '    float fn=harmonicF(ph+offset,vh,dn), gap=sg*(fn-f);\n' +
+  '    if(gap>0.0){float h=gap*gap/(gap+0.025), dh=gap*(gap+0.05)/((gap+0.025)*(gap+0.025))*sg*(dn-df); total+=h*h*h*h; deriv+=h*h*h*dh;}\n' +
+  '  }\n' +
+  '  if(total>0.0){float norm=pow(total*0.25+1e-24,0.25),delta=norm-1e-6; df+=sg*amt*norm*deriv/(total+4e-24); f+=sg*amt*delta;}\n' +
+  '  if(va.x>0.0){\n' +
+  '    float hs=3.14159265/va.y,t=mod(ph,2.0*hs)-hs,dg,base=sectorF(abs(t),hs,dg),db=dg*sign(t);\n' +
+  '    float eps=0.1*reach,dist=sg>0.0?abs(t):hs-abs(t),rad=sqrt(dist*dist+eps*eps);\n' +
+  '    float pos=sg>0.0?rad+reach:hs-rad-reach,dp=dist/max(rad,1e-8)*sign(t);\n' +
+  '    if(pos<=0.0 || pos>=hs) dp=0.0; float filtered=sectorF(clamp(pos,0.0,hs),hs,dg);\n' +
+  '    float P=mix(1.0,mix(base,filtered,amt),va.x),dP=va.x*mix(db,dg*dp,amt);\n' +
+  '    df=df*P+f*dP; f*=P;\n' +
   '  }\n' +
   '  return f;\n' +
   '}\n' +
@@ -118,6 +164,33 @@
   '  g2 = vec2(g2.x / (1.0 + vr.z), g2.y * (1.0 + vr.z));\n' +
   '  return vec2(vr.x * g2.x - vr.y * g2.y, vr.y * g2.x + vr.x * g2.y);\n' +
   '}\n' +
+  "// One 2D footprint mapping shared by ownership, surface, body and shadow membership.\n" +
+  "vec2 shapeFrame(vec2 d, vec4 sh, vec4 vr, vec4 wd, vec4 vh, vec4 va){\n" +
+  "  if(sh.z != 1.0) d = vec2(dot(d, wd.xy) / sh.z, (d.x * wd.y - d.y * wd.x) * sqrt(sh.z));\n" +
+  "  return vr.w != 1.0 ? varyIn(d, vr, vh, va) : d;\n" +
+  "}\n" +
+  "vec2 primitivePoint(vec2 d, float r, vec4 sh){\n" +
+  "  int prim = int(floor(sh.w + 0.01)); float pa = (sh.w - floor(sh.w + 0.01)) * 2.0;\n" +
+  "  if(prim == 1) d.y *= 1.0 + 1.5 * pa;\n" +
+  "  else if(prim == 2) d.x *= 1.0 + 2.0 * pa * max(0.0, -d.y) / r;\n" +
+  "  else if(prim == 3){ vec2 q = d*d; d *= mix(1.0, sqrt(sqrt(dot(q,q))) / max(length(d), 1e-6), pa); }\n" +
+  "  else if(prim == 4) d *= mix(1.0, (abs(d.x)+abs(d.y)) / max(length(d), 1e-6), pa);\n" +
+  "  return d;\n" +
+  "}\n" +
+  "vec2 shapePoint(vec2 d, float r, vec4 sh, vec4 vr, vec4 wd, vec4 vh, vec4 va){\n" +
+  "  return primitivePoint(shapeFrame(d, sh, vr, wd, vh, va), r, sh);\n" +
+  "}\n" +
+  "vec2 shapeSlope(vec2 d, float r, vec4 sh, vec4 vr, vec4 wd, vec4 vh, vec4 va){\n" +
+  "  vec2 q=shapeFrame(d,sh,vr,wd,vh,va), v=primitivePoint(q,r,sh);\n" +
+  "  vec2 g=v/max(length(v),1e-6); int prim=int(floor(sh.w+0.01)); float pa=(sh.w-floor(sh.w+0.01))*2.0;\n" +
+  "  if(prim==1) g.y*=1.0+1.5*pa;\n" +
+  "  else if(prim==2){ g.y-=q.y<0.0 ? g.x*q.x*2.0*pa/r : 0.0; g.x*=1.0+2.0*pa*max(0.0,-q.y)/r; }\n" +
+  "  else if(prim==3){ float l4=pow(max(dot(q*q,q*q),1e-24),0.25); g=mix(q/max(length(q),1e-6),q*q*q/(l4*l4*l4),pa); }\n" +
+  "  else if(prim==4) g=mix(q/max(length(q),1e-6),sign(q),pa);\n" +
+  "  if(vr.w!=1.0) g=varyGrad(g,q,vr,vh,va);\n" +
+  "  if(sh.z!=1.0) g=g.x*wd.xy/sh.z+g.y*vec2(wd.y,-wd.x)*sqrt(sh.z);\n" +
+  "  return g;\n" +
+  "}\n" +
   'in vec2 vUv; layout(location = 0) out vec4 o; layout(location = 1) out vec4 o2; layout(location = 2) out vec4 o3; layout(location = 3) out vec4 o4; layout(location = 4) out vec4 o5;\n' +
   'void main(){\n' +
   '  vec2 p = vec2(vUv.x, (1.0 - vUv.y) * uAspect);\n' +
@@ -133,7 +206,9 @@
   '  float sm = -1e9, sacc = 0.0;                            // silhouette (soft union of r - dist)\n' +
   '  vec2 GI = vec2(0.0), GO = vec2(0.0);                   // gradient sums of the two sets, weighted like acc / accO\n' +
   '  float RI = 0.0;                                        // the puffs\' own rims, in the inside union (a skirt\'s is 1)\n' +
-  '  float T = uT, T2 = uT * 4.0;\n' +
+  '  float T=uT, T2=uT*4.0; bool modern=uModelVersion>=2.0; float E=modern ? 1.0/uTexW : T, O=modern ? E : 0.25*T, S=modern ? max(E,uRef*0.08) : T;\n' +
+  '  // Contour cohesion is a local outline join, independent of coverage and ownership tolerances.\n' +
+  '  float C=modern ? max(E,uContourCohesion*uRef*0.08) : E;\n' +
   '  // ownership (docs/core-audit.md): a containing puff is hidden by every unattached containing puff above it\n' +
   '  // (not the same parent, nor its parent or child), fading out a quarter T below each: a crisp overlap with the\n' +
   '  // front puff\'s own shading, while attached puffs join softly over T as before. Pairwise, so no winner is\n' +
@@ -152,13 +227,9 @@
   '    float rr = r * max(max(1.0, sh.z), inversesqrt(max(sh.z, 1e-4))) * vr.w;\n' +
   '    if(dot(d, d) > rr * rr) continue;\n' +
   '    vec4 wd = texelFetch(uSph, ivec2(i, 3), 0);\n' +
-  '    if(sh.z != 1.0){ float along = dot(d, wd.xy), across = d.x * wd.y - d.y * wd.x; d = vec2(along / sh.z, across * sqrt(sh.z)); }\n' +
-  '    if(vr.w != 1.0) d = varyIn(d, vr, texelFetch(uSph, ivec2(i, 6), 0), texelFetch(uSph, ivec2(i, 7), 0));\n' +
-  '    int prim = int(floor(sh.w + 0.01)); float pa = (sh.w - floor(sh.w + 0.01)) * 2.0;\n' +
-  '    if(prim == 1) d.y *= 1.0 + 1.5 * pa;\n' +
-  '    else if(prim == 2) d.x *= 1.0 + 2.0 * pa * max(0.0, -d.y) / r;\n' +
-  '    else if(prim == 3){ vec2 q = d * d; d *= mix(1.0, sqrt(sqrt(dot(q, q))) / max(length(d), 1e-6), pa); }\n' +
-  '    else if(prim == 4) d *= mix(1.0, (abs(d.x) + abs(d.y)) / max(length(d), 1e-6), pa);\n' +
+  "    vec4 vh=vec4(0.0), va=vec4(0.0); if(vr.w!=1.0){ vh=texelFetch(uSph,ivec2(i,6),0); va=texelFetch(uSph,ivec2(i,7),0); }\n" +
+  "    d=shapePoint(d,r,sh,vr,wd,vh,va);\n" +
+  "    int prim=int(floor(sh.w+0.01)); float pa=(sh.w-floor(sh.w+0.01))*2.0;\n" +
   '    float d2 = dot(d, d); if(d2 >= r * r) continue;\n' +
   '    float u = sqrt(d2) / r;\n' +
   '    vec4 idp = texelFetch(uSph, ivec2(i, 4), 0);\n' +
@@ -173,16 +244,12 @@
   '    vec4 s = texelFetch(uSph, ivec2(i, 0), 0);\n' +
   '    vec2 d = p - s.xy; float r = s.z * erode(i); if(r <= 1e-5) continue;\n' +
   '    vec4 sh = texelFetch(uSph, ivec2(i, 2), 0), vr = texelFetch(uSph, ivec2(i, 5), 0);   // anchor.xy, stretch, prim; the shape variation\n' +
-  '    float rr = r * max(1.0, sh.z) * vr.w;   // coarse reject (the stretch can reach sh.z radii along the wind, the variation vr.w more)\n' +
+  '    float rr = r * max(max(1.0, sh.z), inversesqrt(max(sh.z, 1e-4))) * vr.w;   // coarse reject (the stretch can reach sh.z radii along the wind, the variation vr.w more)\n' +
   '    if(dot(d, d) > rr * rr * 2.5) continue;\n' +
   '    vec4 wd = texelFetch(uSph, ivec2(i, 3), 0);   // wind.xy, band, depth weight\n' +
-  '    if(sh.z != 1.0){ float along = dot(d, wd.xy), across = d.x * wd.y - d.y * wd.x; d = vec2(along / sh.z, across * sqrt(sh.z)); }\n' +
-  '    vec4 vh = vec4(0.0), va = vec4(0.0); if(vr.w != 1.0){ vh = texelFetch(uSph, ivec2(i, 6), 0); va = texelFetch(uSph, ivec2(i, 7), 0); d = varyIn(d, vr, vh, va); }\n' +
-  '    int prim = int(floor(sh.w + 0.01)); float pa = (sh.w - floor(sh.w + 0.01)) * 2.0;\n' +
-  '    if(prim == 1) d.y *= 1.0 + 1.5 * pa;\n' +
-  '    else if(prim == 2) d.x *= 1.0 + 2.0 * pa * max(0.0, -d.y) / r;\n' +
-  '    else if(prim == 3){ vec2 q = d * d; d *= mix(1.0, sqrt(sqrt(dot(q, q))) / max(length(d), 1e-6), pa); }\n' +
-  '    else if(prim == 4) d *= mix(1.0, (abs(d.x) + abs(d.y)) / max(length(d), 1e-6), pa);\n' +
+  "    vec4 vh=vec4(0.0), va=vec4(0.0); if(vr.w!=1.0){ vh=texelFetch(uSph,ivec2(i,6),0); va=texelFetch(uSph,ivec2(i,7),0); }\n" +
+  "    d=shapePoint(d,r,sh,vr,wd,vh,va);\n" +
+  "    int prim=int(floor(sh.w+0.01)); float pa=(sh.w-floor(sh.w+0.01))*2.0;\n" +
   '    float d2 = dot(d, d);\n' +
   '    if(d2 > r * r * 2.25) continue;\n' +
   '    float dist = sqrt(d2);\n' +
@@ -193,7 +260,9 @@
   '    // the warp\'s pull-back of the outward unit vector: its length is how fast |d1| grows per field unit here, so\n' +
   '    // (r - dist) / gn is the distance to the footprint in the field (1 without variation)\n' +
   '    vec2 dir1 = d / max(dist, 1e-6), vg = vr.w != 1.0 ? varyGrad(dir1, d, vr, vh, va) : dir1; float gn = max(length(vg), 1e-3);\n' +
-  '    float e = (r - dist - pen) / (T * gn);\n' +
+  '    // Tiny puffs cannot acquire a wide contour skirt: retain negligible influence at the 1.5r cutoff.\n' +
+  '    float contourPen=pen; if(C>E) contourPen*=1.0+max(0.0,(C-E)/max(r,1e-6)-0.25);\n' +
+  '    if(modern) gn=max(length(shapeSlope(p-s.xy,r,sh,vr,wd,vh,va)),1e-3); float e = (r - dist - contourPen) / (C * gn);\n' +
   '    if(e > sm){ sacc = sacc * exp(sm - e) + 1.0; sm = e; } else sacc += exp(e - sm);\n' +
   '    bool inside = d2 < r * r;\n' +
   '    vec4 a = texelFetch(uSph, ivec2(i, 1), 0);\n' +
@@ -217,10 +286,25 @@
   '    if(prim == 1) dirp.y *= 1.0 + 1.5 * pa;\n' +
   '    if(vr.w != 1.0) dirp = varyGrad(dirp, d, vr, vh, va);\n' +
   '    if(sh.z != 1.0) dirp = dirp.x * wd.xy / sh.z + dirp.y * vec2(wd.y, -wd.x) * sqrt(sh.z);\n' +
+  '    if(modern) dirp=shapeSlope(p-s.xy,r,sh,vr,wd,vh,va);\n' +
   '    vec2 gd = rel * (mix(dsph, dpar, uCap) - dpen) * dirp;\n' +
-  '    if(inside) ins = max(ins, smoothstep(0.0, T, r - dist));\n' +
+  '    if(inside) ins = max(ins, smoothstep(0.0, E, r - dist));\n' +
   '    float wa = 1.0;   // hidden by every unattached containing puff above it\n' +
-  '    if(inside){ vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); for(int q = 0; q < 8; q++){ if(q >= pn) break; if(!(idp.x == pidA[q] || idp.y == ppA[q] || idp.y == pidA[q] || idp.x == ppA[q])) wa *= smoothstep(-0.25 * T, 0.0, h - ph[q]); } }\n' +
+  '    // Buried attached domes lose their share continuously before their footprint ends.\n' +
+  '    // The largest raw height gap sets the fade; stacking neighbours cannot tighten it.\n' +
+  '    // Leading surfaces, unrelated overlaps and silhouette coverage keep their old rules.\n' +
+  '    // G remains a blend of visible slopes: differentiating this visibility weight would\n' +
+  '    // light the fade itself as a band. Equal-height rim intersections remain real creases.\n' +
+  '    if(inside){\n' +
+  '      vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); float buried = 0.0;\n' +
+  '      for(int q = 0; q < 8; q++){\n' +
+  '        if(q >= pn) break;\n' +
+  '        bool attached = idp.x == pidA[q] || idp.y == ppA[q] || idp.y == pidA[q] || idp.x == ppA[q];\n' +
+  '        if(!attached) wa *= smoothstep(-O, 0.0, h - ph[q]);\n' +
+  '        else if(modern && idp.x != pidA[q]) buried = max(buried, ph[q] - h);\n' +
+  '      }\n' +
+  '      if(buried > 0.0) wa *= smoothstep(0.0, buried, r - dist);\n' +
+  '    }\n' +
   '    // this puff\'s own rim: 1 at the edge, 0 a third of a radius in. It rides in the height union (width T, with the\n' +
   '    // ownership weight), not the wider attribute blend: a puff\'s rim shows only by its share of the surface, so\n' +
   '    // the rim of a puff buried a few T below cannot draw a ring inside the puff over it\n' +
@@ -265,8 +349,8 @@
   '  // first children 1, deeper less). Its slope is a function of the point alone inside one cloud, so it has no seam of its\n' +
   '  // own; it never reaches another cloud or the sky. The shade pass blends the normal\'s slope toward it by Body\n' +
   '  vec2 GB = vec2(0.0); bool hasB = false;\n' +
-  '  if(uBody > 0.0 && H > -0.5){\n' +
-  '    float Tb = max(uBodySoft * uRef, T), mB = -1e9, accB = 0.0;\n' +
+  '  if((uBody > 0.0 || uShadowQuiet > 0.0) && H > -0.5){\n' +
+  '    float Tb = max(uBodySoft * uRef, modern ? E : T), mB = -1e9, accB = 0.0;\n' +
   '    for(int k = 0; k < 4096; k++){\n' +
   '      if(k >= tcnt) break;\n' +
   '      int i = int(texelFetch(uTileList, ivec2((toff + k) & 4095, (toff + k) >> 12), 0).x);\n' +
@@ -274,14 +358,10 @@
   '      vec4 idp = texelFetch(uSph, ivec2(i, 4), 0); if(idp.w <= 0.0) continue;\n' +
   '      vec4 s = texelFetch(uSph, ivec2(i, 0), 0); vec2 d = p - s.xy; float r = s.z * erode(i); if(r <= 1e-5) continue;\n' +
   '      vec4 sh = texelFetch(uSph, ivec2(i, 2), 0), vr = texelFetch(uSph, ivec2(i, 5), 0);\n' +
-  '      float rr = r * max(1.0, sh.z) * vr.w; if(dot(d, d) > rr * rr * 2.5) continue;\n' +
-  '      if(sh.z != 1.0){ float along = dot(d, wd.xy), across = d.x * wd.y - d.y * wd.x; d = vec2(along / sh.z, across * sqrt(sh.z)); }\n' +
-  '      vec4 vh = vec4(0.0), va = vec4(0.0); if(vr.w != 1.0){ vh = texelFetch(uSph, ivec2(i, 6), 0); va = texelFetch(uSph, ivec2(i, 7), 0); d = varyIn(d, vr, vh, va); }\n' +
-  '      int prim = int(floor(sh.w + 0.01)); float pa = (sh.w - floor(sh.w + 0.01)) * 2.0;\n' +
-  '      if(prim == 1) d.y *= 1.0 + 1.5 * pa;\n' +
-  '      else if(prim == 2) d.x *= 1.0 + 2.0 * pa * max(0.0, -d.y) / r;\n' +
-  '      else if(prim == 3){ vec2 q = d * d; d *= mix(1.0, sqrt(sqrt(dot(q, q))) / max(length(d), 1e-6), pa); }\n' +
-  '      else if(prim == 4) d *= mix(1.0, (abs(d.x) + abs(d.y)) / max(length(d), 1e-6), pa);\n' +
+  '      float rr = r * max(max(1.0, sh.z), inversesqrt(max(sh.z, 1e-4))) * vr.w; if(dot(d, d) > rr * rr * 2.5) continue;\n' +
+  "      vec4 vh=vec4(0.0), va=vec4(0.0); if(vr.w!=1.0){ vh=texelFetch(uSph,ivec2(i,6),0); va=texelFetch(uSph,ivec2(i,7),0); }\n" +
+  "      d=shapePoint(d,r,sh,vr,wd,vh,va);\n" +
+  "      int prim=int(floor(sh.w+0.01)); float pa=(sh.w-floor(sh.w+0.01))*2.0;\n" +
   '      // footprints only, each weighted by (1 - u^2)^2 across its whole disc (no skirts: at this temperature their steep slopes\n' +
   '      // outside the rim carried real weight and drew a jagged terminator through the parent; a fade over the outer rim only\n' +
   '      // turned a buried child\'s rim into a narrow, steep change of the body slope)\n' +
@@ -293,9 +373,14 @@
   '      if(prim == 1) dirp.y *= 1.0 + 1.5 * pa;\n' +
   '      if(vr.w != 1.0) dirp = varyGrad(dirp, d, vr, vh, va);\n' +
   '      if(sh.z != 1.0) dirp = dirp.x * wd.xy / sh.z + dirp.y * vec2(wd.y, -wd.x) * sqrt(sh.z);\n' +
+  '      if(modern) dirp=shapeSlope(p-s.xy,r,sh,vr,wd,vh,va);\n' +
   '      vec2 gd = idp.z * mix(dsph, dpar, uCap) * dirp;\n' +
   '      float wb = idp.w * (1.0 - u * u) * (1.0 - u * u);\n' +
-  '      { for(int q = 0; q < 8; q++){ if(q >= pn) break; if(!(idp.x == pidA[q] || idp.y == ppA[q] || idp.y == pidA[q] || idp.x == ppA[q])) wb *= smoothstep(-0.25 * T, 0.0, h - ph[q]); } }\n' +
+  '      { float buried = 0.0; for(int q = 0; q < 8; q++){ if(q >= pn) break;\n' +
+  '        bool attached = idp.x == pidA[q] || idp.y == ppA[q] || idp.y == pidA[q] || idp.x == ppA[q];\n' +
+  '        if(!attached) wb *= smoothstep(-O, 0.0, h - ph[q]);\n' +
+  '        else if(modern && idp.x != pidA[q]) buried = max(buried, ph[q] - h);\n' +
+  '      } if(buried > 0.0) wb *= smoothstep(0.0, buried, r - dist); }\n' +
   '      if(wb <= 0.0) continue;\n' +
   '      if(h > mB){ float wq = exp((mB - h) / Tb); accB = accB * wq + wb; GB = GB * wq + wb * gd; mB = h; } else { float wq = wb * exp((h - mB) / Tb); accB += wq; GB += wq * gd; }\n' +
   '    }\n' +
@@ -304,39 +389,54 @@
   '  // contact shadow, in object space: a ray from the surface point toward the light, tested against every other puff as\n' +
   '  // the sphere the union draws (centre at its depth offset, its eroded radius). Not a march over the height field: the\n' +
   '  // depth wall at a front puff\'s rim is an artefact of flattening the domes to one height, and the ray never sees it.\n' +
-  '  // A puff never shades itself: the spheres the point sits on (within T, so a merged lobe too) are left out, their\n' +
-  '  // curvature is the normal\'s business. The penumbra widens along the ray (crisp at the contact, soft at the far\n' +
+  '  // The cast-shadow contribution fades to zero on the surfaces the point sits on (within T). Internal limb\n' +
+  '  // shading is shared continuously across the junction below. The penumbra widens along the ray (soft at the far\n' +
   '  // edge); the shadow fades out by 0.6 r beyond the blocker\'s rim, inside the tile reach. Stored for the shade pass.\n' +
   '  // Cavity, in the same loop: sphere ambient occlusion. Each other puff hides a share of the sky over the point, its\n' +
   '  // solid angle (1 - sqrt(1 - r^2 / d^2)) times the share of the sphere above the point\'s level, fading out over Cavity\n' +
   '  // reach (at most 0.6 r, inside the tile reach) beyond the sphere\'s rim; the shares combine as transmittances and\n' +
   '  // the floor of a crease between two domes reaches about 0.8. No height-field sample, so no step and no outline\n' +
-  '  float sil = (sacc > 0.0) ? (sm + log(min(sacc, 2.0))) * T : -1.0;\n' +
+  '  float sil = (sacc > 0.0) ? (sm + log(min(sacc, 2.0))) * C : -1.0;\n' +
   '  float contact = 0.0, cav = 0.0;\n' +
   '  if((uContact > 0.0 || uCavity > 0.0) && H > -0.5){\n' +
   '    vec3 Lv = uLight;\n' +
   '    if(uCam.w > 0.0 && uOverhead > 0.0){ float pc = atan(max(0.0, uCam.z - (1.0 - vUv.y) * uAspect)) * uOverhead, cp = cos(pc), sp = sin(pc); float up = -uLight.y, tz = uLight.z; Lv = vec3(uLight.x, -(up * cp + tz * sp), tz * cp - up * sp); }\n' +
-  '    vec3 ro = vec3(p, H); float tr = 1.0, sky = 1.0, creach = uCavityReach / uTexW;\n' +
+  '    vec3 ro = vec3(p, H); float tr = 1.0, sky = 1.0, selfShade = 0.0, creach = uCavityReach / uTexW;\n' +
   '    for(int k = 0; k < 4096; k++){\n' +
   '      if(k >= tcnt) break;\n' +
   '      int i = int(texelFetch(uTileList, ivec2((toff + k) & 4095, (toff + k) >> 12), 0).x);\n' +
   '      vec4 s = texelFetch(uSph, ivec2(i, 0), 0); float r = s.z * erode(i); if(r <= 1e-5) continue;\n' +
-  '      if(i == winIdx){\n' +
-  '        // the owner: its own limb joins the shadow it casts on the puff behind where the sphere\'s true normal turns from the\n' +
-  '        // light (the rim lift turns that normal to the viewer and lit the limb, a bright crescent standing against the cast\n' +
-  '        // shadow; a ray test missed the terminator, where the crescent was brightest). Weighted by the rim band (1 at the\n' +
-  '        // edge, 0 a third of a radius in) and by the band lying inside the cloud: at the exposed silhouette a lone puff gets none\n' +
-  '        if(uContact <= 0.0) continue;\n' +
-  '        float wself = (1.0 - smoothstep(0.0, 0.3, 1.0 - winU)) * smoothstep(T, 3.0 * T, sil - winR * (1.0 - winU)); if(wself <= 0.0) continue;\n' +
-  '        vec3 oo = vec3(s.xy, s.w) - ro; float nl = -dot(oo, Lv) / max(length(oo), 1e-6);\n' +
-  '        tr *= 1.0 - 0.5 * wself * (1.0 - smoothstep(0.0, 0.5, nl));   // half: the cast shadow beside it is a penumbra of about that strength at the contact\n' +
-  '        continue;\n' +
-  '      }\n' +
   '      vec3 oc = vec3(s.xy, s.w) - ro; float oc2 = dot(oc, oc), sxy = length(oc.xy) - r; if(sxy > 0.6 * r) continue;\n' +
-  '      // the point sits on this sphere (inside its footprint, within T of its surface: the owner or a merged lobe): neither\n' +
-  '      // a blocker nor an occluder. Outside the footprint it is the puff behind, even within T (a bright strip hugged\n' +
-  '      // the rim of a front puff with a small depth offset when the margin applied there too)\n' +
-  '      if(sxy < 0.0 && oc2 < (r + T) * (r + T)) continue;\n' +
+  '      // A point on a puff is not blocked by that puff. Outside its footprint it receives\n' +
+  '      // the cast shadow, with a finite transition rather than an abrupt membership switch.\n' +
+  '      // Continuous membership replaces the hard r+T / footprint switches. A merged surface\n' +
+  '      // contributes no occlusion, then acquires it gradually as it separates from its neighbour.\n' +
+  '      float support = max(S, 1.0 / uTexW);\n' +
+  '      float separate = smoothstep(S, S + support, sqrt(oc2) - r);\n' +
+  '      float blocker = mix(separate, 1.0, smoothstep(0.0, support, sxy)), contactBlocker=blocker;\n' +
+  "      if(modern){\n" +
+  "        vec4 sh=texelFetch(uSph,ivec2(i,2),0), vr=texelFetch(uSph,ivec2(i,5),0), wd=texelFetch(uSph,ivec2(i,3),0);\n" +
+  "        vec4 vh=texelFetch(uSph,ivec2(i,6),0), va=texelFetch(uSph,ivec2(i,7),0);\n" +
+  "        float rel=texelFetch(uSph,ivec2(i,4),0).z, u=length(shapePoint(p-s.xy,r,sh,vr,wd,vh,va))/r;\n" +
+  "        // True 2D profile membership prevents a deformed puff shadowing itself.\n" +
+  "        contactBlocker=1.0;\n" +
+  "        // Exclude only this puff's share of the receiving surface, without a zero-shadow shell.\n" +
+  "        if(u<1.0){ float hs=s.w+rel*r*mix(sqrt(max(0.0,1.0-u*u)),1.0-u*u,uCap); blocker*=smoothstep(S,2.0*S,abs(H-hs)); contactBlocker=1.0-exp(clamp((hs-H)/T,-40.0,0.0)); }\n" +
+  "        // The cheap circular proxy is only trusted while it resembles the visible shape.\n" +
+  "        float pa=(sh.w-floor(sh.w+0.01))*2.0; if(floor(sh.w+0.01)<0.5) pa=0.0;\n" +
+  "        float mismatch=abs(log(max(sh.z,1e-4)))+abs(vr.z)+length(vh)+va.x+pa+uCap+abs(rel-1.0);\n" +
+  "        blocker*=exp(-2.0*mismatch); contactBlocker*=exp(-2.0*mismatch);\n" +
+  "      }\n" +
+  '      // Continue a dark limb into its cast shadow using continuous surface shares, not the\n' +
+  '      // winning puff id. A winner switch used to turn this half-strength crescent on instantly.\n' +
+  '      if(!modern && uContact > 0.0 && sxy < 0.0){\n' +
+  '        float u = clamp(1.0 + sxy / r, 0.0, 1.0), rel = texelFetch(uSph, ivec2(i, 4), 0).z;\n' +
+  '        float hs = s.w + rel * r * mix(sqrt(max(0.0, 1.0 - u * u)), 1.0 - u * u, uCap);\n' +
+  '        float share = exp(clamp((hs - H) / T, -40.0, 0.0)) * (1.0 - smoothstep(-support, 0.0, sxy));\n' +
+  '        float rim = (1.0 - smoothstep(0.0, 0.3, 1.0 - u)) * smoothstep(T, 3.0 * T, sil - r * (1.0 - u));\n' +
+  '        float nl = -dot(oc, Lv) / max(sqrt(oc2), 1e-6);\n' +
+  '        selfShade += 0.5 * share * rim * (1.0 - smoothstep(0.0, 0.5, nl));\n' +
+  '      }\n' +
   '      if(uCavity > 0.0){\n' +
   '        // depth offsets are draw order, not height. A neighbour\'s centre is taken no higher than the point\'s own centre plane\n' +
   '        // (its real offset when it is lower, a parent under a child), so a neighbour hides sky only where the point is low\n' +
@@ -344,14 +444,14 @@
   '        // offset it drew a dark halo round every front lobe; taken on the plane, a parent under a child blacked the child out)\n' +
   '        float oz = min(oc.z, winZ - H), ocv = dot(oc.xy, oc.xy) + oz * oz;\n' +
   '        float q = min(1.0, r * r / max(ocv, 1e-12)), above = clamp(0.5 + oz / (2.0 * r), 0.0, 1.0);\n' +
-  '        sky *= 1.0 - (1.0 - sqrt(1.0 - q)) * above * (1.0 - smoothstep(0.0, min(creach, 0.6 * r), sxy));\n' +
+  '        sky *= 1.0 - blocker * (1.0 - sqrt(1.0 - q)) * above * (1.0 - smoothstep(0.0, min(creach, 0.6 * r), sxy));\n' +
   '      }\n' +
   '      if(uContact <= 0.0) continue;\n' +
   '      float t = dot(oc, Lv); if(t <= 0.0) continue;\n' +
-  '      float d = sqrt(max(0.0, oc2 - t * t)), w = T + 0.2 * t;\n' +
-  '      tr *= 1.0 - (1.0 - smoothstep(r - w, r + w, d)) * (1.0 - smoothstep(0.2 * r, 0.6 * r, sxy));\n' +
+  '      float d = sqrt(max(0.0, oc2 - t * t)), w = S + 0.2 * t;\n' +
+  '      tr *= 1.0 - contactBlocker * (1.0 - smoothstep(r - w, r + w, d)) * (1.0 - smoothstep(0.2 * r, 0.6 * r, sxy));\n' +
   '    }\n' +
-  '    contact = 1.0 - tr; cav = smoothstep(0.0, 0.5, 1.0 - sky);\n' +
+  '    contact = 1.0 - tr * (1.0 - min(0.5, selfShade)); cav = smoothstep(0.0, 0.5, 1.0 - sky);\n' +
   '  }\n' +
   '  // the union\'s gradient: each set\'s mean slope by its share of the union (the skirt clamp is a shift, its\n' +
   '  // own slope left out, so a clamped skirt keeps the slope of the surface it came from)\n' +
@@ -371,11 +471,11 @@
   '  }\n' +
   '  // the silhouette union gains at most T log 2 over the nearest puff (a pair blends as before; a pile of\n' +
   '  // overlapping skirts no longer pushes the outline T log n beyond the domes that are shaded)\n' +
-  '  float mask = smoothstep(-0.5 * T, 0.5 * T, sil);\n' +
+  '  float mask = smoothstep(-0.5 * E, 0.5 * E, sil);\n' +
   '  float ia = acc2 > 0.0 ? 1.0 / acc2 : 0.0;\n' +
   '  // alpha: the mask (0..1), plus ten times the distance inside the silhouette past the mask ramp, so the\n' +
   '  // shade pass has a smooth distance from the outline (every mask test is < 0.5 or clamps, so it still works)\n' +
-  '  o = vec4(H, dSum * ia, sSum * ia, mask + 10.0 * max(0.0, sil - 0.5 * T));\n' +
+  '  o = vec4(H, dSum * ia, sSum * ia, mask + 10.0 * max(0.0, sil - 0.5 * E));\n' +
   '  o2 = vec4(acc2 > 0.0 ? fSum * ia : 1.0, xSum * ia, anc * ia);\n' +
   '  o3 = vec4(bSum * ia, acc2 > 0.0 ? wSum * ia : 1.0, cIdx, clamp(rimW, 0.0, 1.0));\n' +
   '  o4 = vec4(G, sil, winPid);   // z: the signed distance to the silhouette line (field units); w: the owner\'s group (its parent id)\n' +
@@ -393,7 +493,7 @@
   'uniform vec4 uStyleA[32]; uniform vec4 uStyleB[32];\n' +
   'uniform float uAtmos, uDepthFall, uCirrus, uCirrusScale, uCirrusAngle, uCirrusFlow, uDissolve, uDotSize, uVeil;\n' +
   'uniform vec3 uSkyColor;\n' +
-  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach, uCavityLit, uGrain, uDiag, uT, uBody;\n' +
+  'uniform float uOverhead, uRim, uPuffRim, uContact, uCavity, uCavityReach, uCavityLit, uGrain, uDiag, uT, uBody, uShadowQuiet;\n' +
   'uniform float uStipple, uStippleBias, uBreakup, uBreakupReach, uLock;\n' +
   'float bayer8(vec2 p){ vec2 q = mod(floor(p), 8.0); int x = int(q.x), y = int(q.y), v = 0; for(int b = 0; b < 3; b++){ v = v * 4 + ((x >> (2 - b)) & 1) * 2 + ((((x ^ y) >> (2 - b)) & 1)); } return float(v) / 64.0 - 0.5; }\n' +
   'uniform vec4 uCam;   // camera x, camera z, horizon (field y), cirrus altitude; w <= 0: no camera (the flat veil)\n' +
@@ -482,7 +582,7 @@
   '// height is differenced across an occlusion step any more, so there is no step test, no footprint shrink and\n' +
   '// no fallback that could face a strip toward the viewer. A far footprint (Depth falloff) averages the\n' +
   '// gradient over same-surface neighbours. The noise displacement is smooth, so it is differenced plainly.\n' +
-  'vec3 normalAt(vec2 uv, vec2 dx, vec2 dy, float wx, float wy, float bias, float bias2, float namp, float sm, out float edge){\n' +
+  'vec2 slopeAt(vec2 uv, vec2 dx, vec2 dy, float sm, out float edge){\n' +
   '  // rim weight: a smooth fall-off with the distance from the silhouette line, over the blend width T or two\n' +
   '  // texels, whichever is wider (it used to be full across the whole mask ramp and then drop within two\n' +
   '  // texels: at high Softness a flat lifted band ending in a step, a ring)\n' +
@@ -492,7 +592,7 @@
   '    float gn = 1.0;\n' +
   '    for(int k = 0; k < 4; k++){\n' +
   '      vec2 q = uv + (k == 0 ? dx : k == 1 ? -dx : k == 2 ? dy : -dy);\n' +
-  '      if(hAt(q, uv, bias, bias2, namp).y > 0.5){ G += texture(uAux3, q).xy; gn += 1.0; }\n' +
+  '      if(hAt(q, uv, 0.0, 0.0, 0.0).y > 0.5){ G += texture(uAux3, q).xy; gn += 1.0; }\n' +
   '    }\n' +
   '    G /= gn;\n' +
   '  }\n' +
@@ -521,6 +621,10 @@
   '    G = mix(G, acc / wsum, sm);\n' +
   '  }\n' +
   '  if(uBody > 0.0) G = mix(G, texelFetch(uAux4, ivec2(uv / uTexel), 0).ba, uBody);   // body lighting: toward the cloud\'s shared soft-union slope (unfiltered: a bilinear read mixed in the slope of the cloud across an occluding edge)\n' +
+  '  return G;\n' +
+  '}\n' +
+  '// Reuse the macro slope: noise bias needs the undisplaced normal, not another 7x7 filter.\n' +
+  'vec3 noiseNormal(vec2 G, vec2 uv, vec2 dx, vec2 dy, float wx, float wy, float bias, float bias2, float namp){\n' +
   '  float nL = dispAt(uv - dx, uv, bias, bias2, namp), nR = dispAt(uv + dx, uv, bias, bias2, namp), nU = dispAt(uv - dy, uv, bias, bias2, namp), nD = dispAt(uv + dy, uv, bias, bias2, namp);\n' +
   '  // field y is down, uv y is up: the stored gradient is in field units, the noise difference in uv\n' +
   '  return normalize(vec3(-G.x - (nR - nL) / wx, -G.y + (nD - nU) / wy, 1.0));\n' +
@@ -552,7 +656,8 @@
   '  float namp = (1.0 - 0.6 * far) * sB.z;\n' +
   '  // noise bias: the macro (undisplaced) light decides where the noise lives (-1 shadow only .. +1 light only)\n' +
   '  float edge;\n' +
-  '  vec3 n0 = normalAt(uv, dx, dy, wx, wy, 0.0, 0.0, namp, sB.w, edge);\n' +
+  '  vec2 G = slopeAt(uv, dx, dy, sB.w, edge);\n' +
+  '  vec3 n0 = normalize(vec3(-G, 1.0));\n' +
   '  // under the camera the view pitches up toward the top of the frame, so the sun turns with it:\n' +
   '  // a cloud near the horizon is lit from above, one straight overhead shows its underside with\n' +
   '  // the light coming from beyond it\n' +
@@ -562,10 +667,17 @@
   '    float up = -uLight.y, tz = uLight.z;   // screen-up and toward-the-viewer parts (field y is down)\n' +
   '    Lv = vec3(uLight.x, -(up * cp + tz * sp), tz * cp - up * sp);\n' +
   '  }\n' +
+  '  // Quiet the texture and lobe shading where the shared mass faces away from the sun.\n' +
+  '  // The gate uses the undisplaced broad slope, so fine noise cannot switch it on and off.\n' +
+  '  if(uShadowQuiet > 0.0){\n' +
+  '    vec2 broad=texelFetch(uAux4,ivec2(uv/uTexel),0).ba;\n' +
+  '    float quiet=uShadowQuiet*(1.0-smoothstep(0.0,0.45,dot(normalize(vec3(-broad,1.0)),Lv)));\n' +
+  '    G=mix(G,broad,quiet); namp*=1.0-quiet; n0=normalize(vec3(-G,1.0));\n' +
+  '  }\n' +
   '  float l0 = dot(n0, Lv);\n' +
   '  float bias = uNoiseBias > 0.0 ? mix(1.0, smoothstep(-0.2, 0.5, l0), uNoiseBias) : mix(1.0, 1.0 - smoothstep(-0.2, 0.5, l0), -uNoiseBias);\n' +
   '  float bias2 = uNoiseBias2 > 0.0 ? mix(1.0, smoothstep(-0.2, 0.5, l0), uNoiseBias2) : mix(1.0, 1.0 - smoothstep(-0.2, 0.5, l0), -uNoiseBias2);\n' +
-  '  vec3 n = normalAt(uv, dx, dy, wx, wy, bias, bias2, namp, sB.w, edge);   // (Normal smooth is inside: the gradient\'s bilateral average)\n' +
+  '  vec3 n = noiseNormal(G, uv, dx, dy, wx, wy, bias, bias2, namp);\n' +
   '  // the rim turns toward the viewer: the dome edge is otherwise a dark ring that reads as an outline. Two controls,\n' +
   '  // independent: Rim soften by the distance to the exposed silhouette (edge), Puff rim by each puff\'s own rim weight\n' +
   '  // inside the cloud (bx.a, by its share of the surface). Where a lobe rim meets the silhouette the larger of the two\n' +
@@ -635,13 +747,19 @@
   function PuffRenderer(canvas) {
     var gl = this.gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
     if (!gl) throw new Error('WebGL2 required');
-    gl.getExtension('EXT_color_buffer_float');
+    if (!gl.getExtension('EXT_color_buffer_float')) throw new Error('Cloud renderer requires EXT_color_buffer_float. Enable hardware acceleration or use a browser/GPU with floating-point render targets.');
+    var drawBuffers = gl.getParameter(gl.MAX_DRAW_BUFFERS), colorAttachments = gl.getParameter(gl.MAX_COLOR_ATTACHMENTS);
+    if (drawBuffers < 5 || colorAttachments < 5) throw new Error('Cloud renderer requires at least 5 draw buffers and 5 color attachments; this GPU provides ' + drawBuffers + ' and ' + colorAttachments + '. Try a browser/GPU with more render targets.');
     this._float32 = !!gl.getExtension('OES_texture_float_linear');   // the height target is 32-bit when it can be filtered
     this.canvas = canvas;
     this._field = program(gl, FIELD_FS); this._shade = program(gl, SHADE_FS);
-    this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTileSize', 'uTiles', 'uAspect', 'uT', 'uCap', 'uDissolve', 'uDotSize', 'uEvapScale', 'uRef', 'uLight', 'uCam', 'uOverhead', 'uContact', 'uCavity', 'uCavityReach', 'uBody', 'uBodySoft']);
+    this._fu = uniforms(gl, this._field, ['uSph', 'uTileHead', 'uTileList', 'uTexW', 'uTileSize', 'uTiles', 'uAspect', 'uT', 'uModelVersion', 'uCap', 'uDissolve', 'uDotSize', 'uEvapScale', 'uRef', 'uLight', 'uCam', 'uOverhead', 'uContact', 'uCavity', 'uCavityReach', 'uBody', 'uBodySoft']);
     this._su = uniforms(gl, this._shade, ['uField', 'uAux', 'uAux2', 'uAux3', 'uAux4', 'uTexel', 'uAspect', 'uLight', 'uHighlight', 'uFill', 'uBands', 'uNoise', 'uNoiseScale', 'uNoise2', 'uNoise2Scale', 'uNoiseBias', 'uNoiseBias2', 'uFlow', 'uTime', 'uRef', 'uPixelated', 'uAnchor', 'uStreak', 'uWindDir', 'uStyleA', 'uStyleB', 'uAtmos', 'uDepthFall', 'uCirrus', 'uCirrusScale', 'uCirrusAngle', 'uCirrusFlow', 'uVeil', 'uSkyColor', 'uDissolve', 'uDotSize', 'uCam', 'uOverhead', 'uRim', 'uPuffRim', 'uContact', 'uCavity', 'uCavityReach', 'uCavityLit', 'uGrain', 'uDiag', 'uT', 'uStipple', 'uStippleBias', 'uBreakup', 'uBreakupReach', 'uLock', 'uBody']);
     this._sphData = new Float32Array(MAX_SPH * 4 * 8);   // eight rows: the fifth is (puff id, parent id), the sixth to eighth the shape variation
+    this._fu.uContourCohesion = gl.getUniformLocation(this._field, 'uContourCohesion');
+    this._fu.uErosionType = gl.getUniformLocation(this._field, 'uErosionType');
+    this._fu.uShadowQuiet = gl.getUniformLocation(this._field, 'uShadowQuiet');
+    this._su.uShadowQuiet = gl.getUniformLocation(this._shade, 'uShadowQuiet');
     this._sphTex = gl.createTexture();
     // tile lists: a head texture (offset, count) per 16-texel tile, sized in resize, and a flat index list
     this._tileHead = gl.createTexture(); this._tileList = gl.createTexture(); this._tileSize = 16;
@@ -683,12 +801,18 @@
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT3, gl.TEXTURE_2D, this._aux3Tex, 0);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT4, gl.TEXTURE_2D, this._aux4Tex, 0);   // the contact term
     gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2, gl.COLOR_ATTACHMENT3, gl.COLOR_ATTACHMENT4]);
+    var status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      this._w = 0; this._h = 0;   // a failed allocation must not make a retry look already sized
+      throw new Error('Cloud renderer framebuffer incomplete at ' + w + ' x ' + h + ' (status 0x' + status.toString(16) + '). Reduce render resolution or try another browser/GPU.');
+    }
   };
 
   // Per-cloud form settings resolved from its look (every transform in one place).
   // Order of the view transforms on a root: Scale about the base line -> Lean by height -> Pan.
-  function form(cloud, idx) {
+  function form(cloud, idx, sky) {
+    sky = sky || {};
     var look = cloud.look || {}, sim = cloud.sim;
     var wa = num(look.wind, 0) * Math.PI / 180, zoom = clamp(num(look.zoom, 1), 0.1, 4);
     var baseY = num(sim.baseY, 0.5), topY = num(sim.topY, 0), prim = Math.max(0, PRIMS.indexOf(look.prim));
@@ -706,7 +830,7 @@
       shear: Math.max(0, num(look.shear, 0)), shearBias: clamp(num(look.shearBias, 0), -1, 1), wx: Math.cos(wa), wy: -Math.sin(wa), lean: num(look.lean, 0),
       // wind drift (wind erosion, step 1): speed in fifths of a reference radius per second at full exposure, gust size in
       // reference radii, top emphasis: how much the exposure concentrates toward the crown
-      // (look.motion, the sky's Motion slider, slows the wind drift and the child cycle with the sims)
+      // look.motion is the sky's turbulence intensity; child ageing follows the sim clock independently
       windSpeed: Math.max(0, num(look.windSpeed, 0)) * num(look.motion, 1), gust: Math.max(0.2, num(look.gustSize, 1.5)), top: clamp(num(look.topEmphasis, 0.5), 0, 1),
       erosion: Math.max(0, num(look.erosion, 0)),   // wind erosion, step 2: how fast an exposed lobe wears away
       wisps: clamp(Math.round(num(look.wispAmount, 0) * 8), 0, 8), wispLife: Math.max(1, num(look.wispLife, 8)),   // step 3: wisps per cloud at most, and their life in seconds
@@ -715,9 +839,10 @@
       children: Math.max(0, Math.round(num(look.children, 4))), ratio: clamp(num(look.ratio, 0.42), 0.1, 0.8),
       levels: clamp(Math.round(num(look.levels, 3)), 1, 3), lvFade: clamp(num(look.levelFade, 1), 0, 1),   // levelFade: the deepest level thinned like the budget does (a host's LOD by distance), 1 whole
       capN: Math.max(0, num(look.puffCap, 0) | 0),   // puffCap: this cloud's own puff budget, thinned like the scene's (0: none)
-      life: Math.max(0, num(look.life, 1)) * num(look.motion, 1), embed: clamp(num(look.embed, 0.78), 0.3, 1),
+      life: Math.max(0, num(look.life, 1)), embed: clamp(num(look.embed, 0.78), 0.3, 1),
       relief1: clamp(num(look.relief1, 1), 0, 1), relief2: clamp(num(look.relief2, 1), 0, 1),   // lobe relief by generation: the height amplitude of first and second children (not their size or seat)
       cluster: clamp(num(look.cluster, 0), 0, 1),   // lobe grouping: a parent's children in two or three seeded clusters (0: independent seats)
+      childShape: clamp(pick(look, sky, 'childShape', 1), 0, 1), shapeFollow: clamp(pick(look, sky, 'shapeFollow', 0), 0, 1),
       depthScale: num(look.depth, 1), roll: num(look.roll, 1),
       // step 4 (docs/core-audit.md): Depth scales the heights only (order and relief are one thing in a height
       // union); the sway of child puffs has its own scale, and a puff's depth weight (its fade) comes from its
@@ -725,7 +850,7 @@
       swayScale: num(look.swayScale, 1),
       // shape variation (amplitude, the aspect and contour parts, the seed): every puff\'s own warp, from its persistent
       // id and this seed alone (never the upload order or the sim\'s random sequence), so a puff keeps its shape for life
-      vary: { amp: clamp(num(look.shapeVar, 0), 0, 1), st: clamp(num(look.stretchVar, 1), 0, 1), ct: clamp(num(look.contourVar, 1), 0, 1), seed: num(look.shapeSeed, 0), ang: clamp(num(look.angular, 0), 0, 1), sides: clamp(Math.round(num(look.sides, 5)), 3, 8), bulge: clamp(num(look.bulge, 0), 0, 1) },
+      vary: { amp: clamp(num(look.shapeVar, 0), 0, 1), st: clamp(num(look.stretchVar, 1), 0, 1), ct: clamp(num(look.contourVar, 1), 0, 1), seed: num(look.shapeSeed, 0), ang: clamp(num(look.angular, 0), 0, 1), sides: clamp(Math.round(num(look.sides, 5)), 3, 8), bulge: clamp(num(look.bulge, 0), 0, 1), filter: clamp(pick(look, sky, 'contourFilter', 0), -1, 1), reach: clamp(pick(look, sky, 'filterReach', .35), .05, 1) },
       // band: crown (0) to base (1) in the cloud's own frame, after Scale and Pan
       baseT: baseY + num(look.panY, 0), spanT: Math.max(1e-3, (baseY - topY) * zoom), baseFall: Math.max(0.05, num(look.baseFall, 0.7)),
       dw: clamp(num(look.far, 1), 0, 1),   // depth weight: 1 near .. 0 far
@@ -737,11 +862,12 @@
   // child, then every grandchild) so no cloud starves another of its skin.
   PuffRenderer.prototype._tree = function (clouds, time) {
     var D = this._sphData, n = 0, tA = performance.now();
+
     var LEVEL_DETAIL = [0.25, 0.6, 1.0];
     // the shape variation of one puff: rows 5 and 6 (see the field pass). The hashes are of the id and the seed only
     // (written into o, a reused object: the tree allocates nothing per puff per frame)
     function vary(V, id, o) {
-      if (V.amp <= 0 && V.ang <= 0) { o.c = 1; o.s = 0; o.a = 0; o.b = 1; o.A1 = 0; o.B1 = 0; o.A3 = 0; o.B3 = 0; o.ang = 0; o.n = 5; o.rs = 1; return o; }
+      if (V.amp <= 0 && V.ang <= 0) { o.c = 1; o.s = 0; o.a = 0; o.b = 1; o.A1 = 0; o.B1 = 0; o.A3 = 0; o.B3 = 0; o.ang = 0; o.n = 5; o.rs = 1; o.filter = 0; o.reach = .35; return o; }
       var k = id * 0.7311 + V.seed * 131.71, th = hash(k + 1.1) * Math.PI;
       var a = 0.35 * V.amp * V.st * (2 * hash(k + 2.2) - 1);
       var c1 = 0.2 * V.amp * V.ct * hash(k + 3.3), p1 = hash(k + 4.4) * 6.2832, c3 = 0.1 * V.amp * V.ct * hash(k + 5.5), p3 = hash(k + 6.6) * 6.2832;
@@ -751,16 +877,34 @@
       var hm = c1 + c3, rs = 1 + 0.5 * V.bulge * hm, hk = (1 - 0.5 * V.bulge) / rs; c1 *= hk; c3 *= hk;
       // the angular factor never grows the footprint (the polygon is inscribed), but a bound of exactly 1 is the shader's
       // 'no warp' mark, so it is nudged past 1 when the angle is on
-      o.c = Math.cos(th); o.s = Math.sin(th); o.a = a; o.b = (1 + Math.abs(a)) * (1 + c1 + c3) + (V.ang > 0 ? 1e-4 : 0); o.A1 = c1 * Math.cos(p1); o.B1 = c1 * Math.sin(p1); o.A3 = c3 * Math.cos(p3); o.B3 = c3 * Math.sin(p3); o.ang = V.ang; o.n = V.sides; o.rs = rs;
+      o.c = Math.cos(th); o.s = Math.sin(th); o.a = a; o.b = (1 + Math.abs(a)) * (1 + c1 + c3) + (V.ang > 0 ? 1e-4 : 0); o.A1 = c1 * Math.cos(p1); o.B1 = c1 * Math.sin(p1); o.A3 = c3 * Math.cos(p3); o.B3 = c3 * Math.sin(p3); o.ang = V.ang; o.n = V.sides; o.rs = rs; o.filter = V.filter; o.reach = V.reach;
       return o;
     }
     // the inverse warp: a point of the unit space (a child's seat on the shell) back to the field offset (into VO, reused)
     var VO = this._vo || (this._vo = [0, 0]);
+    function contourHarmonic(v, ph) {
+      return 1+v.A1*Math.cos(ph)+v.B1*Math.sin(ph)+v.A3*Math.cos(3*ph)+v.B3*Math.sin(3*ph);
+    }
+    function contourSector(t,hs){
+      var u=clamp((t-.65*hs)/(.35*hs),0,1),sm=u*u*(3-2*u);return (Math.cos(hs)/Math.cos(t))*(1-sm)+sm;
+    }
+    function rawContour(v, ph) {
+      var f=1+v.A1*Math.cos(ph)+v.B1*Math.sin(ph)+v.A3*Math.cos(3*ph)+v.B3*Math.sin(3*ph);
+      if(v.filter){
+        // Decode the same float32 record as the GPU, so child seats follow its exact profile.
+        var code=Math.abs(Math.fround(Math.sign(v.filter)*(Math.round(v.reach*100)+Math.abs(v.filter)*.5))),reach=Math.floor(code)*.01,amt=(code%1)*2,sg=Math.sign(v.filter),sum=0;
+        for(var j=0;j<4;j++){var off=(j<2?j-2:j-1)*.5*reach,gap=sg*(contourHarmonic(v,ph+off)-f);if(gap>0){var h=gap*gap/(gap+.025);sum+=h*h*h*h;}}
+        if(sum>0)f+=sg*amt*(Math.pow(sum*.25+1e-24,.25)-1e-6);
+        if(v.ang>0){var half=Math.PI/v.n,angle=((ph%(2*half))+2*half)%(2*half)-half,base=contourSector(Math.abs(angle),half),eps=.1*reach,dist=sg>0?Math.abs(angle):half-Math.abs(angle),rad=Math.sqrt(dist*dist+eps*eps),pos=sg>0?rad+reach:half-rad-reach;
+          f*=mix(1,mix(base,contourSector(clamp(pos,0,half),half),amt),v.ang);}
+        return f;
+      }
+      if(v.ang>0){var hs=Math.PI/v.n,t=((ph%(2*hs))+2*hs)%(2*hs)-hs,u=clamp((Math.abs(t)-.65*hs)/(.35*hs),0,1),sm=u*u*(3-2*u);f*=1+v.ang*((Math.cos(hs)/Math.cos(t))*(1-sm)+sm-1);}return f;
+    }
     function varyOut(v, x, y) {
       if (v.b === 1) { VO[0] = x; VO[1] = y; return VO; }
       var qx = v.c * x + v.s * y, qy = -v.s * x + v.c * y, ph = Math.atan2(qy, qx);
-      var f = 1 + v.A1 * Math.cos(ph) + v.B1 * Math.sin(ph) + v.A3 * Math.cos(3 * ph) + v.B3 * Math.sin(3 * ph);
-      if (v.ang > 0) { var hs = Math.PI / v.n, t = ((ph % (2 * hs)) + 2 * hs) % (2 * hs) - hs, u = clamp((Math.abs(t) - 0.65 * hs) / (0.35 * hs), 0, 1), sm = u * u * (3 - 2 * u); f *= 1 + v.ang * ((Math.cos(hs) / Math.cos(t)) * (1 - sm) + sm - 1); }
+      var f = rawContour(v, ph);
       qx *= f * (1 + v.a); qy *= f / (1 + v.a);
       VO[0] = v.c * qx - v.s * qy; VO[1] = v.s * qx + v.c * qy; return VO;
     }
@@ -773,7 +917,7 @@
       if (n >= MAX_SPH || r <= 1e-4) return false;
       var o = n * 4, o2 = (MAX_SPH + n) * 4, o3 = (MAX_SPH * 2 + n) * 4, o4 = (MAX_SPH * 3 + n) * 4, o5 = (MAX_SPH * 4 + n) * 4, o6 = (MAX_SPH * 5 + n) * 4, o7 = (MAX_SPH * 6 + n) * 4;
       D[o6] = v.c; D[o6 + 1] = v.s; D[o6 + 2] = v.a; D[o6 + 3] = v.b; D[o7] = v.A1; D[o7 + 1] = v.B1; D[o7 + 2] = v.A3; D[o7 + 3] = v.B3;
-      var o8 = (MAX_SPH * 7 + n) * 4; D[o8] = v.ang; D[o8 + 1] = v.n; D[o8 + 2] = wer || 0; D[o8 + 3] = 0;   // z: the wind erosion amount
+      var o8 = (MAX_SPH * 7 + n) * 4; D[o8] = v.ang; D[o8 + 1] = v.n; D[o8 + 2] = wer || 0; D[o8 + 3] = v.filter ? Math.sign(v.filter) * (Math.round(v.reach * 100) + Math.abs(v.filter) * .5) : 0;   // zw: wind wear, packed contour reach/strength
       D[o5] = id; D[o5 + 1] = pid; D[o5 + 2] = rel === undefined ? 1 : rel; D[o5 + 3] = bw === undefined ? 1 : bw;   // zw: the relief of its level (height amplitude) and its body-lighting weight (generation)   // ownership: the puff's id (1-based upload index) and its parent's (roots: a virtual core per cloud, -(cloud + 1), or sim.parent[i] when the sim gives one)
       D[o] = x; D[o + 1] = y; D[o + 2] = r; D[o + 3] = z0;
       D[o2] = stack; D[o2 + 1] = detail; D[o2 + 2] = fresh; D[o2 + 3] = dis;
@@ -803,24 +947,28 @@
     // roots
     for (c = 0; c < clouds.length; c++) {
       F = (this._forms && this._forms[c]) || form(clouds[c], c);   // built by render() this frame (or here, for a direct call)
+      F.childVary = F.childShape === 1 ? F.vary : Object.assign({}, F.vary, { amp: F.vary.amp * F.childShape, ang: F.vary.ang * F.childShape });
       var sim = F.sim, B = sim.blobs, A = sim.aux, S = sim.spin, Dt = sim.detail, STR = sim.stretch || null;
       var count = Math.min(sim.blobCount | 0, 128), baseStart = num(sim.baseStart, count);
       var ct = sim.time !== undefined ? sim.time : time, W = WS[c];
       // lobes: per root id (an integer key: the seed times 1000, rounded; a double key or value would be boxed on every get and
       // set) its drift, wear and the frame it was last seen; born: per child key the birth angle and the frame last seen. Entries
       // persist and are pruned every 64 of this cloud's frames when unseen for 64, so no map is rebuilt per frame
-      if (!W || ct < W.t) W = WS[c] = { t: ct, lobes: new Map(), wisps: new Map(), hT: undefined, fresh: true, born: new Map(), keep: null, keepN: 0, tick: 0 };
+      if (!W || ct < W.t) W = WS[c] = { t: ct, gustPhase: ct * F.windSpeed * 0.2, lobes: new Map(), wisps: new Map(), hT: undefined, fresh: true, born: new Map(), keep: null, keepN: 0, tick: 0 };
       F.W = W; W.F = F; putC = c;
       // a held cloud (hold 2, with a block kept from its last built frame): its puffs go in as they were, nothing else runs
       // for it (its wind state, wisps and child births wait for its next built frame); hold 1 keeps this frame's block below
       if (F.hold === 2 && W.keep) { var KB = W.keep, kn = Math.min(W.keepN, MAX_SPH - n); for (var kp = 0; kp < kn; kp++) { var kb = kp * 32; for (var kr = 0; kr < 8; kr++) { var ko = (MAX_SPH * kr + n) * 4, ki = kb + kr * 4; D[ko] = KB[ki]; D[ko + 1] = KB[ki + 1]; D[ko + 2] = KB[ki + 2]; D[ko + 3] = KB[ki + 3]; } OWN[n] = c; n++; } continue; }
       if (F.hold === 1) anyKeep = true;
-      var dtW = clamp(ct - W.t, 0, 0.1); W.t = ct; F.t = ct; F.reborn = W.fresh; W.fresh = false;   // reborn: this frame's child births are now
+      var dtW = Math.max(0, ct - W.t); W.t = ct; F.t = ct; F.reborn = W.fresh; W.fresh = false;   // reborn: this frame's child births are now
+      // Deferred far-cloud frames carry real sim time. Integrate effects in small steps, never discard it.
+      var windSteps = Math.max(1, Math.ceil(dtW / 0.1 - 1e-9)), windDt = dtW / windSteps, gustStart = W.gustPhase;
+      W.gustPhase += dtW * F.windSpeed * 0.2; // accumulated transport: intensity edits cannot jump the gust pattern
       var lobes = W.lobes, wisps = W.wisps, tick = ++W.tick;
       var hTop = 1e-3; for (var i0 = 0; i0 < count; i0++) if (B[i0 * 4 + 2] > 1e-4 && A[i0 * 4 + 3] > 1e-6) hTop = Math.max(hTop, (F.pivY - B[i0 * 4 + 1]) / F.spanY);
-      var hT = W.hT; hT = hT === undefined ? hTop : hT + (hTop - hT) * Math.min(1, dtW * 0.5); W.hT = hT;   // the cloud's top, eased, so a crown parcel dying does not re-expose the rest at once
+      var hT = W.hT; hT = hT === undefined ? hTop : hT + (hTop - hT) * (1 - Math.exp(-dtW * 0.5)); W.hT = hT;   // exact exponential easing, independent of frame batching
       for (var i = 0; i < count; i++) {
-        var o = i * 4, r = B[o + 2], link = A[o + 3];
+        var o = i * 4, r = B[o + 2], link = A[o + 3], bx0 = B[o], by0 = B[o + 1];
         if (r <= 1e-4 || link <= 1e-6) continue;
         // the silhouette ignores depth, so burial alone cannot hide a parcel: it grows in and shrinks
         // out with its link (no pop at spawn or evaporation), and an evaporating one also sinks into
@@ -840,10 +988,10 @@
         // the shear follows the mixing only: a newborn, its link still rising, used to count as fully dispersed and came in as a
         // long spike (dis keeps the link for the shader: a parcel evaporating out is a dispersing one)
         var stretch = (1 + F.shear * (1 - mixed) * (1 + F.shearBias * (2 * pdw - 1))) * (STR ? Math.max(0.2, STR[i]) : 1);   // the sim may stretch a parcel itself (streets, trails)
-        var rx, ry, hgt, band, hf = (F.pivY - B[o + 1]) / F.spanY / hT;   // exposure: height over the cloud's own top
+        var rx, ry, hgt, band, hf = (F.pivY - by0) / F.spanY / hT;   // exposure: height over the cloud's own top
         if (F.cam) {
-          var C = F.cam, dy = F.pivY - B[o + 1], zp = Math.max(0.05, C.z + C.flat * dy * C.k), sc = C.f / zp;
-          rx = 0.5 + (C.x + (B[o] - F.pivX) * C.s) * sc; ry = C.hor - (C.h + (1 - C.flat) * dy * C.s) * sc;
+          var C = F.cam, dy = F.pivY - by0, zp = Math.max(0.05, C.z + C.flat * dy * C.k), sc = C.f / zp;
+          rx = 0.5 + (C.x + (bx0 - F.pivX) * C.s) * sc; ry = C.hor - (C.h + (1 - C.flat) * dy * C.s) * sc;
           hgt = Math.max(0, (1 - C.flat) * dy * C.s * sc) * F.lean; rx += F.wx * hgt; ry += F.wy * hgt;
           r *= C.s * sc;
           band = smoothstep(0, F.baseFall, 1 - dy / C.spanS);
@@ -853,7 +1001,7 @@
           var sc2 = C.f / Math.max(0.05, zp - zr * F.swayScale * C.z / C.f);   // by the unscaled depth and Sway depth: Depth (relief) no longer moves the sway
           rx += -C.sx * (sc2 - sc); ry += C.sy * (sc2 - sc);
         } else {
-          rx = F.pivX + (B[o] - F.pivX) * F.zoom; ry = F.pivY + (B[o + 1] - F.pivY) * F.zoom;
+          rx = F.pivX + (bx0 - F.pivX) * F.zoom; ry = F.pivY + (by0 - F.pivY) * F.zoom;
           hgt = Math.max(0, F.pivY - ry) * F.lean; rx += F.wx * hgt + F.panX; ry += F.wy * hgt + F.panY;
           r *= F.zoom;
           band = smoothstep(0, F.baseFall, 1 - (F.baseT - ry) / F.spanT);
@@ -864,16 +1012,21 @@
         var wer = 0;
         if (F.windSpeed > 0 || F.erosion > 0) {
           var ex = Math.pow(clamp(hf, 0, 1), 1 + 4 * F.top), vs = F.windSpeed * 0.2, gs = F.ref * 4 * F.gust;
-          var gx = (rx - F.wx * ct * vs * F.ref) / gs, gy = (ry - F.wy * ct * vs * F.ref) / gs;   // the gust pattern travels downwind at the wind speed
-          var g = vnoise2(gx, gy), g2 = vnoise2(gx + 31.7, gy + 17.3), ik = Math.round(id * 1000), dr = lobes.get(ik);
+          var ik = Math.round(id * 1000), dr = lobes.get(ik), ua = 0, uc = 0;
           if (!dr) { dr = { x: 0, y: 0, wear: 0, seen: tick }; lobes.set(ik, dr); } else dr.seen = tick;
-          var ua = 0.3 + 0.7 * g, uc = 0.4 * (g2 - 0.5);   // along the wind, gusting; a little across, wandering
+          for (var wi = 0; wi < windSteps; wi++) {
+            var gustAt = gustStart + (wi + 0.5) * windDt * vs;
+            var gx = (rx - F.wx * gustAt * F.ref) / gs, gy = (ry - F.wy * gustAt * F.ref) / gs;
+            var g = vnoise2(gx, gy), g2 = vnoise2(gx + 31.7, gy + 17.3);
+            ua = 0.3 + 0.7 * g; uc = 0.4 * (g2 - 0.5);   // along the wind, gusting; a little across, wandering
+            if (F.windSpeed > 0) { dr.x += (F.wx * ua - F.wy * uc) * vs * ex * windDt; dr.y += (F.wy * ua + F.wx * uc) * vs * ex * windDt; }
+            if (F.erosion > 0) dr.wear = clamp(dr.wear + F.erosion * (ex * ua - 0.15) * 0.15 * windDt, 0, 3.4);
+          }
           if (F.windSpeed > 0) {
-            dr.x += (F.wx * ua - F.wy * uc) * vs * ex * dtW; dr.y += (F.wy * ua + F.wx * uc) * vs * ex * dtW;
             var al = Math.sqrt(dr.x * dr.x + dr.y * dr.y), sf = al > 1e-6 ? 2 * Math.tanh(al / 2) / al : 0;
             rx += dr.x * sf * F.ref; ry += dr.y * sf * F.ref; stretch *= 1 + 0.5 * al * sf;
           }
-          if (F.erosion > 0) { wer = clamp(dr.wear + F.erosion * (ex * ua - 0.15) * 0.15 * dtW, 0, 3.4); dr.wear = wer; }
+          if (F.erosion > 0) wer = dr.wear;
           if (wer > 1 && F.wisps > 0 && !wisps.has(ik)) {
             var nw = 0; wisps.forEach(function (w) { if (w.c === c) nw++; });
             if (nw < F.wisps) wisps.set(ik, { c: c, x: rx + F.wx * r * 0.8, y: ry + F.wy * r * 0.8, r: r * 0.6, v: vs * ex * ua, age: 0, life: F.wispLife * (0.7 + 0.6 * hash(id + 9.9)), z: z0, dw: dwp, band: band, pid: pid, id: id + 0.5 + 1000 * hash(id * 0.53 + 3.3) });
@@ -887,9 +1040,12 @@
       // this cloud's wisps: moved, aged, drawn; retired past their life
       wisps.forEach(function (w, key) {
         if (w.c !== c) return;
-        w.age += dtW; var u = w.age / w.life; if (u >= 1) { wisps.delete(key); return; }
-        var vw = Math.max(F.windSpeed, 0.25) * 0.4, uv = smoothstep(0, 0.3, u), v = w.v + (vw - w.v) * uv;   // from the lobe's pace up to the wind's
-        w.x += F.wx * v * F.ref * dtW; w.y += F.wy * v * F.ref * dtW;
+        var vw = Math.max(F.windSpeed, 0.25) * 0.4;
+        for (var wi = 0; wi < windSteps; wi++) {
+          var uv = smoothstep(0, 0.3, (w.age + windDt * 0.5) / w.life), v = w.v + (vw - w.v) * uv;
+          w.x += F.wx * v * F.ref * windDt; w.y += F.wy * v * F.ref * windDt; w.age += windDt;
+        }
+        var u = w.age / w.life; if (u >= 1) { wisps.delete(key); return; }
         var env = smoothstep(0, 0.15, u) * (1 - smoothstep(0.45, 1, u)), ws = 1.5 + 2.5 * u, wwear = 0.8 + 2.2 * u;   // swells in, stretches and frays out
         var wv = vary(F.vary, w.id, vScratch); put(w.x, w.y, w.r * env * wv.rs, w.z, 0, 0.3, 0, 1, ws, w.x, w.y, F.primPacked, F.wx, F.wy, w.band, w.dw, w.id, w.pid, wv, wwear);
       });
@@ -1007,12 +1163,24 @@
           var pdw2 = clamp(0.5 + 0.5 * zr2 / (F.ref * 2), 0, 1) * F.dw, dwp2 = F.idx + pdw2 * 0.25;
           // the child's id: from its seed, scattered by a hash so that cousins never share one (seeds are linear in j, and a
           // grandchild of child 0 had the id of another of child 1); persistent for the child's life, so its shape is too
-          var ce = qget(), cid = cs + j * 3.1 + 1.7 + 1000 * hash(cs * 0.37 + j * 5.9), cv = vary(F.vary, cid, ce.v); cr *= cv.rs;
+          var ce = qget(), cid = cs + j * 3.1 + 1.7 + 1000 * hash(cs * 0.37 + j * 5.9), cv = vary(F.childVary, cid, ce.v);
           if (kC > 0 && cv.b !== 1) {   // ... and of a stretch and direction: the orientation and the aspect pulled toward the cluster's (the bound follows the aspect)
             var thC = hash(q.id + 6.6 + cj * 4.1) * 6.2832, th0 = Math.atan2(cv.s, cv.c), dT = thC - th0; dT -= 6.2832 * Math.round(dT / 6.2832);
-            var th1 = th0 + kC * dT, aN = mix(cv.a, 0.35 * F.vary.amp * F.vary.st * (2 * hash(q.id + 7.7 + cj * 2.3) - 1), kC), nud = cv.ang > 0 ? 1e-4 : 0;
+            var th1 = th0 + kC * dT, aN = mix(cv.a, 0.35 * F.childVary.amp * F.childVary.st * (2 * hash(q.id + 7.7 + cj * 2.3) - 1), kC), nud = cv.ang > 0 ? 1e-4 : 0;
             cv.b = (cv.b - nud) / (1 + Math.abs(cv.a)) * (1 + Math.abs(aN)) + nud; cv.a = aN; cv.c = Math.cos(th1); cv.s = Math.sin(th1);
           }
+          // Seats always follow the parent. These controls govern the child's own footprint only.
+          if(F.shapeFollow > 0){
+            var inherit = F.shapeFollow, strength = F.childShape, pv = q.v;
+            var t0=Math.atan2(cv.s,cv.c), da=Math.atan2(pv.s,pv.c)-t0; da-=6.283185307179586*Math.round(da/6.283185307179586);
+            var ta=t0+inherit*da; cv.c=Math.cos(ta); cv.s=Math.sin(ta);
+            cv.a=mix(cv.a,pv.a*strength,inherit); cv.A1=mix(cv.A1,pv.A1*strength,inherit); cv.B1=mix(cv.B1,pv.B1*strength,inherit);
+            cv.A3=mix(cv.A3,pv.A3*strength,inherit); cv.B3=mix(cv.B3,pv.B3*strength,inherit);
+            cv.ang=mix(cv.ang,pv.ang*strength,inherit); cv.n=pv.n;
+            cv.rs=mix(cv.rs,1+(pv.rs-1)*strength,inherit);
+            cv.b=(1+Math.abs(cv.a))*(1+Math.hypot(cv.A1,cv.B1)+Math.hypot(cv.A3,cv.B3))+(cv.ang>0?1e-4:0);
+          }
+          cr *= cv.rs;
           putC = F.c;
           put(x, y, cr, z, stack, (0.4 + 0.6 * q.fresh) * LEVEL_DETAIL[level + 1], q.mixed, q.dis, q.st, q.anx, q.any, F.primPacked, F.wx, F.wy, band2, dwp2, cid, q.id, cv, q.wer, level === 0 ? F.relief1 : F.relief2, level === 0 ? 1 : 0.5);
           ce.id = cid; ce.F = F; ce.x = x; ce.y = y; ce.r = cr; ce.z = z; ce.zr = zr2; ce.seed = cs + j * 3.1; ce.ax = q.ax; ce.ay = q.ay; ce.az = q.az; ce.angle = q.angle; ce.fresh = q.fresh; ce.mixed = q.mixed; ce.stack = stack; ce.dis = q.dis; ce.st = q.st; ce.anx = q.anx; ce.any = q.any; ce.band = band2; ce.zp = q.zp; ce.wer = q.wer;
@@ -1108,7 +1276,7 @@
       ref = 0;
       var forms = this._forms || (this._forms = []); forms.length = clouds.length;   // the forms, built once here and used by the tree
       for (var i = 0; i < clouds.length; i++) {
-        var Fi = forms[i] = form(clouds[i], i), Ci = Fi.cam;
+        var Fi = forms[i] = form(clouds[i], i, sky), Ci = Fi.cam;
         if (Ci) { var scI = Ci.f / Math.max(0.05, Ci.z), cxI = 0.5 + Ci.x * scI, cyI = Ci.hor - Ci.h * scI; if (cxI < -0.4 || cxI > 1.4 || cyI < -0.4 || cyI > 1.4) continue; }
         ref = Math.max(ref, Ci ? Fi.ref * Math.min(1, 1.2 / Fi.zoom) : Fi.ref);
       }
@@ -1130,7 +1298,10 @@
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this._tileHead); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this._tileList);
     gl.uniform1i(this._fu.uSph, 0); gl.uniform1i(this._fu.uTileHead, 1); gl.uniform1i(this._fu.uTileList, 2); gl.uniform1f(this._fu.uTexW, this._w); gl.uniform1f(this._fu.uTileSize, this._tileSize); gl.uniform2i(this._fu.uTiles, this._tx, this._ty); gl.uniform1f(this._fu.uAspect, asp);
     var T = Math.max(0.002, ref * 0.08 * num(sky.softness, 1.4)); this._T = T;
-    gl.uniform1f(this._fu.uT, T); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0), 0, 1)); gl.uniform1f(this._fu.uDissolve, clamp(num(sky.dissolve, 0), 0, 1)); gl.uniform1f(this._fu.uDotSize, Math.max(1, Math.round(num(sky.dotSize, 1)))); gl.uniform1f(this._fu.uEvapScale, Math.max(0.1, num(sky.evapScale, 3))); gl.uniform1f(this._fu.uRef, ref);
+    gl.uniform1f(this._fu.uContourCohesion, clamp(num(sky.contourCohesion, 0), 0, 1));
+    gl.uniform1f(this._fu.uErosionType, clamp(Math.round(num(sky.erosionType, 0)), 0, 2));
+    gl.uniform1f(this._fu.uShadowQuiet, clamp(num(sky.shadowQuiet, 0), 0, 1));
+    gl.uniform1f(this._fu.uModelVersion, num(sky.modelVersion, 1)); gl.uniform1f(this._fu.uT, T); gl.uniform1f(this._fu.uCap, clamp(num(sky.cap, 0), 0, 1)); gl.uniform1f(this._fu.uDissolve, clamp(num(sky.dissolve, 0), 0, 1)); gl.uniform1f(this._fu.uDotSize, Math.max(1, Math.round(num(sky.dotSize, 1)))); gl.uniform1f(this._fu.uEvapScale, Math.max(0.1, num(sky.evapScale, 3))); gl.uniform1f(this._fu.uRef, ref);
     var sunA = num(sky.sun, 60) * Math.PI / 180, el = num(sky.elevation, 40) * Math.PI / 180, cam = sky.cam;
     gl.uniform3f(this._fu.uLight, Math.cos(sunA) * Math.cos(el), -Math.sin(sunA) * Math.cos(el), Math.sin(el));
     gl.uniform4f(this._fu.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
@@ -1159,6 +1330,7 @@
     gl.uniform1f(su.uCirrus, clamp(num(sky.cirrus, 0), 0, 1)); gl.uniform1f(su.uCirrusScale, num(sky.cirrusScale, 2)); gl.uniform1f(su.uCirrusAngle, num(sky.cirrusAngle, -12) * Math.PI / 180); gl.uniform1f(su.uCirrusFlow, num(sky.cirrusFlow, 0.01)); gl.uniform1f(su.uVeil, clamp(num(sky.veil, 0), 0, 1));
     gl.uniform1f(su.uDissolve, clamp(num(sky.dissolve, 0), 0, 1)); gl.uniform1f(su.uDotSize, Math.max(1, Math.round(num(sky.dotSize, 1))));
     gl.uniform1f(su.uTime, time); gl.uniform1f(su.uRef, ref);
+    gl.uniform1f(su.uShadowQuiet, clamp(num(sky.shadowQuiet, 0), 0, 1));
     // per-cloud style: a cloud's look may set haze, stackShade, dither, shadow, baseShade, noise and
     // smooth for itself (a stratus is hazy and flat, a cirrus dithered, whatever the sky's style says)
     var SA = this._styleA || (this._styleA = new Float32Array(128)), SB = this._styleB || (this._styleB = new Float32Array(128));
@@ -1172,7 +1344,7 @@
     gl.uniform1f(su.uPixelated, sky.pixelated === false ? 0 : 1);
     gl.uniform3f(su.uSkyColor, 0.075, 0.4525, 0.575);
     // (puffRim default 0.5: before rimV 2 the shader floored it by Rim soften, whose default is 0.5; see puffs.html)
-    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0.5), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uCavityLit, clamp(num(sky.cavityLit, 1), 0, 1)); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0)); gl.uniform1f(su.uT, this._T); gl.uniform1f(su.uBody, clamp(num(sky.body, 0), 0, 1));
+    gl.uniform1f(su.uOverhead, clamp(num(sky.overhead, 0), 0, 1)); gl.uniform1f(su.uRim, clamp(num(sky.rim, 0.5), 0, 1)); gl.uniform1f(su.uPuffRim, clamp(num(sky.puffRim, 0.5), 0, 1)); gl.uniform1f(su.uContact, clamp(num(sky.contact, 0), 0, 1)); gl.uniform1f(su.uCavity, clamp(num(sky.cavity, 0), 0, 1)); gl.uniform1f(su.uCavityReach, Math.max(1, num(sky.cavityReach, 8))); gl.uniform1f(su.uCavityLit, clamp(num(sky.cavityLit, 1), 0, 1)); gl.uniform1f(su.uGrain, Math.max(0, num(sky.grain, 1))); gl.uniform1f(su.uDiag, num(sky.diag, 0)); gl.uniform1f(su.uT, num(sky.modelVersion, 1) >= 2 ? 1 / this._w : this._T); gl.uniform1f(su.uBody, clamp(num(sky.body, 0), 0, 1));
     gl.uniform1f(su.uStipple, clamp(num(sky.stipple, 0), 0, 1)); gl.uniform1f(su.uStippleBias, clamp(num(sky.stippleBias, 0), -1, 1)); gl.uniform1f(su.uBreakup, clamp(num(sky.breakup, 0), 0, 1)); gl.uniform1f(su.uBreakupReach, Math.max(1, num(sky.breakupReach, 6))); gl.uniform1f(su.uLock, sky.patternLock === 0 ? 0 : 1);
     gl.uniform4f(su.uCam, cam ? num(cam.x, 0) : 0, cam ? num(cam.z, 0) : 0, cam ? num(cam.hor, 0) : 0, cam ? num(cam.alt, 0) : 0);
     this._gpuBegin('s'); gl.drawArrays(gl.TRIANGLES, 0, 3); this._gpuEnd();

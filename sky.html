@@ -9,12 +9,19 @@
   #app { display: flex; height: 100%; }
   #stage { flex: 1; position: relative; background: #10303c; }
   canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
-  #panel { user-select: none; -webkit-user-select: none; width: 260px; background: #23282c; border-left: 1px solid #000; overflow-y: auto; padding: 8px; box-sizing: border-box; }
+  #panel { user-select: none; -webkit-user-select: none; width: 300px; flex: 0 0 300px; background: #23282c; border-left: 1px solid #000; overflow-y: auto; padding: 8px; box-sizing: border-box; }
   h3 { margin: 10px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #9fb0b8; }
   .row { display: flex; align-items: center; gap: 6px; height: 22px; }
   .row label { width: 72px; color: #b8c4ca; white-space: nowrap; overflow: hidden; }
   .row input[type=range] { flex: 1; min-width: 0; }
   .row .val { width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+  .param-row { display: grid; grid-template-columns: 124px minmax(0, 1fr) 42px; height: auto; min-height: 24px; gap: 2px 6px; padding: 1px 0; }
+  .param-row label { width: auto; white-space: normal; overflow-wrap: anywhere; }
+  .param-row input[type=range] { width: 100%; margin: 0; }
+  .param-row .val { width: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .param-row select { grid-column: 2 / -1; width: 100%; min-width: 0; }
+  .param-reason { grid-column: 1 / -1; width: 100%; color: #91a1ab; font-size: 10px; }
+  .param-row.inactive label { color: #84939d; }
   .btn { background: #343b40; color: #d8e2e6; border: 1px solid #000; border-radius: 3px; padding: 3px 8px; font: inherit; cursor: pointer; }
   .btn.on { background: #4a7a94; }
   .seg { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -40,10 +47,12 @@
   </div>
 </div>
 <script src="src/sim.js?v=196"></script>
-<script src="src/puffs.js?v=223"></script>
+<script src="src/puffs.js?v=232"></script>
 <script src="src/motion.js?v=209"></script>
 <script src="src/layer.js?v=209"></script>
+<script src="src/clock.js"></script>
 <script src="src/presets.js?v=211"></script>
+<script src="src/parameters.js?v=7"></script>
 <script>
 (function () {
   'use strict';
@@ -57,7 +66,8 @@
   // the style of the whole sky (the shade pass): one look for every cloud
   var sky = { softness: 1.0, noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, noiseBias2: 0, streak: 0, flow: 0.04, anchor: 1, smooth: 0.5, haze: 0.4, dither: 0, dissolve: 0, dotSize: 1, grain: 1,
     atmos: 0.35, depthFall: 0.6, sun: 86, elevation: 6, shadow: 0.64, highlight: 0.68, fill: 0.11, bands: 5, baseShade: 0.5, stackShade: 0.4,
-    cirrus: 0.35, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, pixelated: true, pixel: 2, overhead: 0.6, rim: 0.5, puffRim: 0.5, cap: 0, contact: 0, cavity: 0, cavityReach: 8, cavityLit: 1, baseFall: 0.7, body: 0, bodySoft: 1.5 };
+    cirrus: 0.35, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, pixelated: true, pixel: 2, overhead: 0.6, rim: 0.5, puffRim: 0.5, cap: 0, contact: 0, cavity: 0, cavityReach: 8, cavityLit: 0, baseFall: 0.7, body: 0, bodySoft: 1.5, modelVersion: 2 };
+  Object.assign(sky, CloudParameters.featureDefaults);
   // the sky's own parameters
   // the eye: dragged in the canvas (an unlocked parallax, on top of the sway); double-click recentres
   var eye = { x: 0, y: 0 }, drag = null;
@@ -78,13 +88,18 @@
   try {
     var saved = JSON.parse(localStorage.getItem('plume-puffs-looks') || '{}');
     Object.keys(saved).forEach(function (name) {
-      var L = saved[name], base = CLOUD_PRESETS[L.type] || CLOUD_PRESETS.congestus;
+      var authored = Object.keys(saved[name].look || {});
+      var L = CloudParameters.migratePreset(saved[name]), base = CLOUD_PRESETS[L.type] || CLOUD_PRESETS.congestus;
+      // Missing old fields follow the scene controls; only authored form values override them.
+      ['childShape', 'shapeFollow', 'contourFilter', 'filterReach'].forEach(function (key) {
+        if (authored.indexOf(key) < 0) delete L.look[key];
+      });
       if (base.engine === 'veil' || (L.engine || base.engine) === 'single') return;
       SPECIES[name] = { type: L.type, engine: L.engine || base.engine, preset: L.simPreset || base.preset, shape: L.shape || base.shape, prim: L.prim || base.prim, primAmt: (L.look || {}).primAmt,
         forces: L.forces || {}, look: L.look || {}, extra: base.extra, depth: base.depth, scale: (L.look || {}).zoom || base.scale || 1 };
     });
   } catch (e) {}
-  var FORM_KEYS = ['children', 'ratio', 'levels', 'life', 'embed', 'relief1', 'relief2', 'cluster', 'depth', 'swayScale', 'shear', 'shearBias', 'wind', 'lean', 'windSpeed', 'gustSize', 'topEmphasis', 'erosion', 'wispAmount', 'wispLife', 'shapeVar', 'stretchVar', 'contourVar', 'shapeSeed', 'angular', 'sides', 'bulge',
+  var FORM_KEYS = ['childShape', 'shapeFollow', 'contourFilter', 'filterReach', 'children', 'ratio', 'levels', 'life', 'embed', 'relief1', 'relief2', 'cluster', 'depth', 'swayScale', 'shear', 'shearBias', 'wind', 'lean', 'windSpeed', 'gustSize', 'topEmphasis', 'erosion', 'wispAmount', 'wispLife', 'shapeVar', 'stretchVar', 'contourVar', 'shapeSeed', 'angular', 'sides', 'bulge',
     'haze', 'stackShade', 'dither', 'shadow', 'baseShade', 'noise', 'smooth'];   // the last row: per-type style the renderer applies over the sky's
 
   function mulberry(seed) { var a = seed >>> 0; return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
@@ -185,6 +200,7 @@
     for (i = 0; i < nb; i++) clouds.push(makeCloud(rng, Z_FAR - 0.45 + rng() * 0.45, 0, 'band'));
     clouds.sort(function (a, b) { return b.z - a.z; });
     window.clouds = clouds;
+    if (sliders) for (var controlKey in sliders) sliders[controlKey]();
   }
 
   var SKYP = [['clouds', 'Clouds', 1, 14, 1], ['near', 'Near size', 0.3, 1.4, 0.01], ['travel', 'Travel', 0, 0.05, 0.001], ['drift', 'Drift', -0.02, 0.02, 0.001], ['parallax', 'Parallax', 0, 0.08, 0.002], ['sway', 'Sway (s)', 5, 120, 1], ['horizon', 'Horizon', 0.5, 1, 0.01], ['simSpeed', 'Sim speed', 0.1, 1.5, 0.01], ['motion', 'Motion', 0, 1.5, 0.01], ['fadeIn', 'Fade in', 0, 1, 0.01], ['farMasses', 'Far masses', 0, 4, 1], ['separation', 'Separation', 0, 1, 0.01], ['horizonBand', 'Horizon band', 0, 1, 0.125], ['runX', 'Run', -0.3, 0.3, 0.005], ['climb', 'Climb', -0.3, 0.3, 0.005]];
@@ -192,34 +208,71 @@
   var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['overhead', 'Overhead', 0, 1, 0.01], ['shadow', 'Shadow', 0, 1, 0.01], ['contact', 'Contact', 0, 1, 0.01], ['cavity', 'Cavity', 0, 1, 0.01], ['cavityReach', 'Cavity reach', 2, 24, 1], ['cavityLit', 'Cavity in light', 0, 1, 0.01], ['body', 'Body lighting', 0, 1, 0.01], ['bodySoft', 'Body softness', 0.3, 4, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['baseFall', 'Base falloff', 0.1, 1.5, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
   var PERF = [['lod', 'LOD by distance', 0, 1, 0.01], ['farRate', 'Far rate', 1, 3, 1], ['sceneCap', 'Scene puff cap', 256, 4096, 64], ['cloudCap', 'Cloud puff cap', 0, 800, 10]];
   var CIRRUS = [['cirrus', 'Cirrus', 0, 1, 0.01], ['cirrusScale', 'Scale', 0.5, 6, 0.1], ['cirrusAngle', 'Angle (deg)', -45, 45, 1], ['cirrusFlow', 'Flow', 0, 0.1, 0.001]];
-  var TIPS = { body: 'Body lighting: the normal blends toward one much softer union of the whole cloud, so adjacent lobes share a broad highlight and the underside reads as one shadow mass (0: each puff its own dome). Shading only: the outline, Contact, Cavity and noise are untouched.', bodySoft: 'How soft the body union is, in reference radii (higher: broader, fewer separate highlights).',
-    dither: 'Dispersing puffs keep a hard, stippled edge instead of a hazy fade (per type). It does not remove pixels: that is Evaporation (Dissolve), tone is Stipple, ragged outlines are Edge breakup.',
-    dissolve: 'Evaporation: how far a dispersing puff is eroded from its outline inward, raggedly, by a broad noise riding with the parcel (no interior holes). A rising value only takes more.', dotSize: 'Cell size of the stipple, breakup and evaporation patterns in texels.',
-    evapScale: 'Size of the erosion\'s ragged bites (higher: smaller).', stipple: 'Tone stippling: pixels choose between the two neighbouring palette colours by an ordered pattern, up to half a band. Coverage is untouched.', stippleBias: 'Where the stippling lives: -1 only in shadow, +1 only in light.',
-    breakup: 'Edge breakup: coverage removed near the exposed silhouette by the ordered pattern (powdery, ragged outline). Shading inside is untouched.', breakupReach: 'How far in from the outline (field texels) the breakup reaches.', patternLock: 'Where the stipple and breakup patterns sit: 1 on the screen grid (a print), 0 riding with each parcel (material).',
-    angular: 'Angular profile: each puff\'s outline pulled toward a regular polygon with rounded corners (0: round). Independent of Shape variation.', sides: 'Sides of the angular profile polygon.',
-    clouds: 'How many clouds the sky holds (regenerates).', near: 'Size of a cloud at distance 1 (regenerates).', travel: 'Forward glide of the camera; a cloud that passes overhead re-forms far away.', drift: 'Sideways wind in world units; near clouds cross faster.',
-    parallax: 'Sway of the camera; near clouds sway more.', horizon: 'Where the horizon line sits (fraction of the height); far clouds converge on it.', simSpeed: 'How fast every cloud evolves (1: the editor speed).', motion: 'How much the clouds roil: one scale on the internal motion of the sims (parcel flow, roll, jitter, the drift and breathing of the layers), the life cycle of the child puffs, the wind drift, the surface noise flow and the camera sway. 1 is the behaviour of today; lower is calmer, 0 is still.', fadeIn: 'A cloud re-forming far away grows in from this much smaller instead of appearing whole (1: from nothing, over about 12 s; 0: off).', runX: 'The player running sideways (world units per second; near clouds cross faster). Keys A / D or left / right add to it while held.', climb: 'The player climbing (positive) or descending: the clouds slide down the frame as the camera rises, near ones faster. Keys W / S or up / down add to it while held.', separation: 'How distinct the depth planes read: pushes each cloud’s depth weight toward near or far (more haze, sky tint and softness on the far ones, none on the near), scales near clouds up and far ones down (up to 40 %), and lets near clouds sway more than far ones. 0 is today’s look.', horizonBand: 'How dense the band of distant flat cloud along the horizon is (up to eight stratocumulus / stratus / undulatus decks pinned at the far end of the frustum; they drift with the wind and sway, but never come nearer; regenerates).', farMasses: 'How many huge cumulus masses sit high and far overhead, a distant formation above the other clouds (regenerates; 0: none).', noiseBias2: 'Where noise 2 lives: -1 only in shadow, +1 only in light.', rim: 'Silhouette rim: turns the normal toward the viewer near the exposed outline of the cloud, so the dome edge is not a dark ring. Shading only; independent of Puff rim.', cap: 'Puff profile: 0 a sphere (its rim goes vertical, a thin dark crescent on the far side), 1 a parabola (a broad soft shadow side).', cavity: 'Less light in a valley between puffs (the surface below its surroundings), where the blended slopes otherwise face the viewer and draw a bright seam.', cavityReach: 'How far (field texels) the cavity shading reaches up the walls of a valley.', cavityLit: 'How much the cavity darkening reaches the direct light on a sunlit face: 1 all of it (as before), 0 none, so a lit crease keeps its light and loses only sky bounce (the shadow side is cut as always).', grain: 'Faint ordered dither added to the light before the bands (the palette grain); 0 is clean bands.', contact: 'Shadow cast by a puff onto the puff behind it, along the light: a dome\'s dark rim continues into shadow instead of ending in a line.', baseFall: 'How far up the cloud the base shade reaches, as a fraction of its height.', puffRim: 'Puff rim: turns the normal toward the viewer at each visible lobe\'s own rim inside the cloud, where one dome falls over the puff behind it (a crescent line). Shading only; independent of Rim soften.', overhead: 'How much the sun turns with the view: clouds high in the frame are seen from below, lit from beyond.', pixel: 'Size of one drawn pixel in canvas pixels; the whole picture sits on that grid.', sway: 'Period of the sway in seconds.', atmos: 'How much far clouds take on the sky colour.', depthFall: 'How much far clouds lose shadow, noise and crispness.',
-    poiCount: 'Points of interest: how many composed groups (a large cloud far, a medium in the middle, a small one near, placed to frame one another) may be in the sky at once (0: none, today\u2019s sky).', poiLevels: 'Members per POI group: 1 the large hero alone, 2 a pair, 3 the trio.', poiGap: 'Seconds between one POI group leaving the frame and the next one forming far away (varied by a quarter either way).', poiScale: 'Size of the POI members (applies to the next group).',
-    lod: 'Level of detail by distance: far clouds drop their deepest puff level (3 levels near, 2 in the middle, 1 far; the thresholds scale with the slider, each a band where the level thins child by child like the budget, so nothing pops). 0 is today: every cloud at its type\'s own depth. Watch puffs and tree ms in the HUD.',
-    farRate: 'Update rate by distance: a far cloud (beyond distance 1.4, the horizon band too) steps its sim and rebuilds its puffs every 2nd or 3rd frame only, staggered across the clouds, reusing its puffs in between; the skipped time is stepped in one go, so its motion keeps pace. Near clouds update every frame. 1 is today.',
-    sceneCap: 'Scene puff cap: the renderer\'s budget for the whole sky. Past it the deepest level thins child by child, biggest parents served first (the HUD shows the deepest level\'s share). 4096 is today (the table\'s size).',
-    cloudCap: 'Cloud puff cap: a budget per cloud, thinned the same way within the cloud. 0 is today: none.',
-    cirrus: 'Amount of high streak cloud behind everything.', cirrusScale: 'Size of the cirrus streaks.', cirrusAngle: 'Direction of the streaks.', cirrusFlow: 'Scroll speed of the streaks.' };
+  // Shared vocabulary lives in CloudParameters; only page-specific help remains here.
+  var TIPS = {
+    "dotSize": "Cell size of the stipple, breakup and evaporation patterns in texels.",
+    "stippleBias": "Where the stippling lives: -1 only in shadow, +1 only in light.",
+    "breakup": "Edge breakup: coverage removed near the exposed silhouette by the ordered pattern (powdery, ragged outline). Shading inside is untouched.",
+    "breakupReach": "How far in from the outline (field texels) the breakup reaches.",
+    "patternLock": "Where the stipple and breakup patterns sit: 1 on the screen grid (a print), 0 riding with each parcel (material).",
+    "angular": "Angular profile: each puff's outline pulled toward a regular polygon with rounded corners (0: round). Independent of Shape variation.",
+    "sides": "Sides of the angular profile polygon.",
+    "clouds": "How many clouds the sky holds (regenerates).",
+    "near": "Size of a cloud at distance 1 (regenerates).",
+    "travel": "Forward glide of the camera; a cloud that passes overhead re-forms far away.",
+    "drift": "Sideways wind in world units; near clouds cross faster.",
+    "parallax": "Sway of the camera; near clouds sway more.",
+    "horizon": "Where the horizon line sits (fraction of the height); far clouds converge on it.",
+    "fadeIn": "A cloud re-forming far away grows in from this much smaller instead of appearing whole (1: from nothing, over about 12 s; 0: off).",
+    "runX": "The player running sideways (world units per second; near clouds cross faster). Keys A / D or left / right add to it while held.",
+    "climb": "The player climbing (positive) or descending: the clouds slide down the frame as the camera rises, near ones faster. Keys W / S or up / down add to it while held.",
+    "separation": "How distinct the depth planes read: pushes each cloud’s depth weight toward near or far (more haze, sky tint and softness on the far ones, none on the near), scales near clouds up and far ones down (up to 40 %), and lets near clouds sway more than far ones. 0 is today’s look.",
+    "horizonBand": "How dense the band of distant flat cloud along the horizon is (up to eight stratocumulus / stratus / undulatus decks pinned at the far end of the frustum; they drift with the wind and sway, but never come nearer; regenerates).",
+    "farMasses": "How many huge cumulus masses sit high and far overhead, a distant formation above the other clouds (regenerates; 0: none).",
+    "overhead": "How much the sun turns with the view: clouds high in the frame are seen from below, lit from beyond.",
+    "pixel": "Size of one drawn pixel in canvas pixels; the whole picture sits on that grid.",
+    "sway": "Period of the sway in seconds.",
+    "atmos": "How much far clouds take on the sky colour.",
+    "depthFall": "How much far clouds lose shadow, noise and crispness.",
+    "poiCount": "Points of interest: how many composed groups (a large cloud far, a medium in the middle, a small one near, placed to frame one another) may be in the sky at once (0: none, today’s sky).",
+    "poiLevels": "Members per POI group: 1 the large hero alone, 2 a pair, 3 the trio.",
+    "poiGap": "Seconds between one POI group leaving the frame and the next one forming far away (varied by a quarter either way).",
+    "poiScale": "Size of the POI members (applies to the next group).",
+    "lod": "Level of detail by distance: far clouds drop their deepest puff level (3 levels near, 2 in the middle, 1 far; the thresholds scale with the slider, each a band where the level thins child by child like the budget, so nothing pops). 0 is today: every cloud at its type's own depth. Watch puffs and tree ms in the HUD.",
+    "farRate": "Update rate by distance: a far cloud (beyond distance 1.4, the horizon band too) steps its sim and rebuilds its puffs every 2nd or 3rd frame only, staggered across the clouds, reusing its puffs in between; skipped time is consumed in small simulation steps, so its motion keeps pace. Near clouds update every frame. 1 updates every frame.",
+    "sceneCap": "Scene puff cap: the renderer's budget for the whole sky. Past it the deepest level thins child by child, biggest parents served first (the HUD shows the deepest level's share). 4096 is today (the table's size).",
+    "cloudCap": "Cloud puff cap: a budget per cloud, thinned the same way within the cloud. 0 is today: none.",
+    "cirrus": "Amount of high streak cloud behind everything.",
+    "cirrusScale": "Size of the cirrus streaks.",
+    "cirrusAngle": "Direction of the streaks.",
+    "cirrusFlow": "Scroll speed of the streaks."
+  };
   var sliders = {};
+  STYLE.push(['modelVersion', 'Rendering model', 1, 2, 1]);
+  STYLE = STYLE.concat(CloudParameters.featureSpecs);
   function slider(parent, target, spec, onChange) {
-    var row = document.createElement('div'); row.className = 'row';
-    var label = document.createElement('label'); label.textContent = spec[1]; label.title = TIPS[spec[0]] || '';
-    var range = document.createElement('input'); range.type = 'range'; range.min = spec[2]; range.max = spec[3]; range.step = spec[4]; range.title = label.title;
-    var val = document.createElement('span'); val.className = 'val';
-    row.appendChild(label); row.appendChild(range); row.appendChild(val); parent.appendChild(row);
-    function show() { var v = target()[spec[0]]; range.value = v; val.textContent = spec[4] >= 1 ? String(v) : (+v).toFixed(spec[4] < 0.001 ? 4 : spec[4] < 0.01 ? 3 : 2); }
-    range.addEventListener('input', function () { target()[spec[0]] = +range.value; show(); if (onChange) onChange(spec[0]); });
-    sliders[spec[0]] = show; show();
+    sliders[spec[0]] = CloudParameters.control(parent, target, spec, { tip: TIPS[spec[0]], onChange: onChange,
+      context: function () {
+        var v = Object.assign({}, sky, target());
+        if (v.erosion === undefined) {
+          v.erosion = 0;
+          clouds.forEach(function (c) { c.sims.forEach(function (s) { v.erosion = Math.max(v.erosion, s.look.erosion || 0); }); });
+        }
+        v.hasContourVariation = Object.keys(SPECIES).some(function (name) {
+          var form = SPECIES[name].look || {};
+          return form.angular > 0 || (form.shapeVar > 0 && (form.contourVar === undefined || form.contourVar > 0));
+        });
+        return v;
+      },
+      refresh: function () { for (var k in sliders) sliders[k](); } });
   }
-  SKYP.forEach(function (s) { slider($('skyp'), function () { return P; }, s, function (k) {
+  buildGroups($('skyp'), [
+    ['Composition', ['clouds', 'near', 'horizon', 'farMasses', 'horizonBand', 'separation']],
+    ['Animation', ['simSpeed', 'motion', 'travel', 'drift', 'fadeIn']],
+    ['Camera', ['runX', 'climb', 'parallax', 'sway']]
+  ], [SKYP], function () { return P; }, function (k) {
     if (k === 'clouds' || k === 'near' || k === 'farMasses' || k === 'horizonBand') build();
-  }); });
+  });
   var POIP = [['poiCount', 'POI count', 0, 3, 1], ['poiLevels', 'POI levels', 1, 3, 1], ['poiGap', 'POI gap (s)', 0, 120, 1], ['poiScale', 'POI scale', 0.5, 2, 0.01]];
   var poiBox = document.createElement('details'); poiBox.className = 'grp'; poiBox.open = true; poiBox.innerHTML = '<summary>POI<span class="n">' + POIP.length + '</span></summary>'; $('skyp').appendChild(poiBox);
   POIP.forEach(function (s) { slider(poiBox, function () { return P; }, s); });
@@ -231,7 +284,8 @@
     try { openState = JSON.parse(localStorage.getItem('plume-sky-groups') || '{}'); } catch (e) { openState = {}; }
     function group(title, keys, tgt) {
       var tg = tgt || target;   // a group may address another object (Performance: the sky's P)
-      var d = document.createElement('details'); d.className = 'grp'; d.open = openState[title] === undefined ? true : !!openState[title];
+      keys = keys.filter(function (k) { return specs[k] && !used[k]; }); if (!keys.length) return;
+      var d = document.createElement('details'); d.className = 'grp'; d.open = openState[title] === undefined ? !CloudParameters.isAdvanced(title) : !!openState[title];
       var sm = document.createElement('summary'); sm.innerHTML = title + '<span class="n">' + keys.length + '</span>'; d.appendChild(sm);
       var body = document.createElement('div'); d.appendChild(body); host.appendChild(d);
       keys.forEach(function (k) { if (!specs[k]) return; used[k] = 1; slider(body, tg, specs[k], onChange); });
@@ -240,16 +294,9 @@
     groups.forEach(function (g) { group(g[0], g[1], g[2]); });
     var rest = Object.keys(specs).filter(function (k) { return !used[k]; }); if (rest.length) group('Other', rest);
   }
-  var GROUPS = [
-    ['Surface', ['pixel', 'softness', 'cap', 'rim', 'puffRim', 'smooth']],
-    ['Noise', ['noise', 'noiseScale', 'noiseBias', 'noise2', 'noise2Scale', 'noiseBias2', 'flow', 'streak', 'anchor']],
-    ['Light', ['sun', 'elevation', 'overhead', 'shadow', 'fill', 'body', 'bodySoft', 'bands', 'grain']],
-    ['Shadows', ['contact', 'cavity', 'cavityReach', 'cavityLit', 'baseShade', 'baseFall', 'stackShade', 'haze']],
-    ['Dither', ['dither', 'dissolve', 'evapScale', 'stipple', 'stippleBias', 'breakup', 'breakupReach', 'dotSize', 'patternLock']],
-    ['Atmosphere', ['atmos', 'depthFall']],
-    ['Cirrus', ['cirrus', 'cirrusScale', 'cirrusAngle', 'cirrusFlow']],
-    ['Performance', ['lod', 'farRate', 'sceneCap', 'cloudCap'], function () { return P; }]   // the cost toggles (every default is today's behaviour; the HUD's second line shows their effect)
-  ];
+  var GROUPS = CloudParameters.skyGroups.concat([
+    ['Performance', ['lod', 'farRate', 'sceneCap', 'cloudCap'], function () { return P; }]
+  ]);
   buildGroups($('groups'), GROUPS, [STYLE, LIGHT, CIRRUS, PERF], function () { return sky; });
   // lighting presets: a small select at the top of the Light group sets these five values; the sliders stay free afterwards.
   // The first is the default light (Gus's low side sun); 'Classic' is the light before 2026-11-03
@@ -285,7 +332,7 @@
   // the cost readout (Performance): CPU ms per frame for the sims, the tree build and the upload, GPU ms for the field and
   // shade passes (timer queries; n/a without the extension), averaged over the same half second as the fps. The upload
   // figure includes any wait for the GPU (the first blocking GL call of a frame absorbs the vsync and back-pressure wait)
-  var acc = { sim: 0, tree: 0, up: 0, cpu: 0, gf: 0, gs: 0, gn: 0 }, cost = '', frameNo = 0, flatList = [], skyM = {};   // flatList, skyM: reused per frame
+  var acc = { sim: 0, tree: 0, up: 0, cpu: 0, gf: 0, gs: 0, gn: 0 }, cost = '', frameNo = 0, flatList = [], clock = new CloudClock();
   // ?bench in the URL drives the loop with a message channel instead of requestAnimationFrame, so a tab that is not on
   // screen still runs frames (the browser pane here, a headless measurement): as fast as they go, not paced to the display
   var raf = /[?&]bench\b/.test(location.search) ? (function () { var ch = new MessageChannel(), cb = null; ch.port1.onmessage = function () { var f = cb; cb = null; if (f) f(performance.now()); }; return function (f) { cb = f; ch.port2.postMessage(0); }; })() : function (f) { requestAnimationFrame(f); };
@@ -294,35 +341,38 @@
     var t0 = performance.now();
     var aspect = canvas.height / canvas.width;
     var vx = P.runX + keyVel.x, vy = P.climb + keyVel.y;   // the player's velocity: the sliders plus the held keys
-    if (playing) {
-      t += dt;
+    var sceneDt = clock.advance(dt, P.simSpeed, playing); t = clock.time;
+    // Camera controls use wall time, so a paused scene can still be inspected.
+    for (var ci = 0; ci < clouds.length; ci++) { clouds[ci].x -= vx * dt; if (!clouds[ci].band) clouds[ci].h -= vy * dt * aspect; }
+    camWind += vx * dt; camAlt += vy * dt * aspect;
+    if (sceneDt > 0) {
       frameNo++;
       for (var i = 0; i < clouds.length; i++) {
         var c = clouds[i], main = c.sims[0];
         // update rate by distance (Performance): a far cloud (depth weight under 0.5, beyond distance 1.4, the horizon band too)
         // steps its sims and rebuilds its puffs every Far rate-th frame only, staggered across the clouds; the frames between
-        // reuse the puffs the renderer kept (look.hold), and the skipped time is stepped in one go, so its motion keeps pace
+        // reuse the puffs the renderer kept (look.hold); small substeps consume all skipped time without the sim's dt cap
         var farHeld = P.farRate > 1 && c.far < 0.5, live = !farHeld || (frameNo + i) % P.farRate === 0;
-        c.dtAcc = (c.dtAcc || 0) + dt;
+        c.dtAcc = (c.dtAcc || 0) + sceneDt;
         for (var j = 0; j < c.sims.length; j++) {
           var e = c.sims[j];
           e.sim.aspect = aspect; e.sim.motion = P.motion; e.look.motion = P.motion;
           e.look.hold = farHeld ? (live ? 1 : 2) : 0; e.look.puffCap = P.cloudCap;
           if (!live) continue;
           if (e.atTop) { e.sim.params.level = (main.sim.topY + e.dy) / main.sim.aspect; e.sim.params.wind = main.look.wind || 0; if (main.sim.time < 0.6 * (main.sim.params.formTime || 0)) continue; }
-          e.sim.step(c.dtAcc * P.simSpeed * Math.min(1, Math.max(0.35, c.z / 1.5)));   // a big near cloud evolves slowly
+          CloudClock.step(e.sim, c.dtAcc * Math.min(1, Math.max(0.35, c.z / 1.5)));   // a big near cloud evolves slowly
         }
         if (live) c.dtAcc = 0;
         // the camera glides forward and the wind carries the cloud sideways; past the camera (or
         // out of the frustum) it re-forms far away as a new cloud
-        if (c.band) { c.x += P.drift * dt - vx * dt; var lim = 0.55 * c.z + 0.7 * (c.span || c.s); if (Math.abs(c.x) > lim) c.x = -Math.sign(c.x) * lim; continue; }   // the horizon band only drifts; off one side it comes round the other
-        c.z -= P.travel * dt; c.x += P.drift * dt - vx * dt; c.h -= vy * dt * aspect;   // ... and the player runs past and climbs through them
+        if (c.band) { c.x += P.drift * sceneDt; var lim = 0.55 * c.z + 0.7 * (c.span || c.s); if (Math.abs(c.x) > lim) c.x = -Math.sign(c.x) * lim; continue; }   // the horizon band only drifts; off one side it comes round the other
+        c.z -= P.travel * sceneDt; c.x += P.drift * sceneDt;
       }
       if (P.poiCount >= 1 && t >= poiNext) {   // a new group once fewer than POI count are in the sky and the gap has passed
         var live = {}; clouds.forEach(function (o) { if (o.poi) live[o.poi.id] = 1; });
         if (Object.keys(live).length < Math.round(P.poiCount)) { seedPoi(mulberry(Math.floor(respawn() * 1e9))); poiNext = t + P.poiGap * (0.75 + 0.5 * respawn()); }
       }
-      camZ += P.travel * dt; camWind -= (P.drift - vx) * dt; camAlt += vy * dt * aspect;
+      camZ += P.travel * sceneDt; camWind -= P.drift * sceneDt;
       for (i = 0; i < clouds.length; i++) {
         c = clouds[i];
         // gone when its projection has left the frame: above the top (base line plus its own size) or past a side
@@ -334,7 +384,7 @@
       }
     }
     // projection: camera sway in world units, the horizon line, each sim's world frame
-    var sw = 6.2832 / Math.max(5, P.sway), camX = P.parallax * P.motion * Math.sin(t * sw) + eye.x, camY = P.parallax * P.motion * 0.35 * Math.sin(t * sw * 0.66 + 1) + eye.y, hor = P.horizon * aspect;
+    var sw = 6.2832 / Math.max(5, P.sway), camX = P.parallax * Math.sin(t * sw) + eye.x, camY = P.parallax * 0.35 * Math.sin(t * sw * 0.66 + 1) + eye.y, hor = P.horizon * aspect;
     for (i = 0; i < clouds.length; i++) {
       c = clouds[i]; main = c.sims[0]; c.far = farOf(c.z);
       // Separation: the depth weight pushed apart about the middle (tone, haze and crispness follow it), the scale and the
@@ -342,6 +392,7 @@
       var sep = P.separation, fs = Math.max(0, Math.min(1, 0.5 + (c.far - 0.5) * (1 + 2 * sep))), sepK = 1 + sep * 0.4 * (2 * fs - 1), sx = camX * (1 + sep * (2 * fs - 1)), sy = camY * (1 + sep * (2 * fs - 1));
       for (j = 0; j < c.sims.length; j++) {
         e = c.sims[j];
+        if (!(sceneDt > 0)) e.look.hold = 0; // held blocks contain projected coordinates; paused camera edits must reproject them
         var h = c.h - sy, flat = c.flat, span = c.span, cs = c.s * sepK;
         if (e.atTop) { h += (main.sim.baseY - e.sim.baseY) * cs; flat = 1; span = cs * 0.9; }   // the anvil spreads flat at the tower top
         var cm = e.look.cam || (e.look.cam = {});   // reused (no per-frame garbage); sx/sy: the sway, re-projected per puff by its depth
@@ -352,11 +403,9 @@
     }
     sky.cam = { x: camX + camWind, z: camZ, hor: hor, alt: Math.max(0.15 * aspect, 1.05 * aspect - camAlt) };   // the cirrus veil: a plane above everything, travelling with the camera
     flatList.length = 0; for (i = 0; i < clouds.length; i++) for (j = 0; j < clouds[i].sims.length; j++) flatList.push(clouds[i].sims[j]);
-    var skyNow = sky;
-    if (P.motion !== 1) { skyNow = Object.assign(skyM, sky); skyNow.flow = sky.flow * P.motion; skyNow.cirrusFlow = sky.cirrusFlow * P.motion; }   // Motion also slows the surface noise and the cirrus scroll
     renderer.budget = P.sceneCap;   // the scene puff cap (Performance): the renderer's budget, thinning the deepest level
     var t1 = performance.now();
-    renderer.render(flatList, t, skyNow);
+    renderer.render(flatList, t, sky);
     var t2 = performance.now();
     acc.sim += t1 - t0; acc.tree += renderer.msTree; acc.up += renderer.msUpload; acc.cpu += t2 - t0;
     if (renderer.gpuField >= 0) { acc.gf += renderer.gpuField; acc.gs += renderer.gpuShade; acc.gn++; }

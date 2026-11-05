@@ -11,7 +11,11 @@
  *           contact > 0 for the contact term (o5.r), the light already turned by the camera pitch; cavity > 0 and
  *           cavityReach (texels) for the cavity term (o5.g) }
  *   x, y    texel indices, GL convention (y up from the bottom row), as readPixels addresses them
- *           body > 0 and bodySoft (reference radii) for the body slope (o5.ba)
+ *           body > 0 and bodySoft (reference radii) for the body slope (o5.ba);
+ *           modelVersion: 2 selects the modern 2D shape slopes and independent support widths,
+ *           ref is the renderer's reference radius. Omitted modelVersion retains legacy model 1.
+ *           contourCohesion (0..1, modern only) widens local outline joins; shadowQuiet > 0
+ *           requests the broad body slope even with body=0. Both default to zero.
  *   returns { H, mask, Gx, Gy, rim, contact, cavity, Bx, By } = the shader's o.r, o.a, o4.x, o4.y, o3.w, o5.r, o5.g, o5.b, o5.a
  */
 (function () {
@@ -21,7 +25,7 @@
   function smoothstep(a, b, x) { var t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
   // the shape variation (FIELD_FS varyIn / varyGrad): rows 5 and 6 of puff i
   // the contour factor and its derivative (FIELD_FS shapeF): harmonics (row 6) times the rounded polygon (row 7)
-  function shapeF(D, M, i, ph) {
+  function rawShapeF(D, M, i, ph) {
     var o6 = (M * 6 + i) * 4, o7 = (M * 7 + i) * 4;
     var f = 1 + D[o6] * Math.cos(ph) + D[o6 + 1] * Math.sin(ph) + D[o6 + 2] * Math.cos(3 * ph) + D[o6 + 3] * Math.sin(3 * ph);
     var df = -D[o6] * Math.sin(ph) + D[o6 + 1] * Math.cos(ph) - 3 * D[o6 + 2] * Math.sin(3 * ph) + 3 * D[o6 + 3] * Math.cos(3 * ph);
@@ -34,6 +38,31 @@
       df = df * P + f * dP; f *= P;
     }
     return [f, df];
+  }
+  function harmonicF(D,M,i,ph){
+    var o=(M*6+i)*4;
+    return [1+D[o]*Math.cos(ph)+D[o+1]*Math.sin(ph)+D[o+2]*Math.cos(3*ph)+D[o+3]*Math.sin(3*ph),
+      -D[o]*Math.sin(ph)+D[o+1]*Math.cos(ph)-3*D[o+2]*Math.sin(3*ph)+3*D[o+3]*Math.cos(3*ph)];
+  }
+  function sectorF(t,hs){
+    var cp=Math.cos(hs),ct=Math.cos(t),a=cp/ct,da=cp*Math.sin(t)/(ct*ct),u=clamp((t-.65*hs)/(.35*hs),0,1),sm=u*u*(3-2*u),ds=6*u*(1-u)/(.35*hs);
+    return [mix(a,1,sm),da*(1-sm)+(1-a)*ds];
+  }
+  function shapeF(D,M,i,ph){
+    var code=D[(M*7+i)*4+3];if(!code)return rawShapeF(D,M,i,ph);
+    var fd=harmonicF(D,M,i,ph);
+    var reach=Math.floor(Math.abs(code))*.01,amt=(Math.abs(code)%1)*2,sg=Math.sign(code),sum=0,deriv=0;
+    for(var j=0;j<4;j++){var off=(j<2?j-2:j-1)*.5*reach,n=harmonicF(D,M,i,ph+off),gap=sg*(n[0]-fd[0]);
+      if(gap>0){var h=gap*gap/(gap+.025),dh=gap*(gap+.05)/((gap+.025)*(gap+.025))*sg*(n[1]-fd[1]);sum+=h*h*h*h;deriv+=h*h*h*dh;}}
+    if(sum>0){var norm=Math.pow(sum*.25+1e-24,.25),delta=norm-1e-6;fd[0]+=sg*amt*delta;fd[1]+=sg*amt*norm*deriv/(sum+4e-24);}
+    var o7=(M*7+i)*4;
+    if(D[o7]>0){
+      var hs=Math.PI/D[o7+1],t=((ph%(2*hs))+2*hs)%(2*hs)-hs,b=sectorF(Math.abs(t),hs),db=b[1]*Math.sign(t);
+      var eps=.1*reach,dist=sg>0?Math.abs(t):hs-Math.abs(t),rad=Math.sqrt(dist*dist+eps*eps),pos=sg>0?rad+reach:hs-rad-reach,dp=dist/Math.max(rad,1e-8)*Math.sign(t);
+      if(pos<=0||pos>=hs)dp=0;var filtered=sectorF(clamp(pos,0,hs),hs),P=mix(1,mix(b[0],filtered[0],amt),D[o7]),dP=D[o7]*mix(db,filtered[1]*dp,amt);
+      fd[1]=fd[1]*P+fd[0]*dP;fd[0]*=P;
+    }
+    return fd;
   }
   function varyIn(D, M, i, dx, dy) {
     var o5 = (M * 5 + i) * 4, c = D[o5], sn = D[o5 + 1], a = D[o5 + 2];
@@ -52,17 +81,57 @@
     return [c * g2x - sn * g2y, sn * g2x + c * g2y];
   }
 
+  // Shared 2D shape mapping and analytic derivative, matching shapePoint/shapeSlope.
+  function shapeFrame(D, M, i, x, y) {
+    var o2=(M*2+i)*4,o3=(M*3+i)*4,o5=(M*5+i)*4,st=D[o2+2];
+    if(st!==1){var a=(x*D[o3]+y*D[o3+1])/st,b=(x*D[o3+1]-y*D[o3])*Math.sqrt(st);x=a;y=b;}
+    return D[o5+3]!==1?varyIn(D,M,i,x,y):[x,y];
+  }
+  function primitivePoint(D,M,i,x,y,r) {
+    var packed=D[(M*2+i)*4+3],prim=Math.floor(packed+.01),pa=(packed-prim)*2,q,len;
+    if(prim===1)y*=1+1.5*pa;
+    else if(prim===2)x*=1+2*pa*Math.max(0,-y)/r;
+    else if(prim===3){q=Math.pow(x*x*x*x+y*y*y*y,.25)/Math.max(Math.hypot(x,y),1e-6);len=mix(1,q,pa);x*=len;y*=len;}
+    else if(prim===4){q=(Math.abs(x)+Math.abs(y))/Math.max(Math.hypot(x,y),1e-6);len=mix(1,q,pa);x*=len;y*=len;}
+    return [x,y];
+  }
+  function shapePoint(D,M,i,x,y,r) {var q=shapeFrame(D,M,i,x,y);return primitivePoint(D,M,i,q[0],q[1],r);}
+  function shapeSlope(D,M,i,x,y,r) {
+    var q=shapeFrame(D,M,i,x,y),v=primitivePoint(D,M,i,q[0],q[1],r),d=Math.max(Math.hypot(v[0],v[1]),1e-6),gx=v[0]/d,gy=v[1]/d;
+    var o2=(M*2+i)*4,o3=(M*3+i)*4,o5=(M*5+i)*4,packed=D[o2+3],prim=Math.floor(packed+.01),pa=(packed-prim)*2;
+    if(prim===1)gy*=1+1.5*pa;
+    else if(prim===2){gy-=q[1]<0?gx*q[0]*2*pa/r:0;gx*=1+2*pa*Math.max(0,-q[1])/r;}
+    else if(prim===3){var l4=Math.pow(Math.max(Math.pow(q[0],4)+Math.pow(q[1],4),1e-24),.25),l=Math.max(Math.hypot(q[0],q[1]),1e-6);gx=mix(q[0]/l,Math.pow(q[0],3)/Math.pow(l4,3),pa);gy=mix(q[1]/l,Math.pow(q[1],3)/Math.pow(l4,3),pa);}
+    else if(prim===4){var l1=Math.max(Math.hypot(q[0],q[1]),1e-6);gx=mix(q[0]/l1,Math.sign(q[0]),pa);gy=mix(q[1]/l1,Math.sign(q[1]),pa);}
+    if(D[o5+3]!==1){var g=varyGrad(D,M,i,gx,gy,q[0],q[1]);gx=g[0];gy=g[1];}
+    var st=D[o2+2];if(st!==1){var a=gx*D[o3]/st+gy*D[o3+1]*Math.sqrt(st),b=gx*D[o3+1]/st-gy*D[o3]*Math.sqrt(st);gx=a;gy=b;}
+    return [gx,gy];
+  }
+
   function fieldRef(D, count, P, x, y) {
     var M = P.MAX_SPH || (window.PuffRenderer && PuffRenderer.MAX_SPH) || 4096;
     var W = P.W, Hh = P.H, asp = Hh / W, T = P.T, T2 = T * 4, cap = P.cap, dissolve = P.dissolve || 0, dot = P.dotSize || 1;
+    var modern=P.modelVersion>=2,E=modern?1/W:T,O=modern?E:.25*T,S=modern?Math.max(E,(P.ref||.1)*.08):T;
+    var C=modern?Math.max(E,clamp(P.contourCohesion||0,0,1)*(P.ref||.1)*.08):E;
     // the dither threshold at this texel (gl_FragCoord = texel + 0.5), for the dissolve of dispersing puffs
     function fr(v) { return v - Math.floor(v); }
     function bayer8(x, y) { x = ((x % 8) + 8) % 8; y = ((y % 8) + 8) % 8; var v = 0; for (var b = 0; b < 3; b++) v = v * 4 + ((x >> (2 - b)) & 1) * 2 + (((x ^ y) >> (2 - b)) & 1); return v / 64 - 0.5; }
     function h21(x, y) { var h = (Math.imul(x | 0, 73856093) ^ Math.imul(y | 0, 19349663)) >>> 0; h = Math.imul(h, 2654435761) >>> 0; h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 2246822519) >>> 0; return (h >>> 8) / 16777216; }
     function vnoise(x, y) { var ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy); return mix(mix(h21(ix, iy), h21(ix + 1, iy), fx), mix(h21(ix, iy + 1), h21(ix + 1, iy + 1), fx), fy); }
+    function erosionNoise(x,y){
+      var type=clamp(Math.round(P.erosionType||0),0,2);
+      if(type===0)return vnoise(x,y);
+      if(type===2)return 1-smoothstep(0,.45,Math.abs(2*vnoise(x,y)-1));
+      var ix=Math.floor(x),iy=Math.floor(y),fx=x-ix,fy=y-iy,keep=1;
+      for(var cy=-1;cy<=1;cy++)for(var cx=-1;cx<=1;cx++){
+        var px=ix+cx,py=iy+cy,ox=cx+.2+.6*h21(px,py)-fx,oy=cy+.2+.6*h21(px+47,py+113)-fy;
+        var bite=1-smoothstep(.12,.62,Math.hypot(ox,oy));keep*=1-.92*bite;
+      }
+      return 1-keep;
+    }
     var bq = Math.floor((x + 0.5) / dot), bqy = Math.floor((y + 0.5) / dot), b8 = bayer8(bq, bqy) + 0.5, evapScale = P.evapScale || 3, ref = P.ref || 0.1;
     function erode(i) { var dis = D[(M + i) * 4 + 3], amt = dissolve * dis + D[(M * 7 + i) * 4 + 2]; if (amt <= 0.001) return 1; var o2d = (M * 2 + i) * 4, pid = D[(M * 4 + i) * 4 + 1], ph = h21(Math.floor(pid * 64), 7);
-      var n = vnoise((px - D[o2d]) / ref * evapScale + ph * 37.1, (py - D[o2d + 1]) / ref * evapScale + ph * 11.7); return Math.max(0, 1 - amt * (0.3 + 0.7 * n)); }
+      var n = erosionNoise((px - D[o2d]) / ref * evapScale + ph * 37.1, (py - D[o2d + 1]) / ref * evapScale + ph * 11.7); return Math.max(0, 1 - amt * (0.3 + 0.7 * n)); }
     // p = vec2(vUv.x, (1 - vUv.y) * uAspect) at the texel centre
     var px = (x + 0.5) / W, py = (1 - (y + 0.5) / Hh) * asp;
     var i, o0, o1, o2, o3, o4, dx, dy, r, st, prim, pa, q, len, d2, u, h, along, across;
@@ -81,6 +150,7 @@
       else if (prim === 2) dx *= 1 + 2 * pa * Math.max(0, -dy) / r;
       else if (prim === 3) { q = Math.sqrt(Math.sqrt(dx * dx * dx * dx + dy * dy * dy * dy)) / Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6); len = mix(1, q, pa); dx *= len; dy *= len; }
       else if (prim === 4) { q = (Math.abs(dx) + Math.abs(dy)) / Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6); len = mix(1, q, pa); dx *= len; dy *= len; }
+      if(modern){var pointI=shapePoint(D,M,i,px-D[o0],py-D[o0+1],r);dx=pointI[0];dy=pointI[1];}
       d2 = dx * dx + dy * dy; if (d2 >= r * r) continue;
       u = Math.sqrt(d2) / r;
       h = D[o0 + 3] + D[o4 + 2] * r * mix(Math.sqrt(1 - u * u), 1 - u * u, cap);   // row 4 .z: the relief of the puff's level
@@ -92,11 +162,11 @@
     var m = -1e9, acc = 0, mO = -1e9, accO = 0, ins = 0, cI = -1, cO = -1;   // cI / cO: the cloud of the highest containing puff and of the highest skirt
     var m2 = -1e9, acc2 = 0, m2O = -1e9, acc2O = 0;
     var sm = -1e9, sacc = 0;
-    var GIx = 0, GIy = 0, GOx = 0, GOy = 0, RI = 0, wantB = P.body > 0, bodyC = [];
+    var GIx = 0, GIy = 0, GOx = 0, GOy = 0, RI = 0, wantB = P.body > 0 || P.shadowQuiet > 0, bodyC = [];
     for (i = 0; i < count; i++) {
       o0 = i * 4; o1 = (M + i) * 4; o2 = (M * 2 + i) * 4; o3 = (M * 3 + i) * 4; o4 = (M * 4 + i) * 4;
       dx = px - D[o0]; dy = py - D[o0 + 1]; r = D[o0 + 2] * erode(i); st = D[o2 + 2]; if (r <= 1e-5) continue;
-      var vb2 = D[(M * 5 + i) * 4 + 3], rr2 = r * Math.max(1, st) * vb2;
+      var vb2 = D[(M * 5 + i) * 4 + 3], rr2 = r * Math.max(Math.max(1, st), 1 / Math.sqrt(Math.max(st, 1e-4))) * vb2;
       if (dx * dx + dy * dy > rr2 * rr2 * 2.5) continue;
       var wx = D[o3], wy = D[o3 + 1];
       if (st !== 1) { along = dx * wx + dy * wy; across = dx * wy - dy * wx; dx = along / st; dy = across * Math.sqrt(st); }
@@ -106,13 +176,16 @@
       else if (prim === 2) dx *= 1 + 2 * pa * Math.max(0, -dy) / r;
       else if (prim === 3) { q = Math.sqrt(Math.sqrt(dx * dx * dx * dx + dy * dy * dy * dy)) / Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6); len = mix(1, q, pa); dx *= len; dy *= len; }
       else if (prim === 4) { q = (Math.abs(dx) + Math.abs(dy)) / Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6); len = mix(1, q, pa); dx *= len; dy *= len; }
+      if(modern){var pointU=shapePoint(D,M,i,px-D[o0],py-D[o0+1],r);dx=pointU[0];dy=pointU[1];}
       d2 = dx * dx + dy * dy;
       if (d2 > r * r * 2.25) continue;
       var dist = Math.sqrt(d2);
       var tt = clamp((dist - r) / (0.5 * r), 0, 0.995), pen = r * tt * tt / (1 - tt);
       var d1x = dx / Math.max(dist, 1e-6), d1y = dy / Math.max(dist, 1e-6), gn = 1;
       if (vb2 !== 1) { var vg = varyGrad(D, M, i, d1x, d1y, dx, dy); gn = Math.max(Math.sqrt(vg[0] * vg[0] + vg[1] * vg[1]), 1e-3); }
-      var e = (r - dist - pen) / (T * gn);
+      if(modern){var sg=shapeSlope(D,M,i,px-D[o0],py-D[o0+1],r);gn=Math.max(Math.hypot(sg[0],sg[1]),1e-3);}
+      var contourPen=pen;if(C>E)contourPen*=1+Math.max(0,(C-E)/Math.max(r,1e-6)-.25);
+      var e = (r - dist - contourPen) / (C * gn);
       if (e > sm) { sacc = sacc * Math.exp(sm - e) + 1; sm = e; } else sacc += Math.exp(e - sm);
       var inside = d2 < r * r;
       u = dist / r;
@@ -127,10 +200,19 @@
       if (prim === 1) dpy *= 1 + 1.5 * pa;
       if (vb2 !== 1) { var vp = varyGrad(D, M, i, dpx, dpy, dx, dy); dpx = vp[0]; dpy = vp[1]; }
       if (st !== 1) { var ax = dpx * wx / st + dpy * wy * Math.sqrt(st), ay = dpx * wy / st + dpy * -wx * Math.sqrt(st); dpx = ax; dpy = ay; }
+      if(modern){var gs2=shapeSlope(D,M,i,px-D[o0],py-D[o0+1],r);dpx=gs2[0];dpy=gs2[1];}
       var gs = rel * (mix(dsph, dpar, cap) - dpen), gdx = gs * dpx, gdy = gs * dpy;
-      if (inside) ins = Math.max(ins, smoothstep(0, T, r - dist));
+      if (inside) ins = Math.max(ins, smoothstep(0, E, r - dist));
       var wa = 1;
-      if (inside) { var id = D[o4], pid = D[o4 + 1]; for (var q2 = 0; q2 < ph.length; q2++) if (!(id === pidA[q2] || pid === ppA[q2] || pid === pidA[q2] || id === ppA[q2])) wa *= smoothstep(-0.25 * T, 0, h - ph[q2]); }
+      if (inside) {
+        var id = D[o4], pid = D[o4 + 1], buried = 0;
+        for (var q2 = 0; q2 < ph.length; q2++) {
+          var attached = id === pidA[q2] || pid === ppA[q2] || pid === pidA[q2] || id === ppA[q2];
+          if (!attached) wa *= smoothstep(-O, 0, h - ph[q2]);
+          else if (modern && id !== pidA[q2]) buried = Math.max(buried, ph[q2] - h);
+        }
+        if (buried > 0) wa *= smoothstep(0, buried, r - dist);
+      }
       if (wantB && inside && D[o4 + 3] > 0) { var wbB = wa * D[o4 + 3] * (1 - u * u) * (1 - u * u); if (wbB > 0) bodyC.push([Math.floor(D[o3 + 3]), h, gdx, gdy, wbB]); }   // body lighting candidates: footprints only, by (1 - u^2)^2 (row 4 .w: the generation weight)
       var w, wq, rim = 1 - smoothstep(0, 0.3, 1 - dist / r);
       if (inside) {
@@ -158,48 +240,59 @@
     var Gx = 0, Gy = 0, wI, wO, rimW = 0;
     if (acc > 0) { wI = Math.exp(Math.max(-40, (HI - Hf) / T)); Gx += gIx * wI; Gy += gIy * wI; rimW += RI / acc * wI; }
     if (accO > 0) { wO = Math.exp(Math.max(-40, (HO - Hf) / T)); Gx += gOx * wO; Gy += gOy * wO; rimW += wO; }
-    var sil = sacc > 0 ? (sm + Math.log(Math.min(sacc, 2))) * T : -1;
+    var sil = sacc > 0 ? (sm + Math.log(Math.min(sacc, 2))) * C : -1;
     // body lighting (the shader's third loop): a soft union at Body softness reference radii over the texel's own cloud
     var cB = (acc <= 0 || HO > HI) ? cO : cI, Bx = Gx, By = Gy;
     if (wantB && Hf > -0.5) {
-      var Tb = Math.max((P.bodySoft === undefined ? 1.5 : P.bodySoft) * ref, T), mB = -1e9, accB = 0, sBx = 0, sBy = 0;
+      var Tb = Math.max((P.bodySoft === undefined ? 1.5 : P.bodySoft) * ref, modern?E:T), mB = -1e9, accB = 0, sBx = 0, sBy = 0;
       bodyC.forEach(function (b) { if (b[0] !== cB) return; var wq; if (b[1] > mB) { wq = Math.exp((mB - b[1]) / Tb); accB = accB * wq + b[4]; sBx = sBx * wq + b[4] * b[2]; sBy = sBy * wq + b[4] * b[3]; mB = b[1]; } else { wq = b[4] * Math.exp((b[1] - mB) / Tb); accB += wq; sBx += wq * b[2]; sBy += wq * b[3]; } });
       if (accB > 0) { Bx = sBx / accB; By = sBy / accB; }
     }
-    var mask = smoothstep(-0.5 * T, 0.5 * T, sil);
+    var mask = smoothstep(-0.5 * E, 0.5 * E, sil);
     // contact, in object space (the shader's block after the union): a ray from (p, H) toward the light against every
-    // other puff as a sphere; the spheres the point sits on (within T) and the owner are left out
+    // puff as a sphere; surface membership and internal limb shading vary continuously
     var contact = 0, cavity = 0, wantC = P.light && P.contact > 0, wantV = P.cavity > 0;
     if ((wantC || wantV) && Hf > -0.5) {
-      var L = P.light || [0, 0, 1], tr = 1, sky = 1, creach = (P.cavityReach || 8) / W, silC = sacc > 0 ? (sm + Math.log(Math.min(sacc, 2))) * T : -1;
+      var L = P.light || [0, 0, 1], tr = 1, sky = 1, selfShade = 0, creach = (P.cavityReach || 8) / W, silC = sil;
       for (i = 0; i < count; i++) {
         o0 = i * 4; r = D[o0 + 2] * erode(i); if (r <= 1e-5) continue;
-        if (i === winIdx) {   // the owner's own far-side limb joins its cast shadow (see the shader)
-          if (!wantC) continue;
-          var wself = (1 - smoothstep(0, 0.3, 1 - winU)) * smoothstep(T, 3 * T, silC - winR * (1 - winU)); if (wself <= 0) continue;
-          var sox = D[o0] - px, soy = D[o0 + 1] - py, soz = D[o0 + 3] - Hf, nl = -(sox * L[0] + soy * L[1] + soz * L[2]) / Math.max(Math.sqrt(sox * sox + soy * soy + soz * soz), 1e-6);
-          tr *= 1 - 0.5 * wself * (1 - smoothstep(0, 0.5, nl));
-          continue;
-        }
         var ox = D[o0] - px, oy = D[o0 + 1] - py, oz = D[o0 + 3] - Hf, oc2 = ox * ox + oy * oy + oz * oz, sxy = Math.sqrt(ox * ox + oy * oy) - r; if (sxy > 0.6 * r) continue;
-        if (sxy < 0 && oc2 < (r + T) * (r + T)) continue;
-        if (wantV) { var ozv = Math.min(oz, winZ - Hf), ocv = ox * ox + oy * oy + ozv * ozv, qq = Math.min(1, r * r / Math.max(ocv, 1e-12)), above = clamp(0.5 + ozv / (2 * r), 0, 1); sky *= 1 - (1 - Math.sqrt(1 - qq)) * above * (1 - smoothstep(0, Math.min(creach, 0.6 * r), sxy)); }
+        var support = Math.max(S, 1 / W), separate = smoothstep(S, S + support, Math.sqrt(oc2) - r);
+        var blocker = separate + (1 - separate) * smoothstep(0, support, sxy), contactBlocker=blocker;
+        if(modern){
+          var qp=shapePoint(D,M,i,px-D[o0],py-D[o0+1],r),uu=Math.hypot(qp[0],qp[1])/r,relM=D[(M*4+i)*4+2];
+          contactBlocker=1;
+          if(uu<1){var hsM=D[o0+3]+relM*r*mix(Math.sqrt(Math.max(0,1-uu*uu)),1-uu*uu,cap);blocker*=smoothstep(S,2*S,Math.abs(Hf-hsM));contactBlocker=1-Math.exp(clamp((hsM-Hf)/T,-40,0));}
+          var s2=(M*2+i)*4,s5=(M*5+i)*4,s6=(M*6+i)*4,s7=(M*7+i)*4,pi=Math.floor(D[s2+3]+.01),paM=pi<.5?0:(D[s2+3]-pi)*2;
+          var mismatch=Math.abs(Math.log(Math.max(D[s2+2],1e-4)))+Math.abs(D[s5+2])+Math.hypot(D[s6],D[s6+1],D[s6+2],D[s6+3])+D[s7]+paM+cap+Math.abs(relM-1);
+          blocker*=Math.exp(-2*mismatch);contactBlocker*=Math.exp(-2*mismatch);
+        }
+        if (!modern && wantC && sxy < 0) {
+          var us = clamp(1 + sxy / r, 0, 1), rels = D[(M * 4 + i) * 4 + 2];
+          var hs = D[o0 + 3] + rels * r * ((1 - cap) * Math.sqrt(Math.max(0, 1 - us * us)) + cap * (1 - us * us));
+          var share = Math.exp(clamp((hs - Hf) / T, -40, 0)) * (1 - smoothstep(-support, 0, sxy));
+          var rs = (1 - smoothstep(0, 0.3, 1 - us)) * smoothstep(T, 3 * T, silC - r * (1 - us));
+          var nl = -(ox * L[0] + oy * L[1] + oz * L[2]) / Math.max(Math.sqrt(oc2), 1e-6);
+          selfShade += 0.5 * share * rs * (1 - smoothstep(0, 0.5, nl));
+        }
+        if (wantV) { var ozv = Math.min(oz, winZ - Hf), ocv = ox * ox + oy * oy + ozv * ozv, qq = Math.min(1, r * r / Math.max(ocv, 1e-12)), above = clamp(0.5 + ozv / (2 * r), 0, 1); sky *= 1 - blocker * (1 - Math.sqrt(1 - qq)) * above * (1 - smoothstep(0, Math.min(creach, 0.6 * r), sxy)); }
         if (!wantC) continue;
         var t = ox * L[0] + oy * L[1] + oz * L[2]; if (t <= 0) continue;
-        var d = Math.sqrt(Math.max(0, oc2 - t * t)), w = T + 0.2 * t;
-        tr *= 1 - (1 - smoothstep(r - w, r + w, d)) * (1 - smoothstep(0.2 * r, 0.6 * r, sxy));
+        var d = Math.sqrt(Math.max(0, oc2 - t * t)), w = S + 0.2 * t;
+        tr *= 1 - contactBlocker * (1 - smoothstep(r - w, r + w, d)) * (1 - smoothstep(0.2 * r, 0.6 * r, sxy));
       }
-      contact = 1 - tr; cavity = smoothstep(0, 0.5, 1 - sky);
+      contact = 1 - tr * (1 - Math.min(0.5, selfShade)); cavity = smoothstep(0, 0.5, 1 - sky);
     }
-    return { H: Hf, mask: mask + 10 * Math.max(0, sil - 0.5 * T), Gx: Gx, Gy: Gy, rim: clamp(rimW, 0, 1), contact: contact, cavity: cavity, Bx: Bx, By: By };
+    return { H: Hf, mask: mask + 10 * Math.max(0, sil - 0.5 * E), Gx: Gx, Gy: Gy, rim: clamp(rimW, 0, 1), contact: contact, cavity: cavity, Bx: Bx, By: By };
   }
 
   window.fieldRef = fieldRef; window.varyIn = varyIn;
 
-  // probe(D, count, P, x, y): why the field at one texel is what it is. Every sphere that reaches the texel, with
+  // Legacy-only probe(D, count, P, x, y): why the field at one texel is what it is. Every sphere that reaches the texel, with
   // u = dist / r, its height, whether it contains the texel, its share of its set's log-sum-exp, its
   // attachment weight (hidden by unattached puffs above it), and for the skirt set the clamp and the g weight
   function probe(D, count, P, x, y) {
+    if(P.modelVersion>=2)throw new Error('probe() describes legacy model 1 only; use fieldRef() for model 2 channel checks.');
     var M = P.MAX_SPH || (window.PuffRenderer && PuffRenderer.MAX_SPH) || 4096;
     var W = P.W, Hh = P.H, asp = Hh / W, T = P.T, cap = P.cap;
     var px = (x + 0.5) / W, py = (1 - (y + 0.5) / Hh) * asp, rows = [], i, ins = 0;
