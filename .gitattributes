@@ -1,0 +1,2 @@
+# Generated author bundle preserves upstream GLSL string whitespace and notices.
+assets/skypaint-author.js -whitespace linguist-generated=true

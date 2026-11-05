@@ -2,6 +2,8 @@
 (function(global){
 'use strict';
 const DEG=Math.PI/180;
+// Same inclusive scale contract as FoundryAssets; material radiance uses RGBA16F.
+const MIN_RADIANCE_SCALE=1e-6,MAX_RADIANCE_SCALE=65504;
 const finite=(v,d)=>Number.isFinite(v)?v:d;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function basis(yaw,pitch){const cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);return new Float32Array([cy,0,-sy,-sy*sp,cp,-cy*sp,sy*cp,sp,cy*cp]);}
@@ -51,6 +53,14 @@ function captureDepthBounds(level,range){
   return bounds;
  });
 }
+function hasSecondInterval(level){
+ if(!level.radiance)return true;
+ return level.radiance.some((maps,view)=>{
+  const opacity=maps[1],coverage=level.data[view][3];
+  for(let i=3;i<opacity.length;i+=4)if(opacity[i]>0&&coverage[i]>127)return true;
+  return false;
+ });
+}
 function validateAsset(a){
  if(!a||!Number.isInteger(a.w)||!Number.isInteger(a.h)||a.w<1||a.h<1||a.w>1024||a.h>1024)throw Error('Cloud maps require integer dimensions 1–1024, matching the asset format.');
  if(!Number.isFinite(a.halfHeight)||a.halfHeight<=0||!Number.isFinite(a.range)||a.range<=0)throw Error('Cloud maps require positive halfHeight and range.');
@@ -58,15 +68,29 @@ function validateAsset(a){
  if(!Array.isArray(a.data)||a.data.length!==a.views.length)throw Error('Cloud map view count does not match capture metadata.');
  for(const v of a.views)if(!v||!Number.isFinite(v.yaw)||!Number.isFinite(v.pitch))throw Error('Cloud capture angles must be finite degrees.');
  if(a.lods!==undefined&&!Array.isArray(a.lods))throw Error('Cloud LODs must be an array.');
+ const baked=a.appearance==='baked-radiance-v1',scale=a.radianceScale===undefined?4:a.radianceScale;
+ if(a.appearance!==undefined&&!baked)throw Error('Unsupported cloud appearance.');
+ if(baked&&(!Number.isFinite(scale)||scale<MIN_RADIANCE_SCALE||scale>MAX_RADIANCE_SCALE))throw Error('Invalid radiance scale (supported range 1e-6..65504).');
+ if(baked&&a.lighting)throw Error('Radiance appearance cannot mix directional lighting.');
+ if(!baked&&(a.radiance!==undefined||a.radianceScale!==undefined))throw Error('Radiance maps require baked-radiance-v1 appearance.');
+ function metadata(v,depth=0){if(depth>16||typeof v==='number'&&!Number.isFinite(v))throw Error('Invalid nonfinite appearance metadata.');if(v&&typeof v==='object')for(const q of Object.values(v))metadata(q,depth+1);}
+ if(baked){
+  if(a.version!==undefined&&a.version!==3)throw Error('Radiance appearance requires asset version 3.');
+  if(a.radianceEncoding!==undefined&&a.radianceEncoding!=='sqrt-premultiplied-linear-v1')throw Error('Unsupported radiance encoding.');
+  if(a.radianceOrder!==undefined&&JSON.stringify(a.radianceOrder)!=='["interval0","interval1"]')throw Error('Invalid radiance interval order.');
+  metadata(a.source);metadata(a.bakeLighting);metadata(a.recipe);
+ }
  let total=0;
  for(const level of [a,...(a.lods||[])]){
   if(!level||!Number.isInteger(level.w)||!Number.isInteger(level.h)||level.w<1||level.h<1||level.w>a.w||level.h>a.h)throw Error('Cloud LOD dimensions must not exceed the master capture.');
   const bytes=level.w*level.h*4;
+  if(!!level.radiance!==baked||!!level.lighting!==!!a.lighting||(level.appearance!==undefined&&level.appearance!==a.appearance)||(level.radianceScale!==undefined&&level.radianceScale!==scale))throw Error('LOD appearance must match the master.');
   for(const maps of [level.data,...(level.lighting===undefined?[]:[level.lighting])]){
    if(!Array.isArray(maps)||maps.length!==a.views.length)throw Error('Cloud LOD map count does not match capture metadata.');
    for(const view of maps)if(!Array.isArray(view)||view.length!==4||view.some(d=>!(d instanceof Uint8Array)||d.length!==bytes))throw Error('Each cloud capture requires four exact-size Uint8Array RGBA maps.');
    total+=bytes*4*a.views.length;
   }
+  if(baked){if(!Array.isArray(level.radiance)||level.radiance.length!==a.views.length||level.radiance.some(v=>!Array.isArray(v)||v.length!==2||v.some(d=>!(d instanceof Uint8Array)||d.length!==bytes)))throw Error('Radiance requires two exact-size Uint8Array RGBA maps per capture.');total+=bytes*2*a.views.length;}
  }
  if(total>160*1024*1024)throw Error('Cloud maps exceed the 160 MiB memory budget.');
  return total;
@@ -110,14 +134,14 @@ class BakedCloudRenderer{
    // from the master without modifying the imported asset's ordering.
    const lods=[...(asset.lods||[])].sort((a,b)=>b.h-a.h||b.w-a.w);
    for(const level of [asset,...lods]){
-    const record={w:level.w,h:level.h,textures:[],hasLighting:!!level.lighting,bounds:captureDepthBounds({...level,halfHeight:asset.halfHeight},asset.range)};levels.push(record);
-    for(let m=0;m<(record.hasLighting?8:4);m++){
+    const record={w:level.w,h:level.h,textures:[],hasLighting:!!level.lighting,hasRadiance:!!level.radiance,hasSecondInterval:hasSecondInterval(level),bounds:captureDepthBounds({...level,halfHeight:asset.halfHeight},asset.range)};levels.push(record);
+    for(let m=0;m<(record.hasRadiance?6:record.hasLighting?8:4);m++){
     const t=gl.createTexture();next.push(t);record.textures.push(t);gl.bindTexture(gl.TEXTURE_2D_ARRAY,t);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_BASE_LEVEL,0);gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MAX_LEVEL,0);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
     gl.texImage3D(gl.TEXTURE_2D_ARRAY,0,gl.RGBA8,level.w,level.h,asset.views.length,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
-    for(let i=0;i<asset.views.length;i++)gl.texSubImage3D(gl.TEXTURE_2D_ARRAY,0,0,0,i,level.w,level.h,1,gl.RGBA,gl.UNSIGNED_BYTE,m<4?level.data[i][m]:level.lighting[i][m-4]);
+    for(let i=0;i<asset.views.length;i++)gl.texSubImage3D(gl.TEXTURE_2D_ARRAY,0,0,0,i,level.w,level.h,1,gl.RGBA,gl.UNSIGNED_BYTE,m<4?level.data[i][m]:(record.hasRadiance?level.radiance[i][m-4]:level.lighting[i][m-4]));
     }
    }
    const error=gl.getError();if(error!==gl.NO_ERROR)throw Error('Cloud map upload failed: GL '+error);
@@ -128,7 +152,7 @@ class BakedCloudRenderer{
   // Supported angles are a non-wrapped capture rectangle, not a full orbit.
   // Out-of-range cameras keep moving in the sky while the asset view holds.
   this.angleBounds={yaw:[Math.min(...this.capture.map(v=>v.yaw)),Math.max(...this.capture.map(v=>v.yaw))],pitch:[Math.min(...this.capture.map(v=>v.pitch)),Math.max(...this.capture.map(v=>v.pitch))]};
-  Object.assign(this.stats,{assetBytes:bytes,views:asset.views.length,levels:levels.length,hasLighting:!!asset.lighting});
+  Object.assign(this.stats,{assetBytes:bytes,views:asset.views.length,levels:levels.length,hasLighting:!!asset.lighting,appearance:asset.appearance||'normal'});
  }
  _selectLod(id,projectedHeight,mode){
   if(mode==='full'){this.lodState.set(id,0);return 0;}
@@ -168,18 +192,27 @@ class BakedCloudRenderer{
   const light=[Math.cos(alt)*Math.sin(az),Math.sin(alt),Math.cos(alt)*Math.cos(az)];
   const sky=Array.isArray(settings.skyColor)?settings.skyColor:[.08,.43,.53];
   gl.viewport(0,0,w,h);gl.bindFramebuffer(gl.FRAMEBUFFER,this.target.fbo);gl.disable(gl.SCISSOR_TEST);gl.disable(gl.BLEND);
+  gl.drawBuffers([gl.COLOR_ATTACHMENT0,gl.COLOR_ATTACHMENT1,gl.COLOR_ATTACHMENT2]);
   gl.clearBufferfv(gl.COLOR,0,new Float32Array(4));gl.clearBufferfv(gl.COLOR,1,new Float32Array(4));gl.clearBufferfv(gl.COLOR,2,new Float32Array(4));gl.clearBufferfv(gl.DEPTH,0,new Float32Array([1]));
   gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LESS);gl.depthMask(true);this.stats.drawn=0;this.stats.culled=0;this.stats.clampedViews=0;
   if(this.asset){
-   const a=this.asset,p=this.cloud;gl.useProgram(p.p);
+   const a=this.asset,p=this.cloud,baked=a.appearance==='baked-radiance-v1';gl.useProgram(p.p);
+   this._u(p,'uRadiance','1i',baked?1:0);this._u(p,'uRadianceScale','1f',finite(a.radianceScale,4));
    this._u(p,'uAspect','1f',aspect);this._u(p,'uMapAspect','1f',a.w/a.h);this._u(p,'uHalfHeight','1f',a.halfHeight);this._u(p,'uRange','1f',a.range);
    this._u(p,'uLight','3f',...light);this._u(p,'uAO','1f',finite(settings.ao,1));this._u(p,'uTransmission','1f',finite(settings.transmission,.45));this._u(p,'uBands','1f',finite(settings.bands,0));
    this._u(p,'uPalette','1i',settings.palette==='dusk'?1:settings.palette==='moon'?2:0);
    const breathing=clamp(finite(settings.breathing,0),0,.2);this._u(p,'uBreathing','1f',breathing);
    gl.enable(gl.SCISSOR_TEST);
-   let instanceIndex=0,boundLevel=-1;const activeIds=new Set();this.stats.lodCounts=this.levels.map(()=>0);
-   for(const it of instances){instanceIndex++;
-    if(!it||![it.x,it.y,it.scale,it.distance].every(Number.isFinite)||it.scale<=0||it.distance<=0||finite(it.opacity,1)<=0){this.stats.culled++;continue;}
+   const ordered=baked?[...instances].sort((a,b)=>finite(b?.distance,0)-finite(a?.distance,0)):instances;
+   this.stats.lodCounts=this.levels.map(()=>0);
+   // Keep nearest geometry/IDs unblended, then composite separated translucent
+   // instances into the existing HDR material target from far to near. Center
+   // sorting remains an approximation where two cloud volumes interpenetrate.
+   for(let pass=0;pass<(baked?2:1);pass++){
+   if(baked){gl.drawBuffers(pass?[gl.NONE,gl.NONE,gl.COLOR_ATTACHMENT2]:[gl.COLOR_ATTACHMENT0,gl.COLOR_ATTACHMENT1,gl.NONE]);if(pass){gl.disable(gl.DEPTH_TEST);gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);}}
+   let instanceIndex=0,boundLevel=-1;const activeIds=new Set();
+   for(const it of ordered){instanceIndex++;
+    if(!it||![it.x,it.y,it.scale,it.distance].every(Number.isFinite)||it.scale<=0||it.distance<=0||finite(it.opacity,1)<=0){if(!pass)this.stats.culled++;continue;}
     const centerX=settings.pixelSnap?Math.round(it.x*h/2)*2/h:it.x,centerY=settings.pixelSnap?Math.round(it.y*h/2)*2/h:it.y;
     const requestedYaw=finite(it.yaw,0)*DEG,requestedPitch=finite(it.pitch,0)*DEG;
     let yaw=clamp(requestedYaw,...this.angleBounds.yaw),pitch=clamp(requestedPitch,...this.angleBounds.pitch);
@@ -189,7 +222,7 @@ class BakedCloudRenderer{
     // Hold the nearest capture rather than extrapolating an unsupported ray.
     if(first.d>40*DEG){yaw=s0.yaw;pitch=s0.pitch;}
     const selected=selectViews(this.capture,yaw,pitch),sources=selected.map(v=>this.capture[v.i]);
-    if(Math.abs(yaw-requestedYaw)>1e-7||Math.abs(pitch-requestedPitch)>1e-7)this.stats.clampedViews++;
+    if(!pass&&(Math.abs(yaw-requestedYaw)>1e-7||Math.abs(pitch-requestedPitch)>1e-7))this.stats.clampedViews++;
     // Conservative rectangle includes rotation of the complete baked depth box.
     const target=targetBasis(yaw,pitch,finite(it.cameraPitch,0)*DEG);let rx=0,ry=0;
     for(const entry of selected){const src=this.capture[entry.i],bounds=this.renderBounds[entry.i];for(const x of [bounds.xy[0],bounds.xy[2]])for(const y of [bounds.xy[1],bounds.xy[3]])for(const z of bounds){
@@ -198,13 +231,17 @@ class BakedCloudRenderer{
     }}
     rx=(rx/a.halfHeight+breathing*1.4)*it.scale;ry=(ry/a.halfHeight+breathing)*it.scale;
     const rect=[Math.max(-1,(centerX-rx)/aspect),Math.max(-1,centerY-ry),Math.min(1,(centerX+rx)/aspect),Math.min(1,centerY+ry)];
-    if(rect[0]>=rect[2]||rect[1]>=rect[3]){this.stats.culled++;continue;}
+    if(rect[0]>=rect[2]||rect[1]>=rect[3]){if(!pass)this.stats.culled++;continue;}
     const id=it.id===undefined?instanceIndex:it.id;activeIds.add(id);
-    const lod=this._selectLod(id,it.scale*h,settings.detailMode),level=this.levels[lod];this.stats.lodCounts[lod]++;
+    const lod=this._selectLod(id,it.scale*h,settings.detailMode),level=this.levels[lod];if(!pass)this.stats.lodCounts[lod]++;
     if(lod!==boundLevel){
-     const names=['uDepth0','uNormal0','uDepth1','uNormal1','uLightPos0','uLightNeg0','uLightPos1','uLightNeg1'];
-     for(let i=0;i<8;i++){gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D_ARRAY,level.textures[i]||level.textures[0]);this._u(p,names[i],'1i',i);}
+     const names=level.hasRadiance?['uDepth0','uNormal0','uDepth1','uNormal1','uRadiance0','uRadiance1']:['uDepth0','uNormal0','uDepth1','uNormal1','uLightPos0','uLightNeg0','uLightPos1','uLightNeg1'];
+     for(let i=0;i<names.length;i++){gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D_ARRAY,level.textures[i]||level.textures[0]);this._u(p,names[i],'1i',i);}
+     // All active samplers must have compatible texture types even when the
+     // shader branch does not use their contents.
+     if(level.hasRadiance){for(const name of ['uLightPos0','uLightNeg0','uLightPos1','uLightNeg1'])this._u(p,name,'1i',0);}else{this._u(p,'uRadiance0','1i',0);this._u(p,'uRadiance1','1i',0);}
      this._u(p,'uHasLighting','1i',level.hasLighting?1:0);this._u(p,'uSixWay','1f',level.hasLighting?clamp(finite(settings.sixWay,1),0,1):0);boundLevel=lod;
+     this._u(p,'uHasSecondInterval','1i',level.hasSecondInterval?1:0);
     }
     const x=Math.floor((rect[0]+1)*w/2),y=Math.floor((rect[1]+1)*h/2),right=Math.ceil((rect[2]+1)*w/2),top=Math.ceil((rect[3]+1)*h/2);
     gl.scissor(x,y,right-x,top-y);
@@ -218,11 +255,12 @@ class BakedCloudRenderer{
     this._u(p,'uWeights','4f',...[0,1,2,3].map(k=>selected[k]?.weight||0));
     this._u(p,'uMinDepth','4f',...[0,1,2,3].map(k=>level.bounds[selected[k]?.i??selected[0].i][0]));
     this._u(p,'uMaxDepth','4f',...[0,1,2,3].map(k=>level.bounds[selected[k]?.i??selected[0].i][1]));
-    gl.drawArrays(gl.TRIANGLES,0,3);this.stats.drawn++;
+    gl.drawArrays(gl.TRIANGLES,0,3);if(!pass)this.stats.drawn++;
    }
    for(const id of this.lodState.keys())if(!activeIds.has(id))this.lodState.delete(id);
+   }
   }
-  gl.disable(gl.SCISSOR_TEST);gl.disable(gl.DEPTH_TEST);gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  gl.disable(gl.SCISSOR_TEST);gl.disable(gl.DEPTH_TEST);gl.disable(gl.BLEND);gl.bindFramebuffer(gl.FRAMEBUFFER,null);
   const p=this.post;gl.useProgram(p.p);this._u(p,'uRect','4f',-1,-1,1,1);
   for(const [i,key,name] of [[0,'color','uColor'],[1,'surface','uSurface'],[2,'material','uMaterial']]){gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D,this.target[key]);this._u(p,name,'1i',i);}
   // Scene +distance points away, while authored normal/light +Z points toward
@@ -231,6 +269,7 @@ class BakedCloudRenderer{
   const screenLight=[light[0],light[1]*ct+light[2]*st,light[2]*ct-light[1]*st];
   this._u(p,'uSize','2f',w,h);this._u(p,'uLight','3f',...screenLight);this._u(p,'uSky','3f',...sky);
   this._u(p,'uHaze','1f',finite(settings.haze,0));this._u(p,'uShadow','1f',finite(settings.shadow,0));this._u(p,'uShadowReach','1f',finite(settings.shadowReach,24));
+  this._u(p,'uRadiance','1i',this.asset?.appearance==='baked-radiance-v1'?1:0);this._u(p,'uExposure','1f',Math.max(.0001,finite(settings.exposure,1)));
   this._u(p,'uBands','1f',finite(settings.bands,0));this._u(p,'uPalette','1i',settings.palette==='dusk'?1:settings.palette==='moon'?2:0);
   gl.drawArrays(gl.TRIANGLES,0,3);
  }

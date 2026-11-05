@@ -30,29 +30,33 @@ layout(location=1)out vec4 surface;
 layout(location=2)out vec4 material;
 uniform sampler2DArray uDepth0,uNormal0,uDepth1,uNormal1;
 uniform sampler2DArray uLightPos0,uLightNeg0,uLightPos1,uLightNeg1;
+uniform sampler2DArray uRadiance0,uRadiance1;
 uniform mat3 uTarget,uSource0,uSource1,uSource2,uSource3;
 uniform vec2 uCenter;
 uniform vec4 uViews,uWeights,uMinDepth,uMaxDepth;
 uniform float uAspect,uMapAspect,uScale,uHalfHeight,uRange,uDistance,uDepthScale,uOpacity,uTime,uBreathing,uInstance;
 uniform vec3 uLight;
 uniform float uAO,uTransmission,uBands,uSixWay;
-uniform int uPalette,uHasLighting;
+uniform int uPalette,uHasLighting,uRadiance,uHasSecondInterval;
+uniform float uRadianceScale;
 ${common}
-struct Hit{vec3 n;float ao;float thickness;float alpha;float z;vec3 lightPos;vec3 lightNeg;float unoccluded;};
-Hit emptyHit(){return Hit(vec3(0,0,1),1.,0.,0.,-1e6,vec3(0),vec3(0),0.);}
+struct Hit{vec3 n;float ao;float thickness;float alpha;float z;vec3 lightPos;vec3 lightNeg;float unoccluded;vec3 radiance;};
+Hit emptyHit(){return Hit(vec3(0,0,1),1.,0.,0.,-1e6,vec3(0),vec3(0),0.,vec3(0));}
+float alphaCutoff(){return uRadiance==1?0.:.01;}
 vec3 axisWeights(){vec3 w=uLight*uLight;return w/max(dot(w,vec3(1)),.00001);}
 vec4 depthAt(vec2 uv,int view,int layer){return layer==0?texture(uDepth0,vec3(uv,float(view))):texture(uDepth1,vec3(uv,float(view)));}
 vec4 normalAt(vec2 uv,int view,int layer){return layer==0?texture(uNormal0,vec3(uv,float(view))):texture(uNormal1,vec3(uv,float(view)));}
 Hit patchSample(ivec2 cell,vec4 weights,int view,int layer,float solved){
- vec2 size=vec2(textureSize(uDepth0,0).xy);vec3 normal=vec3(0),positive=vec3(0),negative=vec3(0);float ao=0.,thickness=0.,reference=0.;
+ vec2 size=vec2(textureSize(uDepth0,0).xy);vec3 normal=vec3(0),positive=vec3(0),negative=vec3(0),radiance=vec3(0);float ao=0.,thickness=0.,reference=0.,opacity=0.;
  for(int k=0;k<4;k++)if(weights[k]>0.){
   vec2 uv=(vec2(cell+ivec2(k%2,k/2))+.5)/size;vec4 nm=normalAt(uv,view,layer),d=depthAt(uv,view,layer);
   vec3 n=decodeOct(nm.rg);float w=weights[k];normal+=n*w;ao+=nm.b*w;
   thickness+=max((unpack16(d.rg)-unpack16(d.ba))*2.*uRange,0.)*w;
   reference+=dot(max(mix(-n,n,step(vec3(0),uLight)),vec3(0)),axisWeights())*w;
   if(uHasLighting==1&&uSixWay>0.){vec3 q=vec3(uv,float(view));positive+=(layer==0?texture(uLightPos0,q).rgb:texture(uLightPos1,q).rgb)*w;negative+=(layer==0?texture(uLightNeg0,q).rgb:texture(uLightNeg1,q).rgb)*w;}
+  if(uRadiance==1){vec4 r=layer==0?texture(uRadiance0,vec3(uv,float(view))):texture(uRadiance1,vec3(uv,float(view)));opacity+=r.a*w;if(r.a>0.)radiance+=r.rgb*r.rgb*uRadianceScale*w;}
  }
- return Hit(normalize(normal),ao,thickness,1.-exp(-thickness*12.),solved,positive,negative,reference);
+ return Hit(normalize(normal),ao,thickness,uRadiance==1?opacity:1.-exp(-thickness*12.),solved,positive,negative,reference,radiance);
 }
 bool edgeCompatible(float a,float b,vec3 na,vec3 nb,vec2 delta,mat3 source,float pixel){
  vec3 offset=source*vec3(delta,b-a);float tolerance=pixel*.8+uRange/65535.*4.;
@@ -101,7 +105,7 @@ Hit reproject(vec2 xy,mat3 source,int view,int layer,float minDepth,float maxDep
    z[k]=(unpack16(depthAt(uv,view,layer).rg)*2.-1.)*uRange;normals[k]=decodeOct(nm.rg);
   }
   bool compatible=all(greaterThan(coverage,vec4(.5)));
-  if(compatible){
+  if(compatible&&uRadiance==0){
    vec2 dx=vec2(extent.x/size.x,0),dy=vec2(0,extent.y/size.y);
    compatible=edgeCompatible(z.x,z.y,normals[0],normals[1],dx,source,pixel)&&edgeCompatible(z.z,z.w,normals[2],normals[3],dx,source,pixel)&&edgeCompatible(z.x,z.z,normals[0],normals[2],dy,source,pixel)&&edgeCompatible(z.y,z.w,normals[1],normals[3],dy,source,pixel);
   }
@@ -113,7 +117,7 @@ Hit reproject(vec2 xy,mat3 source,int view,int layer,float minDepth,float maxDep
    // Never join missing coverage or a discontinuous depth layer. Boundary
    // fallback is restricted to original constant-depth texel footprints.
    float nearest=-1e6;int chosen=-1;
-   for(int k=0;k<4;k++)if(coverage[k]>.5&&dot(normals[k],ray)>.005){
+   for(int k=0;k<4;k++)if(coverage[k]>.5&&(uRadiance==1||dot(normals[k],ray)>.005)){
     float t=(z[k]-sourceZ)/den;vec2 sampleCell=(origin+velocity*t)*size;
     ivec2 id=cell+ivec2(k%2,k/2);
     if(t<=cursor+1e-5&&t>=exitT-1e-5&&all(greaterThanEqual(sampleCell,vec2(id)))&&all(lessThan(sampleCell,vec2(id)+1.))&&t>nearest){nearest=t;chosen=k;}
@@ -131,7 +135,15 @@ Hit reproject(vec2 xy,mat3 source,int view,int layer,float minDepth,float maxDep
  }
  return emptyHit();
 }
-Hit viewHit(vec2 xy,mat3 source,int view,float lo,float hi){Hit a=reproject(xy,source,view,0,lo,hi),b=reproject(xy,source,view,1,lo,hi);if(b.alpha>.01&&b.z>a.z)return b;return a;}
+Hit viewHit(vec2 xy,mat3 source,int view,float lo,float hi){
+ Hit a=reproject(xy,source,view,0,lo,hi);
+ // Empty second captures contain no optical contribution. This uniform is
+ // classified from actual map opacity/coverage separately for each LOD.
+ if(uRadiance==1&&uHasSecondInterval==0)return a;
+ Hit b=reproject(xy,source,view,1,lo,hi);
+ if(uRadiance==1){if(a.alpha<=0.)return b;if(b.alpha<=0.)return a;if(b.z>a.z){Hit swap=a;a=b;b=swap;}a.radiance+=b.radiance*(1.-a.alpha);a.alpha+=b.alpha*(1.-a.alpha);return a;}
+ if(b.alpha>.01&&b.z>a.z)return b;return a;
+}
 mat3 sourceAt(int i){if(i==0)return uSource0;if(i==1)return uSource1;if(i==2)return uSource2;return uSource3;}
 float consistency(Hit h,vec2 xy){
  vec3 point=uTarget*vec3(xy,h.z);vec2 size=vec2(textureSize(uDepth0,0).xy),extent=2.*uHalfHeight*vec2(uMapAspect,1.);
@@ -141,13 +153,14 @@ float consistency(Hit h,vec2 xy){
   mat3 source=sourceAt(i);int view=int(uViews[i]);vec2 uv=vec2(dot(point,source[0]),dot(point,source[1]))/extent+.5;
   if(any(lessThan(uv,vec2(0)))||any(greaterThanEqual(uv,vec2(1))))continue;
   vec4 nm=normalAt(uv,view,0);
+  if(uRadiance==1)nm.a=max(nm.a,normalAt(uv,view,1).a);
   if(nm.a<.5){
    // Test uncertainty of a source pixel's footprint, never dilate the output.
    // A ray through a genuine opening remains empty in every contributing map.
    vec2 q=(floor(uv*size-.5)+.5)/size;float support=0.;
-   for(int y=0;y<2;y++)for(int x=0;x<2;x++)support=max(support,normalAt(q+vec2(x,y)/size,view,0).a);
+   for(int y=0;y<2;y++)for(int x=0;x<2;x++){vec2 tap=q+vec2(x,y)/size;support=max(support,normalAt(tap,view,0).a);if(uRadiance==1)support=max(support,normalAt(tap,view,1).a);}
    if(support<.5)disagreement+=uWeights[i];
-  }else{
+  }else if(uRadiance==0){
    vec2 center=(floor(uv*size)+.5)/size;vec3 n=decodeOct(nm.rg);float front=(unpack16(depthAt(uv,view,0).rg)*2.-1.)*uRange;
    float nz=dot(n,source[2]);float delta=dot(n,source*vec3((uv-center)*extent,0.));
    float plane=front-delta/max(nz,.1);float tolerance=max(extent.x/size.x,extent.y/size.y)*2./max(nz,.25);
@@ -185,35 +198,37 @@ void main(){
  for(int i=0;i<4;i++){
   weights[i]=0.;hits[i]=emptyHit();if(uViews[i]<0.||uWeights[i]<=0.)continue;
   hits[i]=viewHit(xy,sourceAt(i),int(uViews[i]),uMinDepth[i],uMaxDepth[i]);
-  if(hits[i].alpha>.01)weights[i]=uWeights[i]*consistency(hits[i],xy);
-  if(weights[i]>0.&&hits[i].alpha>.01&&hits[i].z>h.z)h=hits[i];
+  if(hits[i].alpha>alphaCutoff())weights[i]=uWeights[i]*consistency(hits[i],xy);
+  if(weights[i]>0.&&hits[i].alpha>alphaCutoff()&&hits[i].z>h.z)h=hits[i];
  }
- if(h.alpha>.01){
+ if(h.alpha>alphaCutoff()){
   // A previously unavailable view may reveal a closer sample. Introduce its
   // depth correction continuously instead of letting infinitesimal angular
   // weight instantly replace the depth buffer (and other clouds' shadows).
   // Once a view has 8% support it fully occludes farther captured surfaces.
   for(int i=0;i<4;i++)for(int j=i+1;j<4;j++)if(hits[j].z<hits[i].z){Hit swap=hits[i];hits[i]=hits[j];hits[j]=swap;float w=weights[i];weights[i]=weights[j];weights[j]=w;}
   float resolvedDepth=-1e6;
-  for(int i=0;i<4;i++)if(weights[i]>0.&&hits[i].alpha>.01){
+  for(int i=0;i<4;i++)if(weights[i]>0.&&hits[i].alpha>alphaCutoff()){
    resolvedDepth=resolvedDepth< -1e5?hits[i].z:mix(resolvedDepth,hits[i].z,smoothstep(0.,.08,weights[i]));
   }
   h.z=resolvedDepth;
-  float total=0.;vec3 normal=vec3(0),positive=vec3(0),negative=vec3(0);float ao=0.,thickness=0.,reference=0.,coverage=0.;
+  float total=0.;vec3 normal=vec3(0),positive=vec3(0),negative=vec3(0),radiance=vec3(0);float ao=0.,thickness=0.,reference=0.,coverage=0.;
   // Crossfade appearance with continuous angular support. Depth is resolved
   // separately above, preserving full occlusion for established front samples.
-  for(int i=0;i<4;i++)if(weights[i]>0.&&hits[i].alpha>.01){
+  for(int i=0;i<4;i++)if(weights[i]>0.&&hits[i].alpha>alphaCutoff()){
    float weight=weights[i];total+=weight;normal+=hits[i].n*weight;positive+=hits[i].lightPos*weight;negative+=hits[i].lightNeg*weight;
    ao+=hits[i].ao*weight;thickness+=hits[i].thickness*weight;reference+=hits[i].unoccluded*weight;coverage+=hits[i].alpha*weight;
+   radiance+=hits[i].radiance*weight;
   }
-  if(total>0.){h.n=normalize(normal);h.lightPos=positive/total;h.lightNeg=negative/total;h.ao=ao/total;h.thickness=thickness/total;h.unoccluded=reference/total;h.alpha=coverage/total*smoothstep(0.,.12,total);}
+  if(total>0.){float support=smoothstep(0.,.12,total);h.n=normalize(normal);h.lightPos=positive/total;h.lightNeg=negative/total;h.ao=ao/total;h.thickness=thickness/total;h.unoccluded=reference/total;h.alpha=coverage/total*support;h.radiance=radiance/total*support;}
  }
- if(h.alpha<.01||uOpacity<=0.)discard;
+ if(h.alpha<=alphaCutoff()||uOpacity<=0.)discard;
  float distance=max(.001,uDistance-h.z*uDepthScale);
  gl_FragDepth=distance/(distance+1.);
  float alpha=h.alpha*uOpacity;vec2 terms=lightingTerms(h);
  color=vec4(shadeTerms(terms,uBands,uPalette)*alpha,alpha);
  material=vec4(terms,0.,alpha);
+ if(uRadiance==1){color=vec4(0);material=vec4(h.radiance*uOpacity,alpha);}
  surface=vec4(encodeOct(transpose(uTarget)*h.n),distance,uInstance);
 }`;
 const post=`#version 300 es
@@ -222,8 +237,8 @@ in vec2 screen;out vec4 color;
 uniform sampler2D uColor,uSurface,uMaterial;
 uniform vec2 uSize;
 uniform vec3 uLight,uSky;
-uniform float uHaze,uShadow,uShadowReach,uBands;
-uniform int uPalette;
+uniform float uHaze,uShadow,uShadowReach,uBands,uExposure;
+uniform int uPalette,uRadiance;
 ${common}
 float blockerAt(vec2 q,float receiver,float expected,float bias){
  vec2 p=q*uSize-.5,f=fract(p);ivec2 cell=ivec2(floor(p));float sum=0.;
@@ -240,6 +255,18 @@ float blockerAt(vec2 q,float receiver,float expected,float bias){
 void main(){
  vec2 uv=screen*.5+.5;vec4 c=texture(uColor,uv),s=texture(uSurface,uv);vec3 bg=uSky;
  if(s.a<.5){color=vec4(bg,1);return;}
+ if(uRadiance==1){
+  // Interpret the UI sky as its final displayed color. Invert the tone curve
+  // before linear premultiplied composition so empty/very thin pixels converge
+  // exactly to that sky at every exposure, without a colored silhouette halo.
+  vec3 skyLinear=mix(bg/12.92,pow((bg+.055)/1.055,vec3(2.4)),step(vec3(.04045),bg));
+  vec3 skyScene=-log(max(vec3(1e-7),1.-clamp(skyLinear,vec3(0),vec3(.9999999))))/uExposure;
+  vec4 hdr=texture(uMaterial,uv);float alpha=clamp(hdr.a,0.,1.);
+  float haze=1.-exp(-max(uHaze,0.)*s.b*.025);
+  vec3 scene=mix(hdr.rgb,skyScene*alpha,haze)+skyScene*(1.-alpha);
+  vec3 linear=1.-exp(-max(scene,vec3(0))*uExposure);
+  color=vec4(mix(linear*12.92,1.055*pow(linear,vec3(1./2.4))-.055,step(vec3(.0031308),linear)),1.);return;
+ }
  float occ=0.;vec2 dir=uLight.xy;float len=length(dir);
  if(uShadow>0.&&len>.01){dir/=len;float span=clamp(uShadowReach,1.,64.);
   for(int i=1;i<=64;i++){

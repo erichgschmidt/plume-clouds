@@ -1,0 +1,170 @@
+{
+  "source": {
+    "adapter": "skypaint-density-integral-v1",
+    "files": {
+      "src/render/cloud.glsl": "5fcb12edd3eb7fd90cdf0c6bcb7f0bdf9cde89abfc62a977e2bb74c82350d075",
+      "src/render/studio-field.glsl": "ca47c80e18c02c245c3d9680a8e8aaa329f2e8b145a91c92e7f401dbd350b988",
+      "src/render/studio-lighting.glsl": "ff47d476afa7424a879f8d49c29589bf8596b23704d9f82a683adbb0c08b3977",
+      "src/render/studio-render.js": "1b7b0ecee6dbf05b4aaf362672fee9f7b6cc2d1384144a4305758def7def0a39",
+      "src/render/density-cache.js": "3ade4636ebf8f6e9b61a078fd9c8ede42c879d32f8b2939e05bd8a6a099a94d7",
+      "src/core/studio-presets.js": "a01d750a03d2b02f3c1a473eb71e8ac43b284033361c1b995ce341b9a37c1699",
+      "src/render/viewer.js": "75a2bfd691008987966505891328b1643f4e857546e08438cd010be4474efce6",
+      "src/render/studio-noise.glsl": "3033100b3fde6d62b02201c93db89aecb03259170b28698cfdfc20ac1490ae40",
+      "src/render/studio-noise.js": "c13169051d804b14948179d9555437223c15ffd0697083db6df7e7405aed1e04",
+      "src/render/recipe.glsl": "26e6f9ad57c9e2c492fbbf07de4c6d80db39369b8f3c536d7a6bdce39ad44a9c",
+      "src/render/recipe-source.js": "7cabd3eeeb29a85086c0257a14b9843ac1448c81c15f08d454c0d812e1b44ae8",
+      "src/core/scaffold.js": "7134c4d5f160ddcfea7960170f5aaa1ea0314184eac4c66199521e1ab133bb15",
+      "src/core/noise.js": "b8ac324f7da7f31ee81fedb5c08016b3723f3a916506b91c2c90d4c504e1df0c",
+      "src/core/cache.js": "5bcb898cf300d7e845210ae4bf233da63d3c5b8d7272abb43dbb8605b87b8c45"
+    }
+  },
+  "comparison": {
+    "shaderMax": 0,
+    "cloudCompositeMax": 8.029985654189886e-8,
+    "quantMax": 0.00990086273338564,
+    "quantRMSE": 0.0014579242857957746,
+    "alphaMax": 0.0021744966506958008,
+    "transparentRGB": 0,
+    "clipped": 0,
+    "occupied": 2551,
+    "totalPixels": 12288,
+    "renderer": "WebKit WebGL"
+  },
+  "perView": [
+    {
+      "yaw": -35,
+      "pitch": -85,
+      "occupied": 2677,
+      "opacitySum": 2240.6901960784435,
+      "edgePixels": 0,
+      "maxRGBByte": 200
+    },
+    {
+      "yaw": 0,
+      "pitch": -85,
+      "occupied": 2674,
+      "opacitySum": 2236.3215686274657,
+      "edgePixels": 0,
+      "maxRGBByte": 205
+    },
+    {
+      "yaw": 35,
+      "pitch": -85,
+      "occupied": 2653,
+      "opacitySum": 2228.5333333333388,
+      "edgePixels": 0,
+      "maxRGBByte": 211
+    },
+    {
+      "yaw": -35,
+      "pitch": -60,
+      "occupied": 2648,
+      "opacitySum": 2198.3529411764807,
+      "edgePixels": 0,
+      "maxRGBByte": 182
+    },
+    {
+      "yaw": 0,
+      "pitch": -60,
+      "occupied": 2705,
+      "opacitySum": 2249.678431372562,
+      "edgePixels": 0,
+      "maxRGBByte": 189
+    },
+    {
+      "yaw": 35,
+      "pitch": -60,
+      "occupied": 2622,
+      "opacitySum": 2194.06274509805,
+      "edgePixels": 0,
+      "maxRGBByte": 209
+    },
+    {
+      "yaw": -35,
+      "pitch": -30,
+      "occupied": 2317,
+      "opacitySum": 1924.215686274513,
+      "edgePixels": 0,
+      "maxRGBByte": 163
+    },
+    {
+      "yaw": 0,
+      "pitch": -30,
+      "occupied": 2595,
+      "opacitySum": 2165.494117647067,
+      "edgePixels": 0,
+      "maxRGBByte": 169
+    },
+    {
+      "yaw": 35,
+      "pitch": -30,
+      "occupied": 2601,
+      "opacitySum": 2141.262745098044,
+      "edgePixels": 0,
+      "maxRGBByte": 192
+    },
+    {
+      "yaw": -35,
+      "pitch": 0,
+      "occupied": 2072,
+      "opacitySum": 1732.7647058823559,
+      "edgePixels": 0,
+      "maxRGBByte": 155
+    },
+    {
+      "yaw": 0,
+      "pitch": 0,
+      "occupied": 2510,
+      "opacitySum": 2107.890196078438,
+      "edgePixels": 0,
+      "maxRGBByte": 162
+    },
+    {
+      "yaw": 35,
+      "pitch": 0,
+      "occupied": 2478,
+      "opacitySum": 2058.274509803925,
+      "edgePixels": 0,
+      "maxRGBByte": 178
+    },
+    {
+      "yaw": -35,
+      "pitch": 20,
+      "occupied": 2285,
+      "opacitySum": 1904.9058823529465,
+      "edgePixels": 0,
+      "maxRGBByte": 149
+    },
+    {
+      "yaw": 0,
+      "pitch": 20,
+      "occupied": 2688,
+      "opacitySum": 2222.6901960784394,
+      "edgePixels": 0,
+      "maxRGBByte": 154
+    },
+    {
+      "yaw": 35,
+      "pitch": 20,
+      "occupied": 2576,
+      "opacitySum": 2136.505882352952,
+      "edgePixels": 0,
+      "maxRGBByte": 172
+    }
+  ],
+  "w": 128,
+  "h": 96,
+  "views": 15,
+  "lods": [
+    64
+  ],
+  "rawBytes": 5529600,
+  "elapsedSeconds": 6.956,
+  "limitations": [
+    "Lighting frozen at bake; runtime must not relight radiance; exposure remains editable",
+    "One integrated depth interval cannot reveal internal disocclusions",
+    "Representative depth is opacity centroid, not a geometric cloud surface"
+  ],
+  "output": "C:\\Users\\Gus\\Documents\\development\\animatedcloud\\assets\\skypaint-default.js",
+  "previewPath": "C:\\Users\\Gus\\Documents\\development\\animatedcloud\\assets\\skypaint-default.png"
+}

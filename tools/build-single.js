@@ -11,6 +11,7 @@ html = html.replace(/<script src="((?:src|assets)\/[^"?]+)(?:\?v=\d+)?"><\/scrip
 // Keep editor navigation valid when both standalone pages live in dist/.
 if (path.dirname(output) === 'dist') {
   html = html.replace(/href="(puffs|sky)\.html"/g, 'href="plume-$1.html"')
+    .replace(/href="skypaint-bake\.html"/g, 'href="plume-skypaint-bake.html"')
     .replace(/href="((?:puffs|sky)-legacy\.html)"/g, 'href="../$1"');
 }
 // the build stamp: commit and date, shown in the page's HUD (a bundle in the wild says which build it is)

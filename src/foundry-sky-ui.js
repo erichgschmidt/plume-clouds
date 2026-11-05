@@ -4,7 +4,8 @@
   var $ = function (id) { return document.getElementById(id); };
   var canvas = $('canvas'), stage = $('stage'), status = $('status'), hud = $('hud');
   var scene = new FoundryScene({ seed: 1 }), clock = new CloudClock(), renderer;
-  var settings = { sunAz: -42, sunAlt: 38, ao: .3, transmission: .28, bands: 5, palette: 'day', haze: .35, shadow: .4, shadowReach: 24, pixelSize: 2, breathing: .06, pixelSnap: true, detailMode: 'auto', sixWay: 1 };
+  var settings = { sunAz: -42, sunAlt: 38, ao: .3, transmission: .28, bands: 5, palette: 'day', haze: .35, shadow: .4, shadowReach: 24, pixelSize: 2, breathing: .06, pixelSnap: true, detailMode: 'auto', sixWay: 1, exposure: 1.25 };
+  var rangeInputs = {};
   var playback = { speed: 1 }, playing = true, ready = false, loadSerial = 0, held = {}, drag = null, asset = null;
   function message(text, error) { status.textContent = text; status.classList.toggle('error', !!error); }
   function fit() { var grid = FoundryPixelGrid.measure(canvas, settings.pixelSize); scene.aspect = grid.aspect; return grid; }
@@ -18,7 +19,7 @@
     row.className = 'row'; row.title = help; name.textContent = label; input.type = 'range'; input.min = min; input.max = max; input.step = step; input.value = target[key]; input.id = 'param-' + key; name.htmlFor = input.id;
     function refresh() { output.value = Number(target[key]).toFixed(step >= 1 ? 0 : step >= .1 ? 1 : 2); }
     input.addEventListener('input', function () { target[key] = Number(input.value); refresh(); if (rebuild) reset(); });
-    row.append(name, input, output); host.appendChild(row); refresh(); return input;
+    row.append(name, input, output); host.appendChild(row); rangeInputs[key] = input; refresh(); return input;
   }
   var sg = group('Scene');
   range(sg, playback, 'speed', 'Playback speed', 0, 2, .05, 'Rate of travel, sway and authored cloud animation. Zero freezes the scene.');
@@ -38,6 +39,8 @@
   range(lg, settings, 'transmission', 'Light through', 0, 1, .02, 'Warm light passing through thin parts of the cloud.');
   var sixWayInput = range(lg, settings, 'sixWay', 'Baked lighting', 0, 1, .02, 'Use the authored response to light from six directions. Lower values favor normal-based lighting.');
   var sixWayHint = document.createElement('p'); sixWayHint.id = 'lightingHint'; lg.appendChild(sixWayHint); sixWayInput.disabled = true;
+  var exposureInput = range(lg, settings, 'exposure', 'Exposure', .1, 4, 'any', 'Brightness of the cloud light captured in SkyPaint. The sky background stays unchanged.');
+  exposureInput.closest('.row').style.display = 'none';
   range(lg, settings, 'haze', 'Distance haze', 0, 1, .02, 'Atmospheric blending grows with distance.');
   var row = document.createElement('div'), label = document.createElement('label'), select = document.createElement('select'); row.className = 'row'; label.textContent = 'Palette'; label.htmlFor = 'param-palette'; select.id = 'param-palette';
   [['day', 'Daylight'], ['dusk', 'Dusk'], ['moon', 'Moonlight']].forEach(function (entry) { var o = document.createElement('option'); o.value = entry[0]; o.textContent = entry[1]; select.appendChild(o); });
@@ -56,8 +59,18 @@
     // plus maximum breathing bounds every projected view, including undersides.
     scene.assetBound = Math.hypot(next.w / next.h, 1, next.range / next.halfHeight) + .28; ready = true;
     message(source + ': ' + (next.name || 'Authored cloud') + ' · ' + next.views.length + ' views · ' + next.w + ' × ' + next.h);
-    sixWayInput.disabled = !next.lighting;
-    sixWayHint.textContent = next.lighting ? 'Directional lighting is included in this cloud.' : 'This older asset uses normal lighting. Rebake it in Foundry to enable directional baked lighting.';
+    var fixedLight = next.appearance === 'baked-radiance-v1';
+    ['sunAz', 'sunAlt', 'shadow', 'shadowReach', 'ao', 'transmission', 'bands', 'sixWay'].forEach(function (key) { rangeInputs[key].disabled = fixedLight; rangeInputs[key].closest('.row').style.display = fixedLight ? 'none' : ''; });
+    $('param-palette').disabled = fixedLight;
+    $('param-palette').closest('.row').style.display = fixedLight ? 'none' : '';
+    sixWayInput.disabled = fixedLight || !next.lighting;
+    exposureInput.closest('.row').style.display = fixedLight ? '' : 'none';
+    exposureInput.disabled = !fixedLight;
+    if (fixedLight && Number.isFinite(next.bakeLighting && next.bakeLighting.exposure)) {
+      settings.exposure = Math.max(.1, Math.min(4, next.bakeLighting.exposure));
+      exposureInput.value = settings.exposure; exposureInput.dispatchEvent(new Event('input'));
+    }
+    sixWayHint.textContent = fixedLight ? 'SkyPaint cloud light and transparency are baked into this asset. Adjust Exposure here; change sunlight in the source and rebake. Haze and motion remain available.' : next.lighting ? 'Directional lighting is included in this cloud.' : 'This older asset uses normal lighting. Rebake it in Foundry to enable directional baked lighting.';
     api.asset = next;
   }
   async function loadSaved() {
@@ -66,13 +79,14 @@
     try { saved = await FoundryAssets.load('active'); } catch (error) { problem = error.message; }
     if (serial !== loadSerial) return;
     try {
-      if (saved) applyAsset(saved, 'From Foundry');
+      if (saved) applyAsset(saved, 'Saved cloud');
       else if (typeof FOUNDRY_DEFAULT !== 'undefined') { applyAsset(FoundryAssets.parse(FOUNDRY_DEFAULT), 'Starter cloud'); if (problem) message('Starter cloud loaded. ' + problem, true); }
       else throw Error(problem || 'No saved cloud or starter asset is available. Open Foundry, bake a cloud, and choose Use in sky.');
     } catch (error) { message(error.message, true); if (!ready) hud.textContent = 'Import a baked cloud asset to start'; }
   }
   $('btnLoad').addEventListener('click', loadSaved);
   $('btnStarter').addEventListener('click', function () { ++loadSerial; try { applyAsset(FoundryAssets.parse(FOUNDRY_DEFAULT), 'Starter cloud'); } catch (error) { message(error.message, true); } });
+  $('btnVolumeDemo').addEventListener('click', function () { ++loadSerial; try { applyAsset(FoundryAssets.parse(SKYPAINT_DEFAULT), 'SkyPaint demo'); } catch (error) { message(error.message, true); } });
   $('btnImport').addEventListener('click', function () { $('assetFile').click(); });
   $('assetFile').addEventListener('change', async function () {
     var file = this.files[0]; if (!file) return; var serial = ++loadSerial;

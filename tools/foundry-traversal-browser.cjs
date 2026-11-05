@@ -7,7 +7,7 @@ const shaderArgument=process.argv.indexOf('--shader'),shaderOverride=shaderArgum
  const page=await browser.newPage({viewport:{width:140,height:140}});await page.setContent('<canvas style="width:128px;height:128px"></canvas>');
  for(const f of ['src/foundry-shaders.js','src/foundry-renderer.js','src/foundry-assets.js','assets/foundry-default.js'])await page.addScriptTag({content:fs.readFileSync(shaderOverride&&f==='src/foundry-shaders.js'?shaderOverride:path.join(__dirname,'..',f),'utf8')});
  const result=await page.evaluate(()=>{
-  const originalCloud=FoundryShaders.cloud;let shader=originalCloud;const loop='for(int stepIndex=0;stepIndex<2052;stepIndex++){',marker='if(h.alpha<.01||uOpacity<=0.)discard;';
+  const originalCloud=FoundryShaders.cloud;let shader=originalCloud;const loop='for(int stepIndex=0;stepIndex<2052;stepIndex++){',marker='if(h.alpha<=alphaCutoff()||uOpacity<=0.)discard;';
   if(!shader.includes(loop)||!shader.includes(marker))throw Error('Traversal instrumentation markers changed');
   shader=shader.replace('Hit reproject(', 'float diagnosticMax=0.,diagnosticExhaustions=0.;\nHit reproject(').replace(loop,loop+'diagnosticMax=max(diagnosticMax,float(stepIndex+1));if(stepIndex==2051)diagnosticExhaustions+=1.;');
   shader=shader.replace(marker,'color=vec4(0,0,0,1);surface=vec4(0);material=vec4(diagnosticMax,diagnosticExhaustions,0,1);return;');FoundryShaders.cloud=shader;

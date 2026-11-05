@@ -10,11 +10,11 @@
 <body><main>
 <section id="stage" aria-label="Authored cloud sky"><canvas id="canvas"></canvas><div id="hud">Loading cloud…</div><div id="hint">Drag to move viewpoint · A / D move sideways · W / S change elevation</div></section>
 <aside><h1>Cloud sky</h1><p>Your authored cloud, carried through a changing sky.</p>
-<nav><a href="puffs.html">Open Foundry</a><a href="sky-legacy.html">Legacy sky</a></nav>
+<nav><a href="puffs.html">Open Foundry</a><a href="skypaint-bake.html">Bake SkyPaint</a><a href="sky-legacy.html">Legacy sky</a></nav>
 <div class="actions"><button id="btnPlay">Pause</button><button id="btnNew">Regenerate</button><label for="seed">Seed</label><input id="seed" type="number" value="1" step="1"></div>
-<div class="actions"><button id="btnLoad">Load from Foundry</button><button id="btnStarter">Starter cloud</button><button id="btnImport">Import asset</button><input id="assetFile" type="file" accept=".json,application/json" hidden></div>
+<div class="actions"><button id="btnLoad">Load saved cloud</button><button id="btnStarter">Starter cloud</button><button id="btnVolumeDemo">SkyPaint demo</button><button id="btnImport">Import asset</button><input id="assetFile" type="file" accept=".json,application/json" hidden></div>
 <p id="status" role="status" aria-live="polite">Loading your saved cloud…</p><div id="controls"></div>
 <p>Pause freezes cloud animation and travel. Camera inspection stays available.</p></aside>
 </main>
-<script src="src/foundry-assets.js"></script><script src="src/foundry-pixel-grid.js"></script><script src="src/foundry-shaders.js"></script><script src="src/foundry-renderer.js"></script><script src="src/clock.js"></script><script src="assets/foundry-default.js"></script><script src="src/foundry-scene.js"></script><script src="src/foundry-sky-ui.js"></script>
+<script src="src/foundry-assets.js"></script><script src="src/foundry-pixel-grid.js"></script><script src="src/foundry-shaders.js"></script><script src="src/foundry-renderer.js"></script><script src="src/clock.js"></script><script src="assets/foundry-default.js"></script><script src="assets/skypaint-default.js"></script><script src="src/foundry-scene.js"></script><script src="src/foundry-sky-ui.js"></script>
 </body></html>

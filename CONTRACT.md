@@ -8,7 +8,8 @@ sky consumes only 2D capture maps, with no particle simulation, SDF evaluation,
 volume solver, or mesh rendering. The supplied Foundry prototype is an authorized
 source for this integration and is preserved in `reference/cloud-foundry-v2.1.html`.
 
-- `FoundryAssets` v2 validates and serializes four byte-exact geometry RGBA8 maps
+- `FoundryAssets` validates v1/v2 geometry-light assets and v3 baked-radiance
+  assets. Geometry-light exports remain v2. Each capture has four byte-exact geometry RGBA8 maps
   plus four optional six-way lighting maps per capture. V1 assets still load.
   Lighting uses two signed XYZ RGB maps per occupied interval with matching
   coverage alpha, storing visibility times directional cosine. The sky normalizes
@@ -94,11 +95,66 @@ source for this integration and is preserved in `reference/cloud-foundry-v2.1.ht
 The old particle pages remain at `puffs-legacy.html` and `sky-legacy.html` for
 comparison. The checkpoint before this migration is commit `4046d02`.
 
+### SkyPaint density appearance
+
+`skypaint-bake.html` is a separate author-only page. It runs the actual SkyPaint
+density, noise and Studio lighting implementation, then captures fifteen fixed
+front/underside views. It accepts SkyPaint Studio scene JSON (including sculpt
+replay), or bank/tower/anvil presets. Cancellation or an invalid bake preserves
+the last completed asset. Use in sky saves through the same IndexedDB handoff;
+JSON export/import works independently of browser storage. The generated
+`assets/skypaint-author.js` is never included in the sky page. Rebuilding it reads
+the separate SkyPaint checkout without modifying that project.
+
+V3 `appearance: baked-radiance-v1` stores two RGBA8 radiance maps per capture,
+alongside the geometry maps. RGB encodes `sqrt(premultipliedLinearRadiance /
+radianceScale)` and A stores integrated opacity. The default scale is 4;
+validated scales span 0.000001 through 65504. The baker rejects clipped
+highlights in any view; its advanced Highlight range control allows brighter
+source illumination.
+Zero-alpha radiance is exactly zero; coverage does not invent occupied rays.
+The source adapter extracts these values before SkyPaint background composition,
+tone mapping and exposure. It checks its instrumented shader against the original
+and verifies recomposition with the original background before accepting a bake.
+Source hashes, scene recipe and bake illumination metadata accompany the maps.
+
+The runtime decodes into the existing RGBA16F material target. Two local intervals
+composite front over back. A separate material pass composites cloud instances
+far to near, while geometry/IDs retain their nearest unblended values. This avoids
+blending float32 geometry targets and preserves translucent clouds behind wisps.
+Distance haze currently uses the nearest surface for a combined pixel, so
+translucent overlaps have approximate aerial perspective. Center sorting is
+approximate for interpenetrating cloud instances; this is not
+an order-independent volume renderer. Frozen radiance ignores sun, normal-based
+lighting, palette bands, AO and screen-space cast-shadow settings. The UI disables
+those controls and exposes display exposure. Haze and motion still apply. The
+background is converted to the corresponding scene-linear value before
+composition, so zero opacity reproduces the sky exactly at every exposure.
+
+Radiance detail levels area-average decoded linear premultiplied RGB and opacity
+over each 2x2 footprint, including empty rays as zero. Geometry keeps a complete
+representative ray. Blocks containing a contributing second interval retain
+that complete ray's appearance instead of independently averaging intervals.
+Packed depth remains unaveraged. The included 128x96 demo plus 64x48 detail level
+uses 5,529,600 raw map bytes; the same 160 MiB asset budget applies.
+
+The initial SkyPaint exporter integrates each ray into interval 0, using the
+opacity-contribution centroid as its representative depth; interval 1 is empty.
+This preserves captured appearance closely, but it cannot recover arbitrary
+internal disocclusion or an unseen backside. It is an exterior cloud impostor,
+not a walk-through volume. Relighting requires another bake. Existing geometry
+assets retain their adjustable lighting and shadow path. Neither representation
+evaluates 3D density, meshes or a volume solver in the running sky.
+
+Choose **SkyPaint demo** in the sky for the included comparison without replacing
+your saved asset. Choose **Bake SkyPaint** for the browser workflow. CLI export
+and regeneration are documented in `tools/SKYPAINT-BAKE.md`.
+
 ### Working with the bridge
 
 Open `puffs.html`, shape the formation, select the 15-view overhead preset, then
 choose **Freeze & bake asset** and **Use in sky**. Open `sky.html` and choose
-**Load from Foundry** if it was already open. **Export sky asset** / **Import asset**
+**Load saved cloud** if it was already open. **Export sky asset** / **Import asset**
 is the portable handoff when the pages have different origins. A baked starter
 asset is included, so the sky does not depend on an authoring session at startup.
 **Starter cloud** loads it without overwriting the saved author asset. Older assets
@@ -115,11 +171,20 @@ Rebuild the standalone pages with:
 ```
 node tools/build-single.js puffs.html dist/plume-puffs.html
 node tools/build-single.js sky.html dist/plume-sky.html
+node tools/build-single.js skypaint-bake.html dist/plume-skypaint-bake.html
 ```
 CPU regressions: `tools/foundry-assets-test.cjs`, `tools/foundry-scene-test.cjs`,
 and `tools/foundry-renderer-test.cjs`. Browser regressions:
 `tools/foundry-author-test.cjs`, `tools/foundry-renderer-browser.cjs`,
 `tools/foundry-sky-test.cjs`, and `tools/foundry-bundle-test.cjs`.
+SkyPaint/radiance checks: `tools/skypaint-bake-test.cjs`,
+`tools/foundry-radiance-test.cjs`, `tools/foundry-radiance-lod-test.cjs`,
+`tools/foundry-interval-test.cjs`, and `tools/foundry-volume-test.cjs`.
+GPU checks: `tools/skypaint-bake-ui-browser.cjs`,
+`tools/foundry-volume-browser.cjs`, `tools/foundry-volume-native-browser.cjs`,
+and `tools/foundry-volume-quality-browser.cjs`. Run browser GPU audits serially
+to avoid contending contexts and misleading timing. Quality audit images and
+measurements are written to the OS temporary directory.
 Pixel-grid checks are `tools/foundry-pixel-grid-test.cjs` and
 `tools/foundry-pixel-grid-browser.cjs`. Capture transitions are checked by
 `tools/foundry-view-selection-test.cjs` and `tools/foundry-transition-browser.cjs`,
