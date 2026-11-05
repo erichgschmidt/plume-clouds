@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plume Clouds — Puffs</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1b1f22; color: #d8e2e6; font: 12px/1.4 system-ui, sans-serif; overflow: hidden; }
+  #app { display: flex; height: 100%; }
+  #stage { flex: 1; position: relative; background: #10303c; }
+  canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+  #panel { user-select: none; -webkit-user-select: none; width: 300px; flex: 0 0 300px; background: #23282c; border-left: 1px solid #000; overflow-y: auto; padding: 8px; box-sizing: border-box; }
+  h3 { margin: 10px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #9fb0b8; }
+  .row { display: flex; align-items: center; gap: 6px; height: 22px; }
+  .row label { width: 72px; color: #b8c4ca; white-space: nowrap; overflow: hidden; }
+  .row input[type=range] { flex: 1; min-width: 0; }
+  .row .val { width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+  .param-row { display: grid; grid-template-columns: 124px minmax(0, 1fr) 42px; height: auto; min-height: 24px; gap: 2px 6px; padding: 1px 0; }
+  .param-row label { width: auto; white-space: normal; overflow-wrap: anywhere; }
+  .param-row input[type=range] { width: 100%; margin: 0; }
+  .param-row .val { width: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .param-row select { grid-column: 2 / -1; width: 100%; min-width: 0; }
+  .param-reason { grid-column: 1 / -1; width: 100%; color: #91a1ab; font-size: 10px; }
+  .param-row.inactive label { color: #84939d; }
+  .btn { background: #343b40; color: #d8e2e6; border: 1px solid #000; border-radius: 3px; padding: 3px 8px; font: inherit; cursor: pointer; }
+  .btn.on { background: #4a7a94; }
+  .seg { display: flex; gap: 4px; flex-wrap: wrap; }
+  #hud { position: absolute; left: 10px; top: 10px; background: rgba(0,0,0,.45); padding: 6px 10px; border-radius: 4px; white-space: pre; }
+  #scrubBar { position: absolute; left: 10px; right: 10px; bottom: 10px; height: 30px; background: rgba(0,0,0,.45); padding: 0 10px; border-radius: 4px; }
+  #scrubBar #scrubT { width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+  #keys { position: absolute; left: 10px; bottom: 46px; display: flex; gap: 6px; }
+  #keys .key { position: relative; cursor: pointer; }
+  #keys canvas { display: block; height: 80px; border: 1px solid #000; border-radius: 3px; background: #10303c; }
+  #keys span { position: absolute; left: 4px; bottom: 3px; font-size: 10px; background: rgba(0,0,0,.45); padding: 0 3px; border-radius: 2px; }
+  p.hint { color: #8d9ca4; margin: 4px 0 8px; }
+  details.grp { margin: 6px 0 2px; }
+  details.grp > summary { cursor: pointer; list-style: none; margin: 4px 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #9fb0b8; user-select: none; }
+  details.grp > summary::-webkit-details-marker { display: none; }
+  details.grp > summary::before { content: '\25B8'; display: inline-block; width: 12px; color: #6f8089; }
+  details.grp[open] > summary::before { content: '\25BE'; }
+  details.grp > summary .n { color: #6f8089; font-weight: normal; margin-left: 4px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage"><canvas id="canvas"></canvas><div id="hud"></div>
+    <div id="keys"></div>
+    <div id="scrubBar" class="row" title="Replays a fresh run of the current type, seed, forces and look to this time, in fixed steps: the same time always gives the same picture"><button class="btn" id="btnPlay2">Pause</button><button class="btn" id="btnKeys" title="Five key frames across the scrub range, replayed with the current settings; click one to scrub there">Keys</button><label style="width:auto">Scrub</label><input id="scrub" type="range" min="0" max="120" step="0.5" value="0"><span id="scrubT">0s</span></div>
+  </div>
+  <div id="panel">
+    <div id="groupsTop"></div>
+    <h3>Cloud type</h3>
+    <div class="row"><label>Type</label><select id="type" style="flex:1"></select></div>
+    <div class="seg" id="looks" style="margin-top:4px"></div>
+    <div class="row" style="margin-top:4px"><input id="lookName" placeholder="preset name" style="flex:1;min-width:0"><button class="btn" id="btnSave">Save</button><button class="btn" id="btnDel">Delete</button></div>
+    <div class="row" style="margin-top:6px"><button class="btn" id="btnPlay">Pause</button><button class="btn" id="btnReset">Reset</button><label style="width:auto">Seed</label><input id="seed" type="number" value="1" style="width:56px"></div>
+    <h3>Shape</h3>
+    <div class="row"><label>Layout</label><select id="shapes" style="flex:1"></select></div>
+    <div class="row"><label>Primitive</label><select id="prims" style="flex:1"></select></div>
+    <details class="grp" id="forcesGrp" open><summary>Forces<span class="n" id="forcesN"></span></summary><div id="forces"></div></details>
+    <div id="groups"></div>
+  </div>
+</div>
+<script src="src/sim.js?v=196"></script>
+<script src="src/puffs.js?v=232"></script>
+<script src="src/motion.js?v=209"></script>
+<script src="src/layer.js?v=209"></script>
+<script src="src/presets.js?v=211"></script>
+<script src="src/parameters.js?v=7"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var canvas = $('canvas'), stageEl = $('stage'), hud = $('hud');
+  function fit() { canvas.width = Math.max(320, Math.floor(stageEl.clientWidth / 2)); canvas.height = Math.max(200, Math.floor(stageEl.clientHeight / 2)); }
+  fit(); addEventListener('resize', fit);
+  var renderer = new PuffRenderer(canvas);
+  renderer.resize(240);
+  var engine = 'thermal', typeName = 'congestus', extraSim = null, extraLook = null;
+  // Single shape: one parent puff, centred, nothing simulated. The same fields ThermalSim emits (what PuffRenderer._tree
+  // and form() read), with one parcel: no core, no reservoir, no spawning, no sway (eyeX / eyeY are ignored). Children
+  // come from the renderer's tree as for any root, attached to this parent (its id is the seed). Size is its one force
+  function SingleSim(opts) {
+    this.aspect = opts.aspect > 0 ? opts.aspect : 0.75; this.shape = 'ring'; this.params = {}; this.parcels = [];
+    this.blobs = new Float32Array(4); this.aux = new Float32Array(4); this.spin = new Float32Array(4); this.detail = new Float32Array(1);
+    this.reset(opts.seed !== undefined ? opts.seed : 1, '', opts.forces);
+  }
+  SingleSim.prototype.reset = function (seed, preset, forces) {
+    this.seed = seed | 0; this.preset = ''; this.time = 0; this.params = { size: 0.12 };
+    if (forces) for (var k in forces) this.params[k] = forces[k];
+    this.reseat();
+  };
+  SingleSim.prototype.reseat = function () {
+    var B = this.blobs, A = this.aux, S = this.spin, r = Math.max(0.005, +this.params.size || 0.12);
+    this.cx = 0.5; this.cy = this.aspect * 0.5;
+    B[0] = this.cx; B[1] = this.cy; B[2] = r; B[3] = 7.7 + this.seed;   // x, y, r, seed (the puff's id)
+    A[0] = 0; A[1] = 0.5; A[2] = -1; A[3] = 1;   // depth: the middle; link 1: fully present
+    S[0] = 0; S[1] = 0; S[2] = 1; S[3] = 0; this.detail[0] = 1;
+    this.baseY = this.cy + r; this.topY = this.cy - r;   // the band (base shade) spans the puff
+    this.baseStart = 1; this.blobCount = 1; this.swx = 0; this.swy = 0;
+  };
+  SingleSim.prototype.step = function (dt) { this.time += dt; };   // time only: the child cycle, if Life is set
+  Object.defineProperty(SingleSim.prototype, 'refRadius', { get: function () { return Math.max(0.01, (+this.params.size || 0.12) * 1.25); } });
+  function makeSim(eng, preset, seed, shape) {
+    var asp = canvas.height / canvas.width;
+    if (eng === 'single') return new SingleSim({ seed: seed, aspect: asp });
+    if (eng === 'layer') return new LayerSim({ seed: seed, preset: preset, aspect: asp });
+    if (eng === 'veil') return new LayerSim({ seed: seed, preset: 'stratus', aspect: asp, params: {} });   // a dummy, emptied below
+    return new ThermalSim({ seed: seed, preset: preset, aspect: asp, shape: shape });
+  }
+  var sim = makeSim('thermal', 'congestus', 1, 'ring');
+
+  var look = { children: 6, ratio: 0.62, levels: 3, life: 1, embed: 0.9, relief1: 1, relief2: 1, cluster: 0, softness: 1.0, depth: 1, swayScale: 1, roll: 1,
+    noise: 0.15, noiseScale: 1.5, noise2: 0.1, noise2Scale: 4, noiseBias: 0, noiseBias2: 0, flow: 0.04, smooth: 0.5, haze: 0.5, shear: 0, shearBias: 0, wind: 0, lean: 0, windSpeed: 0, gustSize: 1.5, topEmphasis: 0.5, erosion: 0, wispAmount: 0, wispLife: 8, streak: 0, prim: 'sphere', primAmt: 1, panX: 0, panY: 0, diag: 0, dither: 0, dissolve: 0, dotSize: 1, grain: 1, anchor: 1, zoom: 1,
+    sun: 86, elevation: 6, shadow: 0.64, highlight: 0.68, fill: 0.11, bands: 5, depthFall: 0, atmos: 0, cirrus: 0, cirrusScale: 2, cirrusAngle: -12, cirrusFlow: 0.01, veil: 0, baseShade: 0.5, stackShade: 0.4, pixelated: true, pixel: 2, rim: 0.5, puffRim: 0.5, cap: 0, contact: 0, cavity: 0, cavityReach: 8, cavityLit: 0, baseFall: 0.7, body: 0, bodySoft: 1.5, modelVersion: 2,
+    shapeVar: 0, stretchVar: 1, contourVar: 1, shapeSeed: 0, angular: 0, sides: 5, bulge: 0, evapScale: 3, stipple: 0, stippleBias: 0, breakup: 0, breakupReach: 6, patternLock: 1 };
+  // rimV 2: Puff rim and Rim soften are independent (the shader used max(Puff rim, Rim soften) for the lobe rims). A look
+  // from before (no rimV) keeps its appearance by puffRim = max(puffRim, rim); the page default puffRim is 0.5 for the same reason
+  var RIM_V = 2;
+  function migrate(L) {
+    return CloudParameters.migratePreset(L);
+  }
+
+  Object.assign(look, CloudParameters.featureDefaults);
+  var LOOK0 = Object.freeze(Object.assign({}, look));   // the page defaults: every type and saved preset starts from these, never from the previous look
+  var FORCES = CLOUD_FORCES.thermal;
+  var SURFACE = [['pixel', 'Pixel size', 1, 6, 1], ['rim', 'Rim soften', 0, 1, 0.01], ['cap', 'Cap', 0, 1, 0.01], ['puffRim', 'Puff rim', 0, 1, 0.01], ['shapeVar', 'Shape variation', 0, 1, 0.01], ['stretchVar', 'Stretch variation', 0, 1, 0.01], ['contourVar', 'Contour irregularity', 0, 1, 0.01], ['shapeSeed', 'Shape seed', 0, 99, 1], ['angular', 'Angular', 0, 1, 0.01], ['sides', 'Sides', 3, 8, 1], ['bulge', 'Bulge only', 0, 1, 0.01], ['children', 'Children', 0, 6, 1], ['ratio', 'Size ratio', 0.25, 0.7, 0.01], ['levels', 'Levels', 1, 3, 1], ['life', 'Life', 0, 3, 0.01], ['embed', 'Embed', 0.4, 1, 0.01], ['relief1', 'Relief 1', 0, 1, 0.01], ['relief2', 'Relief 2', 0, 1, 0.01], ['cluster', 'Cluster', 0, 1, 0.01], ['softness', 'Softness', 0.3, 4, 0.01], ['depth', 'Depth', 0, 2, 0.01], ['swayScale', 'Sway depth', 0, 2, 0.01],
+    ['noise', 'Noise', 0, 1.5, 0.01], ['noiseScale', 'Noise scale', 0.3, 4, 0.01], ['noiseBias', 'Noise bias', -1, 1, 0.01], ['noise2', 'Noise 2', 0, 1.5, 0.01], ['noise2Scale', 'Noise 2 scale', 1, 12, 0.1], ['noiseBias2', 'Noise 2 bias', -1, 1, 0.01], ['flow', 'Flow', 0, 0.3, 0.001], ['streak', 'Streak', 0, 1, 0.01], ['anchor', 'Noise anchor', 0, 1, 0.01], ['smooth', 'Normal smooth', 0, 1, 0.01], ['shear', 'Shear', 0, 3, 0.05], ['shearBias', 'Shear bias', -1, 1, 0.01], ['wind', 'Wind (deg)', -90, 90, 1], ['lean', 'Lean', -1, 1, 0.01], ['windSpeed', 'Wind speed', 0, 1, 0.01], ['gustSize', 'Gust size', 0.5, 4, 0.1], ['topEmphasis', 'Top emphasis', 0, 1, 0.01], ['erosion', 'Erosion', 0, 1, 0.01], ['wispAmount', 'Wisp amount', 0, 1, 0.01], ['wispLife', 'Wisp persistence', 1, 20, 0.5], ['primAmt', 'Primitive amt', 0, 1, 0.01]];
+  var VIEW = [['zoom', 'Scale', 0.5, 2.5, 0.05], ['panX', 'Pan X', -1, 1, 0.01], ['panY', 'Pan Y', -1, 1, 0.01], ['diag', 'Diag view', 0, 7, 1]];
+  var LIGHT = [['sun', 'Sun', 0, 360, 1], ['elevation', 'Elevation', -60, 60, 1], ['shadow', 'Shadow', 0, 1, 0.01], ['contact', 'Contact', 0, 1, 0.01], ['cavity', 'Cavity', 0, 1, 0.01], ['cavityReach', 'Cavity reach', 2, 24, 1], ['cavityLit', 'Cavity in light', 0, 1, 0.01], ['body', 'Body lighting', 0, 1, 0.01], ['bodySoft', 'Body softness', 0.3, 4, 0.01], ['fill', 'Fill', 0, 1, 0.01], ['baseShade', 'Base shade', 0, 1, 0.01], ['baseFall', 'Base falloff', 0.1, 1.5, 0.01], ['stackShade', 'Stack shade', 0, 1, 0.01], ['haze', 'Haze', 0, 1, 0.01], ['dither', 'Dither', 0, 1, 0.01], ['dissolve', 'Evaporation', 0, 1, 0.01], ['evapScale', 'Evap. scale', 0.5, 8, 0.1], ['stipple', 'Stipple', 0, 1, 0.01], ['stippleBias', 'Stipple bias', -1, 1, 0.01], ['breakup', 'Edge breakup', 0, 1, 0.01], ['breakupReach', 'Breakup reach', 1, 24, 1], ['dotSize', 'Dot size', 1, 4, 1], ['patternLock', 'Pattern lock', 0, 1, 1], ['grain', 'Palette dither', 0, 2, 0.01], ['depthFall', 'Depth falloff', 0, 1, 0.01], ['cirrus', 'Cirrus', 0, 1, 0.01], ['cirrusScale', 'Cirrus scale', 0.5, 6, 0.1], ['cirrusAngle', 'Cirrus angle', -45, 45, 1], ['veil', 'Veil', 0, 1, 0.01], ['bands', 'Bands', 3, 5, 1]];
+  // Shared vocabulary lives in CloudParameters; only page-specific help remains here.
+  var TIPS = {
+    "bulge": "Where the contour irregularity goes: 0 both ways (bumps and dents, a potato), 1 outward only (a convex lobe with convex bumps, the same amplitude, so the puff is a little larger). Each puff keeps its own shape for life either way.",
+    "shapeVar": "How far each puff departs from the primitive (0: the exact primitive). Each puff's own shape, from its identity and the shape seed; the strength scales it, never rearranges it.",
+    "stretchVar": "The aspect part of the variation: how elliptical a puff may be (its orientation is its own). Area is kept.",
+    "contourVar": "The contour part of the variation: a broad, gentle asymmetry of the outline (one- and three-lobed terms, bounded so nothing folds).",
+    "shapeSeed": "Reseeds the shape variation of every puff without moving any puff (Reseed: pick another value).",
+    "size": "Base radius of a parcel; everything scales from it.",
+    "pixel": "Size of one drawn pixel in canvas pixels; the whole picture sits on that grid.",
+    "updraft": "Strength of the thermal: how fast parcels rise up the axis and roll over at the top.",
+    "width": "Ring width: how far the circulation spreads sideways.",
+    "height": "Ring height: how tall the circulation is above the base line.",
+    "rise": "Slow drift of the whole thermal upward over time (capped).",
+    "expand": "Slow widening of the ring over time (capped).",
+    "settle": "Drag near the base: higher keeps the lowest parcels lingering longer.",
+    "count": "Number of live parcels (root puffs).",
+    "jitter": "Random wander added to each parcel's motion.",
+    "base": "Condensation level: the flat base line below which parcels evaporate.",
+    "rollGain": "How fast billows roll with the local vorticity.",
+    "formTime": "Seconds the cloud takes to form from a compact puff. 0 starts fully grown.",
+    "reservoir": "Share of parcels kept as a dense, soft reservoir just above the base.",
+    "parallax": "Sideways sway of the eye; every parcel shifts by its depth.",
+    "sway": "Period of the parallax sway in seconds.",
+    "children": "Puffs each parcel grows on its shell, at every level.",
+    "ratio": "Child radius as a fraction of its parent.",
+    "levels": "Depth of the recursion: 1 is bare parcels, 3 is grandchildren.",
+    "swayScale": "How much child puffs sway by their depth under parallax (was tied to Depth).",
+    "streak": "Streak: squeezes the surface noise along the wind (up to 3x, more on dispersed material) so the detail reads as streaming downwind. 0 off.",
+    "shear": "How far dispersing parcels stretch along the wind as they mix away.",
+    "shearBias": "Shear by depth: +1 the near face shears most, -1 the back does.",
+    "depthFall": "Recessed volumes lose shadow, noise and crispness: near billows stay sharp.",
+    "wind": "Wind direction in degrees for Shear and Lean. 0 is to the right.",
+    "lean": "Tilt of the whole cloud downwind with height above the base.",
+    "windSpeed": "Wind drift: how fast exposed lobes drift downwind (the crown most, the body hardly), stretching as they go, varied by broad gusts travelling with the wind. 0 off.",
+    "gustSize": "Size of the gusts in the wind drift (larger: whole lobes move together).",
+    "topEmphasis": "How much the wind drift and erosion concentrate toward the crown: 0 rises evenly with height, 1 the top only.",
+    "erosion": "Wind erosion: how fast exposed lobes wear away from their outline inward (a worn lobe reveals what is behind it); gusts drive it, a slow recovery mends sheltered lobes. 0 off.",
+    "wispAmount": "How many wisps a cloud may shed at once (up to 8): a lobe worn past half lets one elongated puff separate downwind, stretching and fraying as it goes. 0 none.",
+    "wispLife": "How long a wisp lives, in seconds, before it frays away.",
+    "primAmt": "Blend from a sphere (0) to the chosen primitive (1).",
+    "sun": "Sun azimuth in degrees.",
+    "elevation": "Sun elevation in degrees; negative lights from below.",
+    "fill": "Bounce light from the sky side, opposite the sun.",
+    "haze": "Softening of old, mixed parcels: flatter shading and a fainter edge.",
+    "dotSize": "Cell size of the stipple, breakup and evaporation patterns in texels.",
+    "stippleBias": "Where the stippling lives: -1 only in shadow, +1 only in light.",
+    "breakup": "Edge breakup: coverage removed near the exposed silhouette by the ordered pattern (powdery, ragged outline). Shading inside is untouched.",
+    "breakupReach": "How far in from the outline (field texels) the breakup reaches.",
+    "patternLock": "Where the stipple and breakup patterns sit: 1 on the screen grid (a print), 0 riding with each parcel (material).",
+    "angular": "Angular profile: each puff's outline pulled toward a regular polygon with rounded corners (0: round). Independent of Shape variation.",
+    "sides": "Sides of the angular profile polygon.",
+    "bands": "Number of colour bands in the palette.",
+    "zoom": "View scale about the base line; the sim is untouched.",
+    "diag": "Diagnostic view: 0 off, 1 continuous grey lighting (no bands, shadow or fill), 2 height contours, 3 the normal as colour, 4 coverage mask, 5 accepted normal neighbours, 6 the owning group as colour, 7 the light before the palette (contact and cavity in).",
+    "panX": "View offset sideways.",
+    "panY": "View offset up and down."
+  };
+  var sliders = {};
+  SURFACE.push(['modelVersion', 'Rendering model', 1, 2, 1]);
+  SURFACE = SURFACE.concat(CloudParameters.featureSpecs);
+  function slider(parent, target, spec, force) {
+    var layerLife = force && engine === 'layer' && spec[0] === 'life';
+    if (layerLife) { spec = spec.slice(); spec[1] = 'Layer lifetime (s)'; }
+    var show = CloudParameters.control(parent, target, spec, { tip: layerLife ? 'How long each layer parcel lives before recycling.' : TIPS[spec[0]], refresh: refresh,
+      raw: layerLife, scope: force ? 'force-' : '',
+      context: function () { return Object.assign({ engine: engine }, look, target()); },
+      onChange: function (k) { if (['width', 'height', 'base', 'level', 'thick', 'size'].indexOf(k) >= 0) sim.reseat(); } });
+    show.force = !!force; sliders[(force ? 'force-' : '') + spec[0]] = show;
+  }
+  function buildForces() {
+    for (var k in sliders) if (sliders[k].force) delete sliders[k];
+    $('forces').innerHTML = '';
+    FORCES = CLOUD_FORCES[engine] || [];
+    var keys = engine === 'layer' ? LAYER_MODE_KEYS[sim.params.mode] : null;
+    $('shapes').parentNode.style.display = engine === 'single' ? 'none' : '';   // no layout for one puff
+    var host = $('forces'), groups = {}, names = { count: 'Population', size: 'Population', width: 'Population', height: 'Population', base: 'Population',
+      pulse: 'Birth and retirement', mixing: 'Birth and retirement', formTime: 'Birth and retirement', reservoir: 'Birth and retirement',
+      updraft: 'Circulation', rise: 'Circulation', expand: 'Circulation', settle: 'Circulation', rollGain: 'Circulation', jitter: 'Circulation',
+      parallax: 'View motion', sway: 'View motion' };
+    FORCES.forEach(function (s) {
+      if (keys && keys.indexOf(s[0]) < 0) return;
+      var destination = host, title = engine === 'thermal' ? names[s[0]] : null;
+      if (title) {
+        if (!groups[title]) { var d = document.createElement('details'); d.className = 'grp'; d.open = title === 'Population'; var sm = document.createElement('summary'); sm.textContent = title; d.appendChild(sm); host.appendChild(d); groups[title] = d; }
+        destination = groups[title];
+      }
+      slider(destination, function () { return sim.params; }, s, true);
+    });
+    $('forcesN').textContent = $('forces').querySelectorAll('.row').length;
+  }
+  buildForces();
+  // the sliders in collapsible groups (open state remembered per group); every spec of the lists above lands in
+  // exactly one group, any left over in 'Other', so a new slider never goes missing
+  function buildGroups(host, groups, lists, target, onChange, skip) {
+    var specs = {}, used = {}, openState = {};
+    (skip || []).forEach(function (k) { used[k] = 1; });   // keys another host shows
+    lists.forEach(function (L) { L.forEach(function (s) { specs[s[0]] = s; }); });
+    try { openState = JSON.parse(localStorage.getItem('plume-puffs-groups') || '{}'); } catch (e) { openState = {}; }
+    function group(title, keys) {
+      keys = keys.filter(function (k) { return specs[k] && !used[k]; }); if (!keys.length) return;
+      var d = document.createElement('details'); d.className = 'grp'; d.open = openState[title] === undefined ? !CloudParameters.isAdvanced(title) : !!openState[title];
+      var sm = document.createElement('summary'); sm.innerHTML = title + '<span class="n">' + keys.length + '</span>'; d.appendChild(sm);
+      var body = document.createElement('div'); d.appendChild(body); host.appendChild(d);
+      keys.forEach(function (k) { if (!specs[k]) return; used[k] = 1; slider(body, target, specs[k]); });
+      d.addEventListener('toggle', function () { openState[title] = d.open; try { localStorage.setItem('plume-puffs-groups', JSON.stringify(openState)); } catch (e) {} });
+    }
+    groups.forEach(function (g) { group(g[0], g[1]); });
+    var rest = Object.keys(specs).filter(function (k) { return !used[k]; }); if (rest.length) group('Other', rest);
+  }
+  var VIEW_GROUP = ['View', ['pixel', 'zoom', 'panX', 'panY', 'diag']];
+  var GROUPS = CloudParameters.puffGroups;
+  var GROUP_KEYS = [].concat.apply([], GROUPS.map(function (g) { return g[1]; }));
+  buildGroups($('groupsTop'), [VIEW_GROUP], [SURFACE, LIGHT, VIEW], function () { return look; }, null, GROUP_KEYS);   // the view controls at the top of the panel
+  buildGroups($('groups'), GROUPS, [SURFACE, LIGHT, VIEW], function () { return look; }, null, VIEW_GROUP[1]);
+  // lighting presets: a small select at the top of the Light group sets these five values; the sliders stay free afterwards.
+  // The first is the default light (a low side sun); 'Classic' is the light before 2026-11-03
+  var LIGHTS = [
+    { name: 'Low side sun', sun: 86, elevation: 6, overhead: 0.6, shadow: 0.64, fill: 0.11 },
+    { name: 'Classic (high sun)', sun: 60, elevation: 40, overhead: 0.7, shadow: 0.64, fill: 0.2 },
+    { name: 'Noon', sun: 90, elevation: 60, overhead: 0.7, shadow: 0.6, fill: 0.25 },
+    { name: 'Evening, sun from the left', sun: 172, elevation: 4, overhead: 0.6, shadow: 0.75, fill: 0.08 },
+    { name: 'Overcast, flat', sun: 90, elevation: 50, overhead: 0.3, shadow: 0.25, fill: 0.5 }
+  ];
+  function lightPicker(host, target, refresh) {
+    var d = Array.prototype.find.call(host.querySelectorAll('details.grp'), function (g) { return g.querySelector('summary').textContent.indexOf('Light') === 0; }); if (!d) return;
+    var row = document.createElement('div'); row.className = 'row'; var label = document.createElement('label'); label.textContent = 'Preset'; var sel = document.createElement('select'); sel.style.flex = '1';
+    var o0 = document.createElement('option'); o0.value = ''; o0.textContent = '(pick a light)'; sel.appendChild(o0);
+    LIGHTS.forEach(function (L, i) { var o = document.createElement('option'); o.value = i; o.textContent = L.name; sel.appendChild(o); });
+    sel.addEventListener('change', function () { var L = LIGHTS[+sel.value]; if (!L) return; var T = target(); for (var k in L) if (k !== 'name' && k in T) T[k] = L[k]; refresh(); sel.value = ''; });
+    row.appendChild(label); row.appendChild(sel); d.querySelector('div').insertBefore(row, d.querySelector('div').firstChild);
+  }
+  lightPicker($('groups'), function () { return look; }, function () { refresh(); });
+  // the Forces group (rebuilt per engine) remembers its open state like the others
+  (function () { var d = $('forcesGrp'), st = {}; try { st = JSON.parse(localStorage.getItem('plume-puffs-groups') || '{}'); } catch (e) {} if (st.Forces !== undefined) d.open = !!st.Forces;
+    d.addEventListener('toggle', function () { try { var o = JSON.parse(localStorage.getItem('plume-puffs-groups') || '{}'); o.Forces = d.open; localStorage.setItem('plume-puffs-groups', JSON.stringify(o)); } catch (e) {} }); })();
+  function refresh() { for (var k in sliders) sliders[k](); }
+  var playing = true;
+  function setPlaying(v) { playing = v; $('btnPlay').textContent = $('btnPlay2').textContent = playing ? 'Pause' : 'Play'; }
+
+  // cloud types (src/presets.js): engine + sim preset + layout + primitive + form
+  function applyType(name) {
+    var T = CLOUD_PRESETS[name]; if (!T) return;
+    typeName = name; engine = T.engine;
+    var seed = +$('seed').value | 0;
+    sim = makeSim(engine, T.preset, seed, T.shape || 'ring'); window.sim = sim;
+    if (engine === 'veil') { sim.params.count = 0; sim.parcels = []; sim._emit(); }
+    for (var k in T.forces) sim.params[k] = T.forces[k]; sim.reseat();
+    Object.assign(look, LOOK0); for (var j in T.look) look[j] = T.look[j];
+    look.prim = T.prim || 'sphere'; look.primAmt = T.primAmt === undefined ? 1 : T.primAmt;
+    $('prims').value = look.prim; $('shapes').value = sim.shape || 'ring'; $('shapes').disabled = engine !== 'thermal';
+    if (engine === 'single') setPlaying(false);   // a single shape starts still: nothing spawns, sways or flows
+    extraSim = null; extraLook = null;
+    if (T.extra) {
+      extraSim = makeSim(T.extra.engine, T.extra.preset, seed + 1, 'ring');
+      extraSim.parcels.forEach(function (q) { q.link = 0; q.age = 0; }); extraSim._emit();   // the anvil grows in once the tower is up
+      extraLook = Object.assign({}, look, T.extra.look || {});
+    }
+    buildForces(); refresh();
+  }
+  Object.keys(CLOUD_PRESETS).forEach(function (nm) { var o = document.createElement('option'); o.value = nm; o.textContent = CLOUD_PRESETS[nm].label || nm; $('type').appendChild(o); });
+  $('type').value = 'congestus'; applyType('congestus');   // startup is the type applied over the defaults, the same state Reset gives
+  $('type').addEventListener('change', function () { applyType(this.value); });
+  // Page presets: forces + surface + light together (the sim preset row above only sets forces).
+  var LOOKS = {
+    // a few big still puffs, no noise, full bands, Depth 2: every artifact of the field and the normal is bare
+    probe: { seed: 3, forces: { updraft: 0, width: 0.2, height: 0.2, rise: 0, expand: 0, settle: 0, count: 5, size: 0.05, jitter: 0, mixing: 1, pulse: 0, base: 0.2, rollGain: 0, formTime: 0, reservoir: 0, parallax: 0 },
+      look: { children: 3, ratio: 0.6, levels: 2, life: 0, embed: 0.8, softness: 1, depth: 2, noise: 0, noise2: 0, flow: 0, smooth: 0, haze: 0, sun: 60, elevation: 40, shadow: 0.64, highlight: 0.68, fill: 0.2, baseShade: 0, stackShade: 0, bands: 5, rim: 0, cap: 0, puffRim: 0, contact: 0, cavity: 0, dither: 0, dissolve: 0, grain: 0, pixel: 1, zoom: 1.4 } },
+    // the wind erosion's first preset: broad gusts, strong interior protection, sparse wisps, changes over tens of seconds
+    fraying: { seed: 2, type: 'congestus', forces: { rollGain: 2, mixing: 40 },
+      look: { wind: 10, windSpeed: 0.35, gustSize: 2.5, topEmphasis: 0.7, erosion: 0.5, wispAmount: 0.4, wispLife: 10, streak: 0.5 } },
+    lantern: { seed: 1, forces: { updraft: 0.04, width: 0.13, height: 0.18, rise: 0.0004, expand: 0.0002, settle: 0.61, count: 60, size: 0.03, jitter: 0.5, mixing: 20.5, pulse: 0, base: 0.21, rollGain: 8.4, formTime: 90, reservoir: 0.35, parallax: 0 },
+      look: { children: 5, ratio: 0.7, levels: 3, life: 0.11, embed: 0.67, softness: 4, depth: 2, noise: 0.11, noiseScale: 4, noise2: 0, noiseBias: 0, flow: 0.034, smooth: 0, haze: 0, sun: 81, elevation: -40, shadow: 0.64, baseShade: 0.59, stackShade: 1, bands: 5 } }
+  };
+  // saved presets live in localStorage beside the built-in ones
+  var STORE = 'plume-puffs-looks';
+  function saved() { try { var all = JSON.parse(localStorage.getItem(STORE) || '{}'); for (var k in all) migrate(all[k]); return all; } catch (e) { return {}; } }
+  function applyLook(L) {
+    migrate(L);
+    $('seed').value = L.seed; $('type').value = L.type && CLOUD_PRESETS[L.type] ? L.type : 'congestus'; applyType($('type').value);
+    sim.shape = L.shape || 'ring'; sim.reset(L.seed, sim.preset, L.forces);   // the forces go in before the parcels spawn, so Parcels is the population
+    $('shapes').value = sim.shape; sim.reseat();
+    for (var j in L.look) look[j] = L.look[j];
+    look.prim = L.prim || 'sphere'; $('prims').value = look.prim;
+    refresh();
+  }
+  function drawLooks() {
+    var all = Object.assign({}, LOOKS, saved()), host = $('looks'); host.innerHTML = '';
+    for (var k in LOOKS) migrate(LOOKS[k]);   // the built-in looks are from before rimV 2 too (probe: rim 0, so no change; lantern: default rim)
+    Object.keys(all).forEach(function (name) {
+      var b = document.createElement('button'); b.className = 'btn'; b.textContent = name;
+      b.addEventListener('click', function () { applyLook(all[name]); $('lookName').value = name; });
+      host.appendChild(b);
+    });
+  }
+  drawLooks();
+  $('btnSave').addEventListener('click', function () {
+    var name = $('lookName').value.trim(); if (!name) return;
+    var forces = {}; FORCES.forEach(function (s) { forces[s[0]] = sim.params[s[0]]; });
+    var lk = {}; SURFACE.concat(LIGHT, VIEW).forEach(function (s) { lk[s[0]] = look[s[0]]; });
+    var all = saved(); all[name] = { parameterVersion: CloudParameters.VERSION, rimV: RIM_V, seed: +$('seed').value | 0, type: typeName, engine: engine, simPreset: sim.preset, shape: sim.shape, prim: look.prim, forces: forces, look: lk };
+    localStorage.setItem(STORE, JSON.stringify(all)); drawLooks();
+  });
+  $('btnDel').addEventListener('click', function () {
+    var name = $('lookName').value.trim(), all = saved(); if (!all[name]) return;
+    delete all[name]; localStorage.setItem(STORE, JSON.stringify(all)); drawLooks();
+  });
+  function fill(sel, names, cur) { names.forEach(function (nm) { var o = document.createElement('option'); o.value = nm; o.textContent = nm; sel.appendChild(o); }); sel.value = cur; }
+  fill($('shapes'), ThermalSim.SHAPES, sim.shape); fill($('prims'), PuffRenderer.PRIMS, look.prim);
+  $('shapes').addEventListener('change', function () { sim.setShape(this.value); refresh(); });
+  $('prims').addEventListener('change', function () { look.prim = this.value; refresh(); });
+  $('btnPlay').addEventListener('click', function () { setPlaying(!playing); });
+  $('btnPlay2').addEventListener('click', function () { setPlaying(!playing); });
+  // the scrub (for testing): a fresh sim of the current type, seed, forces and look, replayed from 0 to t in fixed steps with a
+  // render per step, so the renderer's slow state (child births, wind drift, erosion, wisps) is played through as well; the
+  // same t always gives the same picture. Pauses; Play continues from there
+  function replay(t) {
+    var T = CLOUD_PRESETS[typeName], seed = +$('seed').value | 0, P = sim.params, shape = sim.shape, k;
+    sim = makeSim(engine, T.preset, seed, shape); window.sim = sim;
+    if (engine === 'veil') { sim.params.count = 0; sim.parcels = []; sim._emit(); }
+    for (k in P) sim.params[k] = P[k]; sim.reseat();
+    if (T.extra) { extraSim = makeSim(T.extra.engine, T.extra.preset, seed + 1, 'ring'); extraSim.parcels.forEach(function (q) { q.link = 0; q.age = 0; }); extraSim._emit(); }
+    sim.aspect = canvas.height / canvas.width;
+    renderer.render(frameList(), 0, look);
+    for (var s = 0; s < t - 1e-6; s += 0.1) { stepAll(0.1); renderer.render(frameList(), sim.time, look); }
+  }
+  // key frames: five replays across the scrub range, each copied off the canvas into a thumbnail; the run then returns to where it was
+  function takeKeys() {
+    var holder = $('keys'), was = playing, t0 = sim.time, max = +$('scrub').max; holder.innerHTML = ''; setPlaying(false);
+    for (var k = 1; k <= 5; k++) (function (t) {
+      replay(t);
+      var cv = document.createElement('canvas'); cv.height = 80; cv.width = Math.round(80 * canvas.width / canvas.height);
+      cv.getContext('2d').drawImage(canvas, 0, 0, cv.width, cv.height);
+      var d = document.createElement('div'), sp = document.createElement('span'); d.className = 'key'; sp.textContent = t + 's'; d.appendChild(cv); d.appendChild(sp);
+      d.addEventListener('click', function () { setPlaying(false); $('scrub').value = t; $('scrubT').textContent = t.toFixed(1) + 's'; replay(t); });
+      holder.appendChild(d);
+    })(max * k / 5);
+    replay(t0); setPlaying(was);
+  }
+  $('btnKeys').addEventListener('click', takeKeys);
+  var scrubbing = false;
+  $('scrub').addEventListener('pointerdown', function () { scrubbing = true; });
+  $('scrub').addEventListener('input', function () { scrubbing = true; $('scrubT').textContent = (+this.value).toFixed(1) + 's'; });
+  $('scrub').addEventListener('change', function () { setPlaying(false); replay(+this.value); scrubbing = false; });
+  // drag in the canvas to move the eye: every parcel shifts by its depth (an unlocked parallax); double-click recentres
+  var drag = null;
+  canvas.addEventListener('pointerdown', function (e) { drag = { x: e.clientX, y: e.clientY, ex: sim.eyeX || 0, ey: sim.eyeY || 0 }; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener('pointermove', function (e) { if (!drag) return; var k = 0.12 / canvas.clientWidth; sim.eyeX = drag.ex + (e.clientX - drag.x) * k; sim.eyeY = drag.ey + (e.clientY - drag.y) * k; });
+  canvas.addEventListener('pointerup', function () { drag = null; });
+  canvas.addEventListener('dblclick', function () { sim.eyeX = 0; sim.eyeY = 0; });
+  $('btnReset').addEventListener('click', function () { applyType(typeName); });
+  $('seed').addEventListener('change', function () { applyType(typeName); });
+
+  window.sim = sim; window.look = look; window.renderer = renderer;
+  function stepAll(dt) {
+    sim.step(dt);
+    if (extraSim) { extraSim.aspect = sim.aspect; extraSim.params.level = (sim.topY + (CLOUD_PRESETS[typeName].extra.dy || 0)) / sim.aspect; extraSim.params.wind = look.wind; if (sim.time >= 0.6 * (sim.params.formTime || 0)) extraSim.step(dt); }
+  }
+  function frameList() {
+    var list = [{ sim: sim, look: look }];
+    if (extraSim) { for (var ek in look) if (!(ek in CLOUD_PRESETS[typeName].extra.look)) extraLook[ek] = look[ek]; list.push({ sim: extraSim, look: extraLook }); }
+    return list;
+  }
+  var last = performance.now(), fpsT = 0, frames = 0, fps = 0;
+  function loop(now) {
+    var dt = Math.min(0.1, (now - last) / 1000); last = now;
+    sim.aspect = canvas.height / canvas.width;
+    if (playing) stepAll(dt);
+    renderer.render(frameList(), sim.time, look);
+    if (!scrubbing) { $('scrub').value = Math.min(120, sim.time); $('scrubT').textContent = sim.time.toFixed(1) + 's'; }
+    frames++; fpsT += dt;
+    if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
+    hud.textContent = (window.PLUME_BUILD ? 'build ' + PLUME_BUILD.commit + ' ' + PLUME_BUILD.date + '   ' : '') + 'fps ' + fps + '   ' + typeName + '   parcels ' + sim.blobCount + (extraSim ? '+' + extraSim.blobCount : '') + '   puffs ' + renderer.count + '   t ' + sim.time.toFixed(0) + 's';
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

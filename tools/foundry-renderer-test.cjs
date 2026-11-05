@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const vm=require('node:vm');
+const path=require('node:path');
+const ctx={window:{},Uint8Array,Number,Math};
+vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/foundry-renderer.js'),'utf8'),ctx);
+const validate=ctx.window.BakedCloudRenderer.validateAsset;
+const asset={w:2,h:2,views:[{yaw:0,pitch:-85}],halfHeight:2,range:4,data:[[0,1,2,3].map(()=>new Uint8Array(16))]};
+assert.equal(validate(asset),64);
+for(const patch of [{w:0},{range:0},{halfHeight:NaN},{views:[]},{data:[]},{views:[{yaw:Infinity,pitch:0}]}])assert.throws(()=>validate({...asset,...patch}));
+assert.throws(()=>validate({...asset,data:[[new Uint8Array(15),...asset.data[0].slice(1)]]}));
+console.log('Foundry renderer asset contract: PASS');

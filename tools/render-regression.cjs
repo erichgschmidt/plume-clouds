@@ -35,8 +35,9 @@ const root=path.join(__dirname,'..'), url=process.env.CLOUD_TEST_URL || 'http://
         // Wait for a rendered frame rather than only a parsed canvas element.
         await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
         assert.equal(await page.locator('script[src]').count(),0,name+' must be self contained');
-        assert.equal(await page.locator('#param-modelVersion').inputValue(),'2',name+' updated model default');
-        console.log(name+': PASS (file URL, bundled scripts, updated default)');
+        if(name==='plume-puffs.html') await page.waitForFunction(()=>window.FoundryAuthor?.stats().formation);
+        else await page.waitForFunction(()=>window.foundrySky?.ready && foundrySky.renderer.stats.drawn>0);
+        console.log(name+': PASS (file URL, bundled scripts, Foundry startup)');
       }
     }
     assert.deepEqual(errors,[],'Browser runtime errors');

@@ -1,4 +1,69 @@
-# Plume Clouds — module contract (v1)
+# Plume Clouds — Foundry bridge and legacy contracts
+
+## Active Foundry pipeline (November 2026)
+
+`puffs.html` is the Foundry authoring/baking editor. `sky.html` renders authored
+cloud assets. The user explicitly permits 3D authoring and baking; the running
+sky consumes only 2D capture maps, with no particle simulation, SDF evaluation,
+volume solver, or mesh rendering. The supplied Foundry prototype is an authorized
+source for this integration and is preserved in `reference/cloud-foundry-v2.1.html`.
+
+- `FoundryAssets` validates and serializes four byte-exact RGBA8 maps per capture.
+  Angles are explicit degrees; normals use object axes, map rows are bottom-up.
+  IndexedDB carries the active asset between pages. JSON export/import also works
+  across origins or when local storage is unavailable.
+- `FoundryScene` owns deterministic instance placement and camera movement.
+  The shared clock controls travel, drift, sway and breathing. Manual camera
+  movement remains available while playback is paused. Look elevation exposes
+  overhead captures; azimuth holds a continuous front/underside continuation near
+  zenith rather than flipping to an unavailable back-hemisphere capture.
+- `BakedCloudRenderer` shares uploaded maps between cloud instances. Its instance
+  packet uses height-normalized screen coordinates (center zero, positive Y up),
+  half-height scale, positive camera distance, and yaw/pitch in degrees.
+- Capture coverage must include the requested viewpoint. The default asset has
+  15 front/underside captures; a narrow front-only atlas cannot reveal an underside.
+  Requests outside the capture range hold a supported view. Capture boundaries
+  can still switch silhouettes, and finite depth layers can leave small gaps at
+  newly exposed surfaces; this is not unrestricted 360-degree geometry.
+- Depth-map shadows approximate visibility in the current screen. They cannot
+  account for offscreen blockers or geometry absent from the baked captures.
+  The runtime shadow pass applies between instances only; internal recesses use
+  baked AO. Dynamic within-cloud cast shadows are not implemented. Partially
+  transparent intersections currently retain the nearest surface rather than
+  compositing every depth layer. Capture normals and sun use common object/world
+  axes, so camera movement does not rotate the illumination.
+  Frozen assets support relighting and gentle map deformation, not live topology
+  evolution, physical merging, or a complete atmospheric simulation at runtime.
+
+The old particle pages remain at `puffs-legacy.html` and `sky-legacy.html` for
+comparison. The checkpoint before this migration is commit `4046d02`.
+
+### Working with the bridge
+
+Open `puffs.html`, shape the formation, select the 15-view overhead preset, then
+choose **Freeze & bake asset** and **Use in sky**. Open `sky.html` and choose
+**Load from Foundry** if it was already open. **Export sky asset** / **Import asset**
+is the portable handoff when the pages have different origins. A baked starter
+asset is included, so the sky does not depend on an authoring session at startup.
+This first bridge repeats one active asset; it does not yet manage a library of
+different cloud species or baked animation sequences.
+
+Rebuild the standalone pages with:
+```
+node tools/build-single.js puffs.html dist/plume-puffs.html
+node tools/build-single.js sky.html dist/plume-sky.html
+```
+CPU regressions: `tools/foundry-assets-test.cjs`, `tools/foundry-scene-test.cjs`,
+and `tools/foundry-renderer-test.cjs`. Browser regressions:
+`tools/foundry-author-test.cjs`, `tools/foundry-renderer-browser.cjs`,
+`tools/foundry-sky-test.cjs`, and `tools/foundry-bundle-test.cjs`.
+Run them with Node; browser tests accept `PLAYWRIGHT_MODULE` and `CHROME_PATH`.
+The author test expects this repository served at `http://127.0.0.1:8765`,
+overridable with `CLOUD_TEST_URL`. The sky test starts its own temporary server.
+
+The contracts below describe those legacy systems, not the active Foundry path.
+
+## Legacy v1 contract
 
 Goal: a browser cloud field where cloud volumes drift apart like plumes, break off in
 cloud-like (ragged, billowy) ways, roil, and re-merge into other volumes — lava-lamp

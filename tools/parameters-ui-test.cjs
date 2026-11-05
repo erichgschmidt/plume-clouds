@@ -9,7 +9,7 @@ const retired = ['cohesion', 'cohesionYield', 'bondLife', 'releaseSpeed', 'bondM
   try {
     const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
     const errors = []; page.on('pageerror', e => errors.push(e.message));
-    await page.goto(base + '/puffs.html');
+    await page.goto(base + '/puffs-legacy.html');
     await page.waitForFunction(() => window.look && document.querySelector('#param-modelVersion'));
     async function checkRetired() {
       for (const key of retired) assert.equal(await page.locator('#param-' + key).count(), 0);
@@ -73,7 +73,7 @@ const retired = ['cohesion', 'cohesionYield', 'bondLife', 'releaseSpeed', 'bondM
       saved.__old_import = { parameterVersion: 1, rimV: 2, seed: 1, type: 'congestus', look: { modelVersion: 2 } };
       localStorage.setItem('plume-puffs-looks', JSON.stringify(saved));
     });
-    await page.goto(base + '/sky.html');
+    await page.goto(base + '/sky-legacy.html');
     await page.waitForFunction(() => window.sky && document.querySelector('#param-modelVersion'));
     assert.deepEqual(await page.evaluate(() => [sky.modelVersion, sky.cavityLit]), [2, 0]);
     await checkRetired();

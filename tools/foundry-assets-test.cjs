@@ -1,0 +1,18 @@
+'use strict';
+const assert=require('node:assert/strict');
+const A=require('../src/foundry-assets.js');
+const asset={w:16,h:16,halfHeight:3,range:8,views:[{yaw:0,pitch:0},{yaw:0,pitch:-85}],data:Array.from({length:2},()=>Array.from({length:4},()=>new Uint8Array(16*16*4)))};
+asset.data[0][0][43]=197;
+const restored=A.parse(A.stringify(asset));
+assert.equal(restored.data[0][0][43],197);
+assert.equal(restored.views[1].pitch,-85);
+assert.equal(A.byteLength(restored),8192);
+assert.throws(()=>A.validate({...asset,data:[]}),/view/i);
+assert.throws(()=>A.validate({...asset,range:NaN}),/range/i);
+assert.throws(()=>A.validate({...asset,views:[{yaw:Infinity,pitch:0}]}),/angle/i);
+assert.throws(()=>A.parse({...JSON.parse(A.stringify(asset)),data:[['invalid']]}),/view|map/i);
+assert.throws(()=>A.validate({...asset,w:2048}),/width/i);
+assert.throws(()=>A.parse({format:'wrong'}),/format/i);
+const bad=JSON.parse(A.stringify(asset));bad.data[0][0]='!'.repeat(1368);
+assert.throws(()=>A.parse(bad),/base64/i);
+console.log('Foundry assets: byte-exact roundtrip, arbitrary view metadata, validation and allocation limits PASS');
