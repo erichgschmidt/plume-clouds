@@ -93,7 +93,33 @@ const server = http.createServer((req, res) => {
     assert((await page.locator('#status').textContent()).includes('Sky transfer test'));
     await page.reload(); await page.waitForFunction(() => window.foundrySky && foundrySky.ready);
     assert.equal(await page.evaluate(() => foundrySky.asset.name), 'Sky transfer test', 'saved Foundry asset is restored on startup');
+    await page.evaluate(()=>{foundrySky.playing=false;const legacy={...foundrySky.asset};delete legacy.lighting;delete legacy.lods;foundrySky.applyAsset(legacy,'Legacy preview');});
+    assert.equal(await page.locator('#param-sixWay').isDisabled(),true);assert((await page.locator('#lightingHint').textContent()).includes('Rebake'));
+    await page.locator('#btnStarter').click();
+    assert.equal(await page.locator('#param-sixWay').isDisabled(),false);assert.equal(await page.evaluate(()=>!!foundrySky.asset.lighting),true);
+    assert.equal(await page.evaluate(async()=>(await FoundryAssets.load('active')).name),'Sky transfer test','starter preview never overwrites the saved authored cloud');
     assert.deepEqual(errors, []);
-    console.log('PASS authored sky browser:', JSON.stringify({ initial, controls, overhead, fly, screenshot: path.join(os.tmpdir(), 'foundry-sky-start.png') }));
+    const gridCases=[];
+    for(const dpr of [1,1.25,1.5,2]){
+      const context=await browser.newContext({viewport:{width:1167,height:823},deviceScaleFactor:dpr}),p=await context.newPage();
+      p.on('pageerror',e=>errors.push(e.message));await p.goto('http://127.0.0.1:'+server.address().port+'/sky.html');await p.waitForFunction(()=>window.foundrySky&&foundrySky.ready&&foundrySky.grid);
+      const state=await p.evaluate(()=>{
+        const a=foundrySky;a.playing=false;const c=a.renderer.canvas,r=c.getBoundingClientRect(),packets=JSON.stringify(a.scene.project(a.grid.aspect));
+        return {grid:a.grid,width:c.width,height:c.height,rect:{left:r.left,top:r.top,width:r.width,height:r.height},time:a.clock.time,packets,lighting:!!a.asset.lighting,disabled:document.querySelector('#param-sixWay').disabled};
+      });
+      assert.equal(state.width,state.grid.width);assert.equal(state.height,state.grid.height);assert.equal(state.grid.scale,Math.round(2*dpr));
+      assert(Math.abs(state.rect.width*dpr/state.width-state.grid.scale)<.00001);assert(Math.abs(state.rect.height*dpr/state.height-state.grid.scale)<.00001);
+      assert.equal(state.disabled,!state.lighting);
+      await p.locator('#param-pixelSnap').uncheck();await p.locator('#param-detailMode').selectOption('full');
+      const off=await p.evaluate(()=>({snap:foundrySky.settings.pixelSnap,mode:foundrySky.settings.detailMode,packets:JSON.stringify(foundrySky.scene.project(foundrySky.grid.aspect)),time:foundrySky.clock.time}));
+      assert.equal(off.snap,false);assert.equal(off.mode,'full');assert.equal(off.packets,state.packets);assert.equal(off.time,state.time);
+      await p.locator('#param-pixelSnap').check();await p.locator('#param-detailMode').selectOption('auto');
+      await p.setViewportSize({width:1133,height:777});await p.waitForFunction(oldWidth=>{const a=foundrySky,c=a.renderer.canvas;return c.width===a.grid.width&&c.height===a.grid.height&&a.grid.width!==oldWidth;},state.grid.width);
+      const resized=await p.evaluate(()=>({grid:foundrySky.grid,time:foundrySky.clock.time,phase:foundrySky.scene.project(foundrySky.grid.aspect).map(p=>p.phase),snap:foundrySky.settings.pixelSnap,mode:foundrySky.settings.detailMode}));
+      assert.equal(resized.time,state.time);assert.equal(resized.snap,true);assert.equal(resized.mode,'auto');assert.notEqual(resized.grid.width,state.grid.width);
+      gridCases.push({dpr,width:state.width,height:state.height,scale:state.grid.scale,resized:resized.grid.width+'x'+resized.grid.height});await context.close();
+    }
+    assert.deepEqual(errors,[]);
+    console.log('PASS authored sky browser:', JSON.stringify({ initial, controls, overhead, fly, gridCases, screenshot: path.join(os.tmpdir(), 'foundry-sky-start.png') }));
   } finally { await browser.close(); server.close(); }
 })().catch(error => { console.error(error); server.close(); process.exitCode = 1; });

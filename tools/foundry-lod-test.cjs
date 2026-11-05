@@ -1,0 +1,16 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const ctx={window:{},Uint8Array,Number,Math};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/foundry-renderer.js'),'utf8'),ctx);
+const Renderer=ctx.window.BakedCloudRenderer;
+const maps=(w,h)=>[[0,1,2,3].map(()=>new Uint8Array(w*h*4))];
+const a={w:64,h:48,views:[{yaw:0,pitch:0}],halfHeight:2,range:4,data:maps(64,48),lighting:maps(64,48),lods:[{w:32,h:24,data:maps(32,24),lighting:maps(32,24)}]};
+assert.equal(Renderer.validateAsset(a),(64*48+32*24)*32);
+assert.throws(()=>Renderer.validateAsset({...a,lighting:maps(32,24)}));
+assert.throws(()=>Renderer.validateAsset({...a,lods:[{w:128,h:96,data:maps(128,96)}]}));
+const R=Object.create(Renderer.prototype);R.levels=[{h:96},{h:48},{h:24}];R.lodState=new Map();
+assert.equal(R._selectLod('a',80,'auto'),0);
+assert.equal(R._selectLod('a',39,'auto'),1);
+assert.equal(R._selectLod('a',49,'auto'),1,'small oscillation does not toggle level');
+assert.equal(R._selectLod('a',55,'auto'),0,'enlarging cloud recovers full detail');
+assert.equal(R._selectLod('b',20,'auto'),2);
+assert.equal(R._selectLod('b',20,'full'),0);
+console.log('Foundry explicit LOD and lighting contract: PASS');

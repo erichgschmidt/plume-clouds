@@ -18,20 +18,22 @@ in vec2 screen;
 layout(location=0)out vec4 color;
 layout(location=1)out vec4 surface;
 uniform sampler2DArray uDepth0,uNormal0,uDepth1,uNormal1;
+uniform sampler2DArray uLightPos0,uLightNeg0,uLightPos1,uLightNeg1;
 uniform mat3 uTarget,uSource0,uSource1;
 uniform vec2 uCenter,uViews;
-uniform float uAspect,uScale,uHalfHeight,uRange,uDistance,uDepthScale,uOpacity,uTime,uBreathing,uBlend,uInstance;
+uniform float uAspect,uMapAspect,uScale,uHalfHeight,uRange,uDistance,uDepthScale,uOpacity,uTime,uBreathing,uBlend,uInstance;
 uniform vec3 uLight;
-uniform float uAO,uTransmission,uBands;
-uniform int uPalette;
+uniform float uAO,uTransmission,uBands,uSixWay;
+uniform int uPalette,uHasLighting;
 ${common}
-struct Hit{vec3 n;float ao;float thickness;float alpha;float z;};
-Hit emptyHit(){return Hit(vec3(0,0,1),1.,0.,0.,-1e6);}
+struct Hit{vec3 n;float ao;float thickness;float alpha;float z;vec3 lightPos;vec3 lightNeg;float unoccluded;};
+Hit emptyHit(){return Hit(vec3(0,0,1),1.,0.,0.,-1e6,vec3(0),vec3(0),0.);}
+vec3 axisWeights(){vec3 w=uLight*uLight;return w/max(dot(w,vec3(1)),.00001);}
 vec4 depthAt(vec2 uv,int view,int layer){return layer==0?texture(uDepth0,vec3(uv,float(view))):texture(uDepth1,vec3(uv,float(view)));}
 vec4 normalAt(vec2 uv,int view,int layer){return layer==0?texture(uNormal0,vec3(uv,float(view))):texture(uNormal1,vec3(uv,float(view)));}
 Hit reproject(vec2 xy,mat3 source,int view,int layer){
  vec3 base=uTarget*vec3(xy,0),ray=uTarget[2];float den=dot(ray,source[2]);if(den<.2)return emptyHit();
- float t=0.,lo=-1e6,hi=1e6;vec2 uv=vec2(.5);float aspect=float(textureSize(uDepth0,0).x)/float(textureSize(uDepth0,0).y);
+ float t=0.,lo=-1e6,hi=1e6;vec2 uv=vec2(.5);float aspect=uMapAspect;
  // Quantized, steep depth-map samples can make direct fixed-point updates
  // oscillate across an entire lobe. Bracket the residual and bisect instead.
  // This intersects only the captured 2D depth field, never an author volume.
@@ -49,13 +51,32 @@ Hit reproject(vec2 xy,mat3 source,int view,int layer){
  float solved=(front-dot(base,source[2]))/den;
  float residual=abs(solved-t)*sqrt(max(0.,1.-den*den));
  if(residual>3.*uHalfHeight/float(textureSize(uDepth0,0).y))return emptyHit();
- float thickness=max(front-back,0.);return Hit(decodeOct(nm.rg),nm.b,thickness,1.-exp(-thickness*12.),solved);
+ vec3 positive=vec3(0),negative=vec3(0);
+ if(uHasLighting==1&&uSixWay>0.){
+  vec3 coord=vec3(uv,float(view));
+  positive=layer==0?texture(uLightPos0,coord).rgb:texture(uLightPos1,coord).rgb;
+  negative=layer==0?texture(uLightNeg0,coord).rgb:texture(uLightNeg1,coord).rgb;
+ }
+ vec3 normal=decodeOct(nm.rg),signedNormal=mix(-normal,normal,step(vec3(0),uLight));
+ float unoccluded=dot(max(signedNormal,vec3(0)),axisWeights());
+ float thickness=max(front-back,0.);return Hit(normal,nm.b,thickness,1.-exp(-thickness*12.),solved,positive,negative,unoccluded);
 }
 Hit viewHit(vec2 xy,mat3 source,int view){Hit a=reproject(xy,source,view,0),b=reproject(xy,source,view,1);if(b.alpha>.01&&b.z>a.z)return b;return a;}
 vec3 lightCloud(Hit h){
  // Capture normals and the sun share the asset/world axes. Changing the
  // camera capture must not rotate the illumination of a stationary cloud.
  vec3 n=h.n;float diffuse=clamp((dot(n,uLight)+.2)/1.2,0.,1.);
+ if(uHasLighting==1&&uSixWay>0.){
+  vec3 weights=axisWeights();
+  vec3 directional=mix(h.lightNeg,h.lightPos,step(vec3(0),uLight));
+  // Divide out the captured cosine before applying visibility once to the
+  // existing diffuse. Otherwise diagonal lights lose energy even without cover.
+  // Half a stored byte accounts for rounding down unoccluded irradiance.
+  float irradiance=dot(directional,weights);
+  float visibility=clamp((irradiance+.5/255.)/max(h.unoccluded,.00001),0.,1.);
+  visibility=mix(1.,visibility,smoothstep(0.,.02,h.unoccluded));
+  diffuse*=mix(1.,visibility,uSixWay);
+ }
  float v=clamp(.19+diffuse*.81-(1.-h.ao)*uAO*.26,0.,1.);
  if(uBands>1.)v=floor(v*(uBands-1.)+.5)/(uBands-1.);
  vec3 dark=vec3(.29,.45,.53),mid=vec3(.64,.77,.76),lit=vec3(.99,.94,.80);
@@ -76,6 +97,10 @@ void main(){
   // makes disconnected ghost silhouettes appear immediately off a capture.
   if(b.alpha>.98&&h.alpha>.98&&abs(b.z-h.z)<uRange*.04&&dot(b.n,h.n)>.8){
    h.n=normalize(mix(h.n,b.n,uBlend));h.ao=mix(h.ao,b.ao,uBlend);h.thickness=mix(h.thickness,b.thickness,uBlend);h.z=mix(h.z,b.z,uBlend);
+   h.lightPos=mix(h.lightPos,b.lightPos,uBlend);h.lightNeg=mix(h.lightNeg,b.lightNeg,uBlend);
+   // Match the response blend instead of renormalizing its reference normal;
+   // that would manufacture occlusion between two unblocked capture views.
+   h.unoccluded=mix(h.unoccluded,b.unoccluded,uBlend);
   }
  }
  if(h.alpha<.01||uOpacity<=0.)discard;

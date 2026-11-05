@@ -8,10 +8,24 @@ sky consumes only 2D capture maps, with no particle simulation, SDF evaluation,
 volume solver, or mesh rendering. The supplied Foundry prototype is an authorized
 source for this integration and is preserved in `reference/cloud-foundry-v2.1.html`.
 
-- `FoundryAssets` validates and serializes four byte-exact RGBA8 maps per capture.
+- `FoundryAssets` v2 validates and serializes four byte-exact geometry RGBA8 maps
+  plus four optional six-way lighting maps per capture. V1 assets still load.
+  Lighting uses two signed XYZ RGB maps per occupied interval with matching
+  coverage alpha, storing visibility times directional cosine. The sky normalizes
+  the interpolated response by the unoccluded directional basis before applying
+  continuous diffuse lighting, preserving brightness at diagonal sun angles.
   Angles are explicit degrees; normals use object axes, map rows are bottom-up.
   IndexedDB carries the active asset between pages. JSON export/import also works
   across origins or when local storage is unavailable.
+- Lower resolutions are explicit captures in `lods`, smallest first, with the
+  master at the asset root. Each reduction copies a complete representative ray
+  (geometry and light), then pads depth without padding coverage. Packed depth
+  bytes are never averaged or passed through hardware mip generation. Selection
+  follows projected logical-pixel size with hysteresis, not distance alone.
+- `FoundryPixelGrid` presents the logical canvas at integer physical-pixel scale,
+  including fractional device pixel ratios. Motion snapping affects rendered
+  centers only; the simulation and camera retain continuous positions. The grid
+  adapts to viewport size using whole cells and a small padding remainder.
 - `FoundryScene` owns deterministic instance placement and camera movement.
   The shared clock controls travel, drift, sway and breathing. Manual camera
   movement remains available while playback is paused. Look elevation exposes
@@ -27,8 +41,9 @@ source for this integration and is preserved in `reference/cloud-foundry-v2.1.ht
   newly exposed surfaces; this is not unrestricted 360-degree geometry.
 - Depth-map shadows approximate visibility in the current screen. They cannot
   account for offscreen blockers or geometry absent from the baked captures.
-  The runtime shadow pass applies between instances only; internal recesses use
-  baked AO. Dynamic within-cloud cast shadows are not implemented. Partially
+  The runtime screen-space shadow pass applies between instances only. Internal
+  shading uses baked AO and the six directional visibility captures; it responds
+  to the sun through interpolation, not a runtime volume trace. Partially
   transparent intersections currently retain the nearest surface rather than
   compositing every depth layer. Capture normals and sun use common object/world
   axes, so camera movement does not rotate the illumination.
@@ -45,6 +60,13 @@ choose **Freeze & bake asset** and **Use in sky**. Open `sky.html` and choose
 **Load from Foundry** if it was already open. **Export sky asset** / **Import asset**
 is the portable handoff when the pages have different origins. A baked starter
 asset is included, so the sky does not depend on an authoring session at startup.
+**Starter cloud** loads it without overwriting the saved author asset. Older assets
+need rebaking for six-way lighting and explicit detail levels; they keep normal
+lighting as a fallback. The starter has a 256×192 master and 128×96 / 64×48 levels
+(about 29.5 MiB raw). A 512×384 bake is available for closer views; its full 15-view
+geometry/light pyramid is about 119.5 MiB. Total validated map budget is 160 MiB.
+The author preview and basic standalone preview export remain normal-lit; the sky
+renderer consumes the six-way maps. JSON sky assets and ZIP exports carry them.
 This first bridge repeats one active asset; it does not yet manage a library of
 different cloud species or baked animation sequences.
 
@@ -57,6 +79,9 @@ CPU regressions: `tools/foundry-assets-test.cjs`, `tools/foundry-scene-test.cjs`
 and `tools/foundry-renderer-test.cjs`. Browser regressions:
 `tools/foundry-author-test.cjs`, `tools/foundry-renderer-browser.cjs`,
 `tools/foundry-sky-test.cjs`, and `tools/foundry-bundle-test.cjs`.
+Pixel-grid checks are `tools/foundry-pixel-grid-test.cjs` and
+`tools/foundry-pixel-grid-browser.cjs`. `tools/bake-foundry-default.cjs` rebuilds
+the bundled starter through the actual authoring pipeline.
 Run them with Node; browser tests accept `PLAYWRIGHT_MODULE` and `CHROME_PATH`.
 The author test expects this repository served at `http://127.0.0.1:8765`,
 overridable with `CLOUD_TEST_URL`. The sky test starts its own temporary server.

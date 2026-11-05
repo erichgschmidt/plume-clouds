@@ -13,7 +13,7 @@ async function bake(){
   await new Promise(r=>setTimeout(r,40));
  }
  physicsHeld=true;const prev=baked;
- await bakeLegacy();if(baked&&baked!==prev){baked.atmosphere=clone(atmosphere.stats);baked.lighting=clone(state);baked.volumeRevision=volumeRevision;$('exportSprite').disabled=false;previewMode='baked';lastLiveSignature='';updateAtmosphereUI();}
+ await bakeLegacy();if(baked&&baked!==prev){baked.atmosphere=clone(atmosphere.stats);baked.authorLighting=clone(state);baked.volumeRevision=volumeRevision;$('exportSprite').disabled=false;previewMode='baked';lastLiveSignature='';updateAtmosphereUI();}
  }finally{physicsHeld=false;bakePreparing=false;}
 }
 function recipeObject(){return{format:'smashyblocks.cloud-foundry.recipe',version:VERSION,state:clone(state),additions:clone(additions),cuts:clone(cuts),evolvedSteps:atmosphere?.stats.steps||0,simulation:'warm-liquid coarse authoring model; deterministic fixed 2-second steps',savedMode:'settings + initial moisture scaffold + step-count replay, not a binary solver checkpoint'};}
@@ -29,11 +29,29 @@ function spritePixels(view=0){
  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.deleteFramebuffer(f);gl.deleteTexture(t);lastLiveSignature='';return{w,h,bytes:out};
 }
 function exportSprite(){if(!baked)return;const view=baked.views.findIndex(v=>v.yaw===0&&v.pitch===0),sp=spritePixels(Math.max(view,0));downloadBlob(new Blob([pngRGBA(sp.w,sp.h,sp.bytes)],{type:'image/png'}),'cloud-sprite-rgba.png');}
+
+function appendLightingExports(files,asset){
+ const lightNames=['positive0','negative0','positive1','negative1'];
+ if(asset.lighting)for(let map=0;map<4;map++){
+  const atlas=atlasBytes({...asset,data:asset.lighting},map);
+  files.push(['lighting/'+lightNames[map]+'.png',pngRGBA(atlas.w,atlas.h,atlas.bytes)],
+   ['raw/'+lightNames[map]+'.rgba',concatBytes(asset.lighting.map(v=>v[map]))]);
+ }
+ for(const level of asset.lods||[]){
+  const prefix='lods/'+level.w+'/',lod={...asset,...level};
+  for(const [data,names,folder]of [[level.data,['depth0','normal0','depth1','normal1'],'maps/'],[level.lighting,lightNames,'lighting/']]){
+   if(!data)continue;
+   for(let map=0;map<4;map++){const atlas=atlasBytes({...lod,data},map);files.push([prefix+folder+names[map]+'.png',pngRGBA(atlas.w,atlas.h,atlas.bytes)]);}
+  }
+ }
+}
+
 async function exportPack(){
  if(!baked)return;const button=$('exportPack');button.disabled=true;
  try{
   await nextFrame();const names=['depth0','normal0','depth1','normal1'],files=[];
   for(let i=0;i<4;i++){const at=atlasBytes(baked,i);files.push(['maps/'+names[i]+'.png',pngRGBA(at.w,at.h,at.bytes)],['raw/'+names[i]+'.rgba',concatBytes(baked.data.map(v=>v[i]))]);}
+  appendLightingExports(files,baked);
   const cols=baked.grid===1?1:3,rows=Math.ceil(baked.views.length/cols),w=baked.w*cols,h=baked.h*rows,atlas=new Uint8Array(w*h*4);
   for(let v=0;v<baked.views.length;v++){const sp=spritePixels(v);files.push([`sprites/view-${String(v).padStart(2,'0')}.png`,pngRGBA(sp.w,sp.h,sp.bytes)]);for(let y=0;y<sp.h;y++)atlas.set(sp.bytes.subarray(y*sp.w*4,(y+1)*sp.w*4),((Math.floor(v/cols)*sp.h+y)*w+(v%cols)*sp.w)*4);}
   files.push(['sprites/color-atlas.png',pngRGBA(w,h,atlas)]);
@@ -41,7 +59,7 @@ async function exportPack(){
   downloadBlob(zipFiles(files),'cloud-foundry-v2-'+baked.recipe.state.preset+'-game-asset.zip');
  }catch(e){notify(e.message,true);}finally{button.disabled=false;}
 }
-function manifest(a){const m=legacyManifest(a);m.version=VERSION;m.source='warm-cloud moisture / temperature / velocity simulation converted to a condensate isosurface, then artist-controlled subgrid shaping';m.simulation=a.atmosphere||null;m.sprites={format:'PNG RGBA8 straight alpha',color:'prelit display color; no gamma chunk',layout:'same view order and atlas layout as data maps',timeAnimation:false,viewAngleAtlas:true};m.limitations[1]='The render field is an approximate sampled distance guide plus explicit artistic billow/erosion displacement. It is not an exact analytic SDF.';m.limitations.push('Formation is warm-liquid only, coarse and art-directed; no ice, rain, exact mass conservation during advection, or meteorological validation.');return m;}
+function manifest(a){const m=legacyManifest(a);m.lighting={maps:['positive0','negative0','positive1','negative1'],channels:'RGB responses for signed X/Y/Z; A is matching interval coverage',response:'exp(-4 * occupied path length) * max(dot(normal, direction), 0)',runtimeBlend:'squared-axis irradiance / matching unoccluded basis gives visibility; apply once to continuous diffuse',referencePreview:'Author/standalone HTML uses normal lighting; sky uses six-way maps'};m.lods=(a.lods||[]).map(l=>({width:l.w,height:l.h,path:'lods/'+l.w+'/'}));m.version=VERSION;m.source='warm-cloud moisture / temperature / velocity simulation converted to a condensate isosurface, then artist-controlled subgrid shaping';m.simulation=a.atmosphere||null;m.sprites={format:'PNG RGBA8 straight alpha',color:'prelit display color; no gamma chunk',layout:'same view order and atlas layout as data maps',timeAnimation:false,viewAngleAtlas:true};m.limitations[1]='The render field is an approximate sampled distance guide plus explicit artistic billow/erosion displacement. It is not an exact analytic SDF.';m.limitations.push('Formation is warm-liquid only, coarse and art-directed; no ice, rain, exact mass conservation during advection, or meteorological validation.');return m;}
 function bindNewUI(){
  $('useInSky').onclick=()=>useInSky().catch(e=>notify(e.message,true));
  $('exportSky').onclick=exportSky;
