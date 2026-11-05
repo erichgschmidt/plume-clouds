@@ -17,7 +17,7 @@ const lodSource=asset.views.flatMap((view,v)=>asset.lods.map(l=>{const master=st
   console.log('Snapshot loaded; input bytes frozen in Node memory:',input);
   const metrics=await page.evaluate(record=>{
    const R=new BakedCloudRenderer(document.querySelector('#c'));R.load(FoundryAssets.parse(record));const W=320,H=240,N=W*H;
-   const settings={pixelSize:1,pixelSnap:false,detailMode:'full',breathing:0,shadow:0,haze:0,exposure:1.25,skyColor:[.09,.2,.3]};
+   const settings={pixelSize:1,pixelSnap:false,detailMode:'full',breathing:0,shadow:0,haze:0,relighting:false,exposure:1.25,skyColor:[.09,.2,.3]};
    const packet={id:1,x:0,y:0,scale:1.25,yaw:0,pitch:0,distance:6,opacity:1,phase:0};
    const gl=R.gl;
    function frame(p={},s={},list=null){R.render(list||[{...packet,...p}],0,{...settings,...s});const rgba=new Uint8Array(N*4),hdr=new Float32Array(N*4);gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,rgba);gl.bindFramebuffer(gl.FRAMEBUFFER,R.target.fbo);gl.readBuffer(gl.COLOR_ATTACHMENT2);gl.readPixels(0,0,W,H,gl.RGBA,gl.FLOAT,hdr);gl.bindFramebuffer(gl.FRAMEBUFFER,null);let alpha=0,energy=0,covered=0;const mask=new Uint8Array(N);for(let i=0;i<N;i++){const a=hdr[i*4+3];alpha+=a;energy+=hdr[i*4]+hdr[i*4+1]+hdr[i*4+2];mask[i]=a>.01?1:0;covered+=mask[i];}return{rgba,hdr,mask,alpha,energy,covered,lod:R.lodState.get(p.id||packet.id),drawn:R.stats.drawn,culled:R.stats.culled};}

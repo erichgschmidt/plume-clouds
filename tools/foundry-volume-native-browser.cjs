@@ -14,7 +14,7 @@ const asset=Assets.parse(JSON.stringify(record)),serialized=JSON.parse(Assets.st
   for(const f of ['src/foundry-assets.js','src/foundry-shaders.js','src/foundry-renderer.js'])await page.addScriptTag({content:fs.readFileSync(path.join(__dirname,'..',f),'utf8')});
   const frames=await page.evaluate(a=>{
    const R=new BakedCloudRenderer(document.querySelector('canvas'));R.load(FoundryAssets.parse(a));
-   const frames=[];for(const {yaw,pitch}of a.views){const start=performance.now();R.render([{id:1,x:0,y:0,scale:1,yaw,pitch,distance:10,opacity:1,depthScale:.01}],0,{pixelSize:1,pixelSnap:false,detailMode:'full',breathing:0,haze:0,shadow:0,exposure:1.25,skyColor:[.12,.35,.57]});const raw=new Uint8Array(a.w*a.h*4);R.gl.readPixels(0,0,a.w,a.h,R.gl.RGBA,R.gl.UNSIGNED_BYTE,raw);frames.push({yaw,pitch,bytes:Array.from(raw),ms:performance.now()-start});}
+   const frames=[];for(const {yaw,pitch}of a.views){const start=performance.now();R.render([{id:1,x:0,y:0,scale:1,yaw,pitch,distance:10,opacity:1,depthScale:.01}],0,{pixelSize:1,pixelSnap:false,detailMode:'full',breathing:0,haze:0,shadow:0,relighting:false,exposure:1.25,skyColor:[.12,.35,.57]});const raw=new Uint8Array(a.w*a.h*4);R.gl.readPixels(0,0,a.w,a.h,R.gl.RGBA,R.gl.UNSIGNED_BYTE,raw);frames.push({yaw,pitch,bytes:Array.from(raw),ms:performance.now()-start});}
    const error=R.gl.getError();R.dispose();return {frames,error};
   },serialized);
   const sky=[.12,.35,.57],linear=c=>c<=.04045?c/12.92:((c+.055)/1.055)**2.4,srgb=c=>c<=.0031308?12.92*c:1.055*c**(1/2.4)-.055;

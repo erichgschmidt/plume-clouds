@@ -9,6 +9,12 @@ The page validates and captures fifteen views with progress and cancellation.
 Use in sky saves the completed asset locally; open the sky and choose Load saved
 cloud if it is already open. Export downloads the portable frozen asset JSON.
 The page retains the last completed result if a later bake fails or is cancelled.
+Dynamic lighting is enabled by default. It adds six-direction density visibility
+and ambient response maps, allowing sun, second light, colors and time of day to
+change in the sky. Disable it for the smaller fixed-light v3 format. The sky's
+Dynamic lighting checkbox compares a v4 asset with its original captured light.
+Older fixed-light exports need a new bake; enabling a slider cannot reconstruct
+their missing directional visibility. The bundled SkyPaint demo includes v4 maps.
 If a bright imported scene exceeds the capture encoding, increase Highlight
 range under Advanced capture and bake again. The CLI equivalent is
 `--radiance-scale 64`. The default range 4 preserves precision for ordinary clouds.
@@ -22,14 +28,14 @@ sky runtime still samples 2D maps and never loads the author bundle.
 
 ```powershell
 node tools/skypaint-bake-test.cjs
-node tools/bake-skypaint.cjs --source ../SkyPaint --width 128
+node tools/bake-skypaint.cjs --source ../SkyPaint --width 128 --relight
 ```
 
 The default output is `assets/skypaint-default.js`, assigning
 `window.SKYPAINT_DEFAULT`. A `.json` output filename exports plain asset JSON:
 
 ```powershell
-node tools/bake-skypaint.cjs --source ../SkyPaint --width 256 --output assets/skypaint-256.json --report assets/skypaint-256-audit.json
+node tools/bake-skypaint.cjs --source ../SkyPaint --width 256 --relight --output assets/skypaint-256.json --report assets/skypaint-256-audit.json
 ```
 
 `node tools/bake-skypaint.cjs --bundle-only` rebuilds the self-contained
@@ -61,14 +67,24 @@ take the maximum across all views and multiply by 1.18 before `setFraming`.
 a PNG data URL. `dispose` is idempotent, removes captured event listeners and
 releases render targets, density/noise textures and viewer GPU resources.
 Cancellation is checked before captures and between sculpt replay batches.
+`captureRelighting(view).maps` returns positive and negative RGBA8 maps as
+base64 strings. Positive RGB contains square-root encoded premultiplied
++X/+Y/+Z transmission and alpha contains linear integrated ambient response;
+negative RGB contains -X/-Y/-Z transmission and alpha is the original opacity.
+`relightSettings` supplies the original anisotropy, fill, intensity, ambient and
+linear RGB sun/sky colors. `compareRelighting(view)` checks every axis against
+the unmodified SkyPaint studio shader under unit light with its known phase
+removed. Its original sun, colors and material are restored afterward.
 `stats()` remains available after disposal and reports textures, geometries,
 programs, listener count and WebGL status for lifecycle audits.
 
 Both the CLI and browser page store the authoritative imported scene in
 `recipe.scene`, capture settings in `recipe.capture`, and source hashes in
 `source`. Their display metadata uses `bakeLighting.exposure`,
-`bakeLighting.toneMap: 'exponential-v1'`, and `bakeLighting.frozen: true`.
-The frozen flag describes illumination; exposure stays editable. CLI exports
+`bakeLighting.toneMap: 'exponential-v1'`, and `bakeLighting.frozen`, which is true
+for fixed-only exports and false when relighting maps are included. The original
+radiance fallback always retains its captured light; exposure stays editable.
+CLI exports
 also record the sun, look and direct/cache transport in `bakeLighting`.
 
 The exporter accepts `--kind bank|tower|anvil`, `--density 128`,
@@ -93,8 +109,17 @@ depth, and the last contributing ray sample as its back depth. Its normal is a
 density gradient at the centroid, for compatibility only. Centroid normals are
 not reliably front-facing; runtime reprojection must not reject radiance using
 their facing direction. Interval 1 is empty. This first export cannot uncover
-internal volume detail between capture directions or change sun illumination.
-Lighting is frozen; the bake exposure is a recommended display setting.
+internal volume detail between capture directions. Without `--relight`, lighting
+is frozen; the bake exposure is a recommended display setting. With `--relight`,
+six axis responses provide approximate arbitrary-direction sun and secondary
+lighting. Phase is evaluated analytically at runtime. The original RGB capture
+remains available as a comparison, while optical coverage stays independent of
+lighting. Two additional RGBA8 maps per view increase map memory by one third;
+source shadow integrations run only while baking, never during sky playback.
+The additional transport shader compiles lazily and captures six sequential
+directions through SkyPaint's unchanged `shadow(p)` function. It retargets the
+sun uniform instead of sampling the old sun's visibility cache. Source preview
+and fixed-light export keep their original lightweight shader.
 
 The audit compares the original SkyPaint shader with its export-instrumented
 version in a floating-point target, checks cloud-only radiance plus transmitted
@@ -106,10 +131,18 @@ channel exceeds `radianceScale`, that view rejects with its capture angles and
 the asset is not accepted. Ordinary unsaturated views keep the same cost.
 Source SHA-256 hashes and the exact scene recipe accompany the asset. The PNG shows SkyPaint's
 own original display output at the front view. The 128x96 asset and 64x48 LOD
-use 5,529,600 raw bytes across all geometry and radiance maps.
+use 5,529,600 raw bytes for frozen v3, or 7,372,800 with v4 relighting responses.
 
 `PLAYWRIGHT_MODULE`, `CHROME_PATH` and `SKYPAINT_SOURCE` override local defaults.
 GPU browser sessions must run serially with the repository's other GPU audits.
+Relighting CPU checks are `tools/foundry-relighting-test.cjs`,
+`tools/foundry-relighting-lod-test.cjs`, `tools/foundry-relighting-runtime-test.cjs`
+and `tools/foundry-daylight-test.cjs`. Native source proof runs in
+`tools/skypaint-relighting-browser.cjs`. Runtime optical/coverage checks run in
+`tools/foundry-relighting-browser.cjs`; the actual demo sweep and paired timings
+run in `tools/foundry-relighting-real-browser.cjs`. Use
+`tools/foundry-relighting-ui-browser.cjs` to verify dual-light controls, day cycle,
+pause/speed behavior, unchanged silhouettes and older asset compatibility.
 `node tools/skypaint-preview-test.cjs` checks automatic preview, rapid source
 changes, cached adapter reuse, cancellation, framing and saved-result isolation
 with deterministic CPU fixtures. The browser UI audit verifies actual preview
@@ -120,3 +153,6 @@ idempotent disposal on the same canvas. It verifies source agreement and checks
 GPU texture, geometry, program and captured-listener counts return to zero.
 The bundled author script embeds full Three.js, Cloud Nodes Studio, Pako MIT
 and Pako Zlib license notices from the read-only source dependencies.
+`node tools/skypaint-relighting-browser.cjs` verifies front and underside axis
+responses, light-independent transport and geometry, exact opacity, and unchanged
+source previews and frozen fallback maps after the transport capture.

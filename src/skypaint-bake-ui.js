@@ -9,13 +9,13 @@
   function message(text, error = false) { $('status').textContent = text; $('status').classList.toggle('error', error); return ++statusVersion; }
   function setBusy(value) {
     busy = value;
-    for (const id of ['preset', 'resolution', 'radianceScale', 'importScene', 'clearScene', 'bake']) $(id).disabled = value;
+    for (const id of ['preset', 'resolution', 'radianceScale', 'relight', 'importScene', 'clearScene', 'bake']) $(id).disabled = value;
     $('bake').disabled = value || importing;
     $('cancel').disabled = !value; $('useSky').disabled = value || !asset; $('exportAsset').disabled = value || !asset;
   }
   function decoded(value) { return Uint8Array.from(atob(value), c => c.charCodeAt(0)); }
   function checkCancelled() { if (cancellation.signal.aborted) throw new DOMException('Bake cancelled', 'AbortError'); }
-  function sourceKey() { return [imported ? importRevision : 'preset', imported ? importedName : $('preset').value, $('resolution').value, $('radianceScale').value].join('|'); }
+  function sourceKey() { return [imported ? importRevision : 'preset', imported ? importedName : $('preset').value, $('resolution').value, $('radianceScale').value, $('relight').checked].join('|'); }
   function options(signal) { const w = Number($('resolution').value); return { w, h: w * 3 / 4, radianceScale: Number($('radianceScale').value), kind: $('preset').value, scene: imported || undefined, canvas: $('bakeWork'), previewCanvas: $('preview'), signal }; }
   function discardCached() { if (cached) cached.baker.dispose(); cached = null; }
   function describeAsset() {
@@ -67,6 +67,7 @@
   $('clearScene').onclick = usePreset;
   $('preset').onchange = usePreset;
   $('resolution').onchange = refreshPreview; $('radianceScale').onchange = refreshPreview;
+  $('relight').onchange = describeAsset;
   $('cancel').onclick = () => { if (cancellation) cancellation.abort(); activeControl?.abort(); message('Cancelling after the current capture…'); };
   async function bake() {
     if (busy || importing || closed) return;
@@ -91,16 +92,22 @@
       message('Checking the bake against SkyPaint…'); await yieldFrame(); checkCancelled();
       const comparison = baker.compare({ yaw: 0, pitch: 0 });
       if (comparison.shaderMax > 1e-5 || comparison.cloudCompositeMax > 1e-4 || comparison.clipped) throw Error('The source comparison failed. The last completed asset has been preserved.');
-      const next = { format: 'plume.foundry.asset', version: 3, name: importedName ? 'SkyPaint · ' + importedName.replace(/\.json$/i, '') : 'SkyPaint · ' + $('preset').selectedOptions[0].textContent,
+      const relight = $('relight').checked;
+      const next = { format: 'plume.foundry.asset', version: relight ? 4 : 3, name: importedName ? 'SkyPaint · ' + importedName.replace(/\.json$/i, '') : 'SkyPaint · ' + $('preset').selectedOptions[0].textContent,
         w, h, halfHeight: baker.halfHeight, range: baker.range, views, grid: 15, yawArc: 35, pitchArc: 85,
         appearance: 'baked-radiance-v1', radianceScale, data: [], radiance: [], source: SKYPAINT_BAKE_SOURCE,
-        bakeLighting: { exposure: baker.scene.sky.exposure, toneMap: 'exponential-v1', frozen: true },
+        ...(relight ? { relighting: [], relightEncoding: 'sqrt-premultiplied-visibility-v1', relightSettings: baker.relightSettings } : {}),
+        bakeLighting: { exposure: baker.scene.sky.exposure, sunAz: Number.isFinite(baker.scene.sun?.azimuth) ? ((baker.scene.sun.azimuth + 180) % 360 + 360) % 360 - 180 : -42, sunAlt: Number.isFinite(baker.scene.sun?.elevation) ? Math.max(-90,Math.min(90,baker.scene.sun.elevation)) : 48, toneMap: 'exponential-v1', frozen: !relight },
         recipe: { source: 'SkyPaint', scene: baker.scene, capture: { center: baker.center, viewSteps: 128, shadowSteps: 32, layers: 'one integrated interval', depth: 'opacity-contribution centroid' } } };
       for (let i = 0; i < views.length; i++) {
         checkCancelled(); message('Baking cloud · view ' + (i + 1) + ' of ' + views.length); await yieldFrame();
         const frame = baker.capture(views[i]);
         next.data.push([decoded(frame.depth), decoded(frame.normal), new Uint8Array(w * h * 4), new Uint8Array(w * h * 4)]);
         next.radiance.push([decoded(frame.radiance), new Uint8Array(w * h * 4)]); $('progress').value = .3 + .65 * (i + 1) / views.length;
+        if (relight) {
+          checkCancelled(); message('Baking directional light · view ' + (i + 1) + ' of ' + views.length); await yieldFrame(); checkCancelled();
+          next.relighting.push(baker.captureRelighting(views[i]).maps.map(decoded));
+        }
       }
       checkCancelled(); message('Preparing detail levels…'); await yieldFrame();
       FoundryAssets.buildLods(next, { minWidth: 64 }); FoundryAssets.validate(next);

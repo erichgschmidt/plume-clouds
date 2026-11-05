@@ -20,6 +20,7 @@ const server=http.createServer((req,res)=>{const file=path.resolve(root,'.'+new 
   assert.equal(await page.evaluate(()=>previewAudit.captured),0,'Automatic preview does not bake maps');
   await page.screenshot({path:path.join(os.tmpdir(),'skypaint-auto-preview-ui.png'),fullPage:true});
   assert(await page.locator('#useSky').isDisabled());
+  await page.locator('#relight').uncheck(); // This suite also preserves the optional frozen-v3 workflow.
   await page.locator('#preset').selectOption('tower');await page.evaluate(()=>skyPaintBakerUI.whenPreviewIdle());const tower=await image();assert.notEqual(tower.hash,opened.hash,'Preset changes refresh the source image');
   await page.locator('#preset').selectOption('bank');await page.evaluate(()=>skyPaintBakerUI.whenPreviewIdle());
   await page.locator('summary').filter({hasText:'Advanced capture'}).click();await page.locator('#radianceScale').selectOption('16');
@@ -61,10 +62,14 @@ const server=http.createServer((req,res)=>{const file=path.resolve(root,'.'+new 
   assert.deepEqual(exposures,[{value:.1,slider:.1},{value:1.234,slider:1.234},{value:4,slider:4}],'Every valid SkyPaint exposure survives the UI handoff');
   await page.locator('#btnStarter').click();assert(!(await page.locator('#param-sunAz').isDisabled()));assert(!(await page.locator('#param-sixWay').isDisabled()));assert(!(await page.locator('#param-exposure').isVisible()));
   assert.equal(await page.evaluate(async()=>(await FoundryAssets.load('active')).name),first.name,'Demo buttons never replace the saved bake');
-  await page.locator('#btnVolumeDemo').click();assert(await page.locator('#param-sunAz').isDisabled());assert.equal(await page.evaluate(()=>foundrySky.renderer.gl.getError()),0);
+  await page.locator('#btnVolumeDemo').click();assert(!(await page.locator('#param-sunAz').isDisabled()));assert.equal(await page.evaluate(()=>foundrySky.renderer.gl.getError()),0);
   await page.locator('#btnLoad').click();await page.waitForFunction(name=>foundrySky.asset.name===name,first.name);
   await page.screenshot({path:path.join(os.tmpdir(),'skypaint-baked-sky-ui.png'),fullPage:true});
-  assert.deepEqual(errors,[]);console.log('SkyPaint baker UI/sky handoff PASS',JSON.stringify({first,state}));
+  await page.goto(base+'/skypaint-bake.html');await page.waitForFunction(()=>window.skyPaintBakerUI);await page.evaluate(()=>skyPaintBakerUI.whenPreviewIdle());assert(await page.locator('#relight').isChecked(),'New bakes default to dynamic lighting');
+  await page.locator('#bake').click();await page.waitForFunction(()=>!skyPaintBakerUI.busy&&skyPaintBakerUI.asset?.version===4,null,{timeout:180000});
+  const dynamic=await page.evaluate(()=>{const a=skyPaintBakerUI.asset;FoundryAssets.validate(a);return{version:a.version,views:a.relighting.length,lods:a.lods.map(l=>l.relighting.length),frozen:a.bakeLighting.frozen,sunAz:a.bakeLighting.sunAz,bytes:FoundryAssets.byteLength(a)};});assert.equal(dynamic.views,15);assert.deepEqual(dynamic.lods,[15]);assert.equal(dynamic.frozen,false);assert(dynamic.bytes>first.bytes);
+  await page.locator('#useSky').click();await page.waitForFunction(()=>document.querySelector('#status').textContent.startsWith('Saved for the sky'));await page.goto(base+'/sky.html');await page.waitForFunction(()=>window.foundrySky?.ready&&foundrySky.asset.version===4);assert(!(await page.locator('#param-sunAz').isDisabled()));assert(await page.locator('#dynamicLighting').isVisible());assert.equal(await page.evaluate(()=>foundrySky.renderer.gl.getError()),0);
+  assert.deepEqual(errors,[]);console.log('SkyPaint frozen and relightable baker UI/sky handoff PASS',JSON.stringify({first,state,dynamic}));
  }catch(error){await page.screenshot({path:path.join(os.tmpdir(),'skypaint-baker-ui-failure.png'),fullPage:true}).catch(()=>{});throw error;}
  finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});

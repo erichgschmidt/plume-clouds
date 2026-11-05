@@ -6,6 +6,24 @@ const DEG=Math.PI/180;
 const MIN_RADIANCE_SCALE=1e-6,MAX_RADIANCE_SCALE=65504;
 const finite=(v,d)=>Number.isFinite(v)?v:d;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const RELIGHT_ENCODING='sqrt-premultiplied-visibility-v1';
+function lightNumber(value,fallback,min,max,name){const n=value===undefined?fallback:value;if(typeof n!=='number'||!Number.isFinite(n)||n<min||n>max)throw Error('Invalid lighting '+name);return n;}
+function lightColor(value,fallback,name){const c=value===undefined?fallback:value;if(!Array.isArray(c)||c.length!==3)throw Error('Invalid lighting '+name+' color');return c.map(n=>lightNumber(n,0,0,16,name+' color'));}
+function relightPhase(mu,g){const hg=a=>(1-a*a)/Math.pow(Math.max(.001,1+a*a-2*a*mu),1.5);return .85*hg(g)+.15*hg(-.23);}
+function sameMetadata(a,b){if(a===b)return true;if(!a||!b||typeof a!=='object'||typeof b!=='object'||Array.isArray(a)!==Array.isArray(b))return false;const keys=Object.keys(a);return keys.length===Object.keys(b).length&&keys.every(k=>Object.prototype.hasOwnProperty.call(b,k)&&sameMetadata(a[k],b[k]));}
+function relightParameters(settings={},asset={}){
+ const m=asset.relightSettings===undefined?{}:asset.relightSettings;
+ if(!m||typeof m!=='object'||Array.isArray(m))throw Error('Invalid relighting settings');
+ const number=(key,metaKey,fallback,min,max)=>lightNumber(settings[key],lightNumber(m[metaKey],fallback,min,max,metaKey),min,max,key);
+ const color=(key,metaKey)=>lightColor(settings[key],lightColor(m[metaKey],[1,1,1],metaKey),key);
+ const sunColor=color('sunColor','sunColor'),ambientColor=color('ambientColor','skyColor'),secondColor=lightColor(settings.lightColor,[1,1,1],'second light');
+ const direction=(az,alt)=>{az*=DEG;alt*=DEG;return [Math.cos(alt)*Math.sin(az),Math.sin(alt),Math.cos(alt)*Math.cos(az)];};
+ const sun=direction(lightNumber(settings.sunAz,finite(asset.bakeLighting?.sunAz,-42),-180,180,'sun azimuth'),lightNumber(settings.sunAlt,finite(asset.bakeLighting?.sunAlt,48),-90,90,'sun elevation'));
+ const second=direction(lightNumber(settings.lightAz,120,-180,180,'second light azimuth'),lightNumber(settings.lightAlt,35,-90,90,'second light elevation'));
+ const signed=d=>{const sum=d.reduce((s,x)=>s+x*x,0);return [d.map(x=>x>=0?x*x/sum:0),d.map(x=>x<0?x*x/sum:0)];},[sunWeightsPos,sunWeightsNeg]=signed(sun),[secondWeightsPos,secondWeightsNeg]=signed(second);
+ const ambient=number('ambientIntensity','ambient',.28,0,16),fill=number('scatterFill','fill',.2,0,4);
+ return {sun,second,sunWeightsPos,sunWeightsNeg,secondWeightsPos,secondWeightsNeg,sunColor,secondColor,sunIntensity:number('sunIntensity','intensity',2.6,0,64),secondIntensity:lightNumber(settings.lightIntensity,0,0,64,'second light intensity'),anisotropy:number('anisotropy','anisotropy',.32,-.9,.9),ambientRadiance:ambientColor.map(c=>c*ambient),fillRadiance:ambientColor.map((c,k)=>(c*.65+sunColor[k]*.35)*.42*fill)};
+}
 function basis(yaw,pitch){const cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);return new Float32Array([cy,0,-sy,-sy*sp,cp,-cy*sp,sy*cp,sp,cy*cp]);}
 function targetBasis(yaw,pitch,cameraPitch=0){
  const target=basis(yaw,pitch);if(!cameraPitch||!Number.isFinite(cameraPitch))return target;
@@ -83,29 +101,41 @@ function validateAsset(a){
  if(!Array.isArray(a.data)||a.data.length!==a.views.length)throw Error('Cloud map view count does not match capture metadata.');
  for(const v of a.views)if(!v||!Number.isFinite(v.yaw)||!Number.isFinite(v.pitch))throw Error('Cloud capture angles must be finite degrees.');
  if(a.lods!==undefined&&!Array.isArray(a.lods))throw Error('Cloud LODs must be an array.');
- const baked=a.appearance==='baked-radiance-v1',scale=a.radianceScale===undefined?4:a.radianceScale;
+ const baked=a.appearance==='baked-radiance-v1',relit=a.relighting!==undefined,scale=a.radianceScale===undefined?4:a.radianceScale;
  if(a.appearance!==undefined&&!baked)throw Error('Unsupported cloud appearance.');
  if(baked&&(!Number.isFinite(scale)||scale<MIN_RADIANCE_SCALE||scale>MAX_RADIANCE_SCALE))throw Error('Invalid radiance scale (supported range 1e-6..65504).');
  if(baked&&a.lighting)throw Error('Radiance appearance cannot mix directional lighting.');
  if(!baked&&(a.radiance!==undefined||a.radianceScale!==undefined))throw Error('Radiance maps require baked-radiance-v1 appearance.');
+ if(relit&&!baked)throw Error('Relighting requires baked-radiance-v1 appearance.');
+ if(relit&&a.relightEncoding!==undefined&&a.relightEncoding!==RELIGHT_ENCODING)throw Error('Unsupported relighting encoding.');
+ if(!relit&&(a.relightSettings!==undefined||a.relightEncoding!==undefined))throw Error('Relighting metadata requires response maps.');
+ if(a.version===4&&!relit)throw Error('Asset version 4 requires relighting maps.');
  function metadata(v,depth=0){if(depth>16||typeof v==='number'&&!Number.isFinite(v))throw Error('Invalid nonfinite appearance metadata.');if(v&&typeof v==='object')for(const q of Object.values(v))metadata(q,depth+1);}
  if(baked){
-  if(a.version!==undefined&&a.version!==3)throw Error('Radiance appearance requires asset version 3.');
+  if(a.version!==undefined&&a.version!==(relit?4:3))throw Error('Radiance appearance requires asset version '+(relit?4:3)+'.');
   if(a.radianceEncoding!==undefined&&a.radianceEncoding!=='sqrt-premultiplied-linear-v1')throw Error('Unsupported radiance encoding.');
   if(a.radianceOrder!==undefined&&JSON.stringify(a.radianceOrder)!=='["interval0","interval1"]')throw Error('Invalid radiance interval order.');
   metadata(a.source);metadata(a.bakeLighting);metadata(a.recipe);
+  if(relit){metadata(a.relightSettings);relightParameters({},a);}
  }
  let total=0;
  for(const level of [a,...(a.lods||[])]){
   if(!level||!Number.isInteger(level.w)||!Number.isInteger(level.h)||level.w<1||level.h<1||level.w>a.w||level.h>a.h)throw Error('Cloud LOD dimensions must not exceed the master capture.');
   const bytes=level.w*level.h*4;
   if(!!level.radiance!==baked||!!level.lighting!==!!a.lighting||(level.appearance!==undefined&&level.appearance!==a.appearance)||(level.radianceScale!==undefined&&level.radianceScale!==scale))throw Error('LOD appearance must match the master.');
+  if(!relit&&(level.relightEncoding!==undefined||level.relightSettings!==undefined))throw Error('LOD relighting metadata requires response maps.');
+  if(level.relightSettings!==undefined){metadata(level.relightSettings);relightParameters({},{relightSettings:level.relightSettings});}
+  if((level.relighting!==undefined)!==relit||(level.relightEncoding!==undefined&&level.relightEncoding!==(a.relightEncoding||RELIGHT_ENCODING))||(level!==a&&level.relightSettings!==undefined&&!sameMetadata(level.relightSettings,a.relightSettings)))throw Error('LOD relighting must match the master.');
   for(const maps of [level.data,...(level.lighting===undefined?[]:[level.lighting])]){
    if(!Array.isArray(maps)||maps.length!==a.views.length)throw Error('Cloud LOD map count does not match capture metadata.');
    for(const view of maps)if(!Array.isArray(view)||view.length!==4||view.some(d=>!(d instanceof Uint8Array)||d.length!==bytes))throw Error('Each cloud capture requires four exact-size Uint8Array RGBA maps.');
    total+=bytes*4*a.views.length;
   }
   if(baked){if(!Array.isArray(level.radiance)||level.radiance.length!==a.views.length||level.radiance.some(v=>!Array.isArray(v)||v.length!==2||v.some(d=>!(d instanceof Uint8Array)||d.length!==bytes)))throw Error('Radiance requires two exact-size Uint8Array RGBA maps per capture.');total+=bytes*2*a.views.length;}
+  if(relit){
+   if(!Array.isArray(level.relighting)||level.relighting.length!==a.views.length||level.relighting.some(v=>!Array.isArray(v)||v.length!==2||v.some(d=>!(d instanceof Uint8Array)||d.length!==bytes)))throw Error('Relighting requires two exact-size Uint8Array RGBA maps per capture.');
+   for(let v=0;v<a.views.length;v++)for(let i=3;i<bytes;i+=4)if(level.data[v][3][i]>127||level.radiance[v][1][i]>0)throw Error('Relighting supports occupied interval0 only');total+=bytes*2*a.views.length;
+  }
  }
  if(total>160*1024*1024)throw Error('Cloud maps exceed the 160 MiB memory budget.');
  return total;
@@ -118,10 +148,11 @@ function program(gl,vertex,fragment){
   return {p,loc:new Map()};
  }catch(e){if(p)gl.deleteProgram(p);throw e;}finally{shaders.forEach(s=>gl.deleteShader(s));}
 }
-function radianceSource(source){
+function radianceSource(source,relit=false){
  const declaration='uniform int uPalette,uHasLighting,uRadiance,uHasSecondInterval;';
  if(source.split(declaration).length!==2)throw Error('Cloud shader requires one explicit appearance declaration.');
- return source.replace(declaration,'uniform int uPalette,uHasLighting,uHasSecondInterval;\nconst int uRadiance=1;');
+ const relightDeclaration='uniform int uRelighting;';if(source.split(relightDeclaration).length!==2)throw Error('Cloud shader requires one relighting declaration.');
+ return source.replace(declaration,'uniform int uPalette,uHasLighting,uHasSecondInterval;\nconst int uRadiance=1;').replace(relightDeclaration,'const int uRelighting='+(relit?1:0)+';');
 }
 class BakedCloudRenderer{
  constructor(canvas){
@@ -140,7 +171,7 @@ class BakedCloudRenderer{
   const gl=this.gl;
   if(!gl.getExtension('EXT_color_buffer_float'))throw Error('Baked cloud depth/shadow buffers require EXT_color_buffer_float.');
   if(gl.getParameter(gl.MAX_DRAW_BUFFERS)<3)throw Error('Baked clouds require three render targets.');
-  this.cloud=this.normalCloud=this.radianceCloud=this.post=null;
+  this.cloud=this.normalCloud=this.radianceCloud=this.relightCloud=this.post=null;
   try{this.normalCloud=program(gl,this.sources.vertex,this.sources.cloud);this.post=program(gl,this.sources.vertex,this.sources.post);this.cloud=this.normalCloud;}
   catch(e){if(this.normalCloud)gl.deleteProgram(this.normalCloud.p);this.normalCloud=null;throw e;}
   gl.disable(gl.DITHER);gl.disable(gl.CULL_FACE);
@@ -149,41 +180,41 @@ class BakedCloudRenderer{
  load(asset){
   const bytes=validateAsset(asset),gl=this.gl;
   if(asset.w>gl.getParameter(gl.MAX_TEXTURE_SIZE)||asset.h>gl.getParameter(gl.MAX_TEXTURE_SIZE)||asset.views.length>gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS))throw Error('Cloud asset exceeds this GPU texture limits.');
-  const next=[],levels=[];let selectedCloud=this.normalCloud,newRadiance=null;
+  const next=[],levels=[];let selectedCloud=this.normalCloud,newRadiance=null,newRelight=null;
   try{
    // A frozen appearance can be compiled once without the relighting branches.
    // Derive it from the captured source so test/custom shader edits stay local
    // to this renderer. Failed compilation/upload cannot replace an active asset.
-   if(asset.appearance==='baked-radiance-v1')selectedCloud=this.radianceCloud||(newRadiance=program(gl,this.sources.vertex,radianceSource(this.sources.cloud)));
+   if(asset.appearance==='baked-radiance-v1')selectedCloud=asset.relighting?(this.relightCloud||(newRelight=program(gl,this.sources.vertex,radianceSource(this.sources.cloud,true)))):(this.radianceCloud||(newRadiance=program(gl,this.sources.vertex,radianceSource(this.sources.cloud))));
    gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
    // Serialized LODs may be smallest-first. Selection always walks downward
    // from the master without modifying the imported asset's ordering.
    const lods=[...(asset.lods||[])].sort((a,b)=>b.h-a.h||b.w-a.w);
    for(const level of [asset,...lods]){
-    const record={w:level.w,h:level.h,textures:[],hasLighting:!!level.lighting,hasRadiance:!!level.radiance,hasSecondInterval:hasSecondInterval(level),bounds:captureDepthBounds({...level,halfHeight:asset.halfHeight},asset.range)};levels.push(record);
-    for(let m=0;m<(record.hasRadiance?6:record.hasLighting?8:4);m++){
+    const record={w:level.w,h:level.h,textures:[],hasLighting:!!level.lighting,hasRadiance:!!level.radiance,hasRelighting:!!level.relighting,hasSecondInterval:hasSecondInterval(level),bounds:captureDepthBounds({...level,halfHeight:asset.halfHeight},asset.range)};levels.push(record);
+    for(let m=0;m<(record.hasRelighting?8:record.hasRadiance?6:record.hasLighting?8:4);m++){
     const t=gl.createTexture();next.push(t);record.textures.push(t);gl.bindTexture(gl.TEXTURE_2D_ARRAY,t);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_BASE_LEVEL,0);gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MAX_LEVEL,0);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
     gl.texImage3D(gl.TEXTURE_2D_ARRAY,0,gl.RGBA8,level.w,level.h,asset.views.length,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
     for(let i=0;i<asset.views.length;i++){
-     let map=m<4?level.data[i][m]:(record.hasRadiance?level.radiance[i][m-4]:level.lighting[i][m-4]);
+     let map=m<4?level.data[i][m]:(record.hasRelighting&&m>=6?level.relighting[i][m-6]:record.hasRadiance?level.radiance[i][m-4]:level.lighting[i][m-4]);
      if(record.hasRadiance&&(m===0||m===2))map=paddedRadianceDepth(map,level.data[i][m+1],level.w,level.h);
      gl.texSubImage3D(gl.TEXTURE_2D_ARRAY,0,0,0,i,level.w,level.h,1,gl.RGBA,gl.UNSIGNED_BYTE,map);
     }
     }
    }
    const error=gl.getError();if(error!==gl.NO_ERROR)throw Error('Cloud map upload failed: GL '+error);
-  }catch(e){next.forEach(t=>gl.deleteTexture(t));if(newRadiance)gl.deleteProgram(newRadiance.p);throw e;}
-  if(newRadiance)this.radianceCloud=newRadiance;this.cloud=selectedCloud;
+  }catch(e){next.forEach(t=>gl.deleteTexture(t));if(newRadiance)gl.deleteProgram(newRadiance.p);if(newRelight)gl.deleteProgram(newRelight.p);throw e;}
+  if(newRadiance)this.radianceCloud=newRadiance;if(newRelight)this.relightCloud=newRelight;this.cloud=selectedCloud;
   this.textures.forEach(t=>gl.deleteTexture(t));this.textures=next;this.levels=levels;this.lodState.clear();this.asset=asset;
   this.capture=asset.views.map(v=>({yaw:v.yaw*DEG,pitch:v.pitch*DEG,basis:basis(v.yaw*DEG,v.pitch*DEG)}));
   this.renderBounds=this.capture.map((_,i)=>{const bounds=levels.map(l=>l.bounds[i]),all=[Math.min(...bounds.map(b=>b[0])),Math.max(...bounds.map(b=>b[1]))];all.xy=[Math.min(...bounds.map(b=>b.xy[0])),Math.min(...bounds.map(b=>b.xy[1])),Math.max(...bounds.map(b=>b.xy[2])),Math.max(...bounds.map(b=>b.xy[3]))];return all;});
   // Supported angles are a non-wrapped capture rectangle, not a full orbit.
   // Out-of-range cameras keep moving in the sky while the asset view holds.
   this.angleBounds={yaw:[Math.min(...this.capture.map(v=>v.yaw)),Math.max(...this.capture.map(v=>v.yaw))],pitch:[Math.min(...this.capture.map(v=>v.pitch)),Math.max(...this.capture.map(v=>v.pitch))]};
-  Object.assign(this.stats,{assetBytes:bytes,views:asset.views.length,levels:levels.length,hasLighting:!!asset.lighting,appearance:asset.appearance||'normal'});
+  Object.assign(this.stats,{assetBytes:bytes,views:asset.views.length,levels:levels.length,hasLighting:!!asset.lighting,hasRelighting:!!asset.relighting,appearance:asset.appearance||'normal'});
  }
  _selectLod(id,projectedHeight,mode){
   if(mode==='full'){this.lodState.set(id,0);return 0;}
@@ -218,6 +249,7 @@ class BakedCloudRenderer{
  }
  render(instances,time,settings={}){
   if(this.lost)return;
+  const relight=this.asset?.relighting&&settings.relighting!==false?relightParameters(settings,this.asset):null;this.stats.relightingActive=!!relight;
   this._resize(settings.pixelSize);const gl=this.gl,w=this.canvas.width,h=this.canvas.height,aspect=w/h;
   const az=finite(settings.sunAz,-42)*DEG,alt=finite(settings.sunAlt,48)*DEG;
   const light=[Math.cos(alt)*Math.sin(az),Math.sin(alt),Math.cos(alt)*Math.cos(az)];
@@ -229,6 +261,8 @@ class BakedCloudRenderer{
   if(this.asset){
    const a=this.asset,p=this.cloud,baked=a.appearance==='baked-radiance-v1';gl.useProgram(p.p);
    this._u(p,'uRadiance','1i',baked?1:0);this._u(p,'uRadianceScale','1f',finite(a.radianceScale,4));
+   this._u(p,'uRelighting','1i',a.relighting?1:0);this._u(p,'uRelightEnabled','1i',relight?1:0);
+   if(relight){for(const [uniform,key]of [['uSunWeightsPos','sunWeightsPos'],['uSunWeightsNeg','sunWeightsNeg'],['uSecondWeightsPos','secondWeightsPos'],['uSecondWeightsNeg','secondWeightsNeg'],['uRelightAmbient','ambientRadiance'],['uRelightFill','fillRadiance']])this._u(p,uniform,'3f',...relight[key]);}
    this._u(p,'uAspect','1f',aspect);this._u(p,'uMapAspect','1f',a.w/a.h);this._u(p,'uHalfHeight','1f',a.halfHeight);this._u(p,'uRange','1f',a.range);
    this._u(p,'uLight','3f',...light);this._u(p,'uAO','1f',finite(settings.ao,1));this._u(p,'uTransmission','1f',finite(settings.transmission,.45));this._u(p,'uBands','1f',finite(settings.bands,0));
    this._u(p,'uPalette','1i',settings.palette==='dusk'?1:settings.palette==='moon'?2:0);
@@ -266,11 +300,12 @@ class BakedCloudRenderer{
     const id=it.id===undefined?instanceIndex:it.id;activeIds.add(id);
     const lod=this._selectLod(id,it.scale*h,settings.detailMode),level=this.levels[lod];if(!pass)this.stats.lodCounts[lod]++;
     if(lod!==boundLevel){
-     const names=level.hasRadiance?['uDepth0','uNormal0','uDepth1','uNormal1','uRadiance0','uRadiance1']:['uDepth0','uNormal0','uDepth1','uNormal1','uLightPos0','uLightNeg0','uLightPos1','uLightNeg1'];
+     const names=level.hasRadiance?['uDepth0','uNormal0','uDepth1','uNormal1','uRadiance0','uRadiance1',...(level.hasRelighting?['uRelightPos','uRelightNeg']:[])]:['uDepth0','uNormal0','uDepth1','uNormal1','uLightPos0','uLightNeg0','uLightPos1','uLightNeg1'];
      for(let i=0;i<names.length;i++){gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D_ARRAY,level.textures[i]||level.textures[0]);this._u(p,names[i],'1i',i);}
      // All active samplers must have compatible texture types even when the
      // shader branch does not use their contents.
      if(level.hasRadiance){for(const name of ['uLightPos0','uLightNeg0','uLightPos1','uLightNeg1'])this._u(p,name,'1i',0);}else{this._u(p,'uRadiance0','1i',0);this._u(p,'uRadiance1','1i',0);}
+     if(!level.hasRelighting){this._u(p,'uRelightPos','1i',0);this._u(p,'uRelightNeg','1i',0);}
      this._u(p,'uHasLighting','1i',level.hasLighting?1:0);this._u(p,'uSixWay','1f',level.hasLighting?clamp(finite(settings.sixWay,1),0,1):0);boundLevel=lod;
      this._u(p,'uHasSecondInterval','1i',level.hasSecondInterval?1:0);
     }
@@ -281,6 +316,7 @@ class BakedCloudRenderer{
     this._u(p,'uDepthScale','1f',finite(it.depthScale,it.scale*it.distance/a.halfHeight));
     this._u(p,'uOpacity','1f',clamp(finite(it.opacity,1),0,1));this._u(p,'uTime','1f',finite(time,0)+finite(it.phase,0));
     this._u(p,'uTarget','m3',target);
+    if(relight){const phase=d=>relightPhase(-(target[6]*d[0]+target[7]*d[1]+target[8]*d[2]),relight.anisotropy),primary=phase(relight.sun),second=phase(relight.second);this._u(p,'uDirectPrimary','3f',...relight.sunColor.map(c=>c*relight.sunIntensity*primary));this._u(p,'uDirectSecond','3f',...relight.secondColor.map(c=>c*relight.secondIntensity*second));}
     for(let k=0;k<4;k++)this._u(p,'uSource'+k,'m3',(sources[k]||sources[0]).basis);
     this._u(p,'uViews','4f',...[0,1,2,3].map(k=>selected[k]?.i??-1));
     this._u(p,'uWeights','4f',...[0,1,2,3].map(k=>selected[k]?.weight||0));
@@ -304,10 +340,12 @@ class BakedCloudRenderer{
   this._u(p,'uBands','1f',finite(settings.bands,0));this._u(p,'uPalette','1i',settings.palette==='dusk'?1:settings.palette==='moon'?2:0);
   gl.drawArrays(gl.TRIANGLES,0,3);
  }
- dispose(){const gl=this.gl;this._freeTarget();this.textures.forEach(t=>gl.deleteTexture(t));this.textures=[];for(const p of new Set([this.normalCloud,this.radianceCloud,this.post]))if(p)gl.deleteProgram(p.p);this.cloud=this.normalCloud=this.radianceCloud=this.post=null;this.canvas.removeEventListener('webglcontextlost',this._lost);this.canvas.removeEventListener('webglcontextrestored',this._restored);this.asset=null;}
+ dispose(){const gl=this.gl;this._freeTarget();this.textures.forEach(t=>gl.deleteTexture(t));this.textures=[];for(const p of new Set([this.normalCloud,this.radianceCloud,this.relightCloud,this.post]))if(p)gl.deleteProgram(p.p);this.cloud=this.normalCloud=this.radianceCloud=this.relightCloud=this.post=null;this.canvas.removeEventListener('webglcontextlost',this._lost);this.canvas.removeEventListener('webglcontextrestored',this._restored);this.asset=null;}
 }
 BakedCloudRenderer.validateAsset=validateAsset;
 BakedCloudRenderer.selectViews=selectViews;
 BakedCloudRenderer.targetBasis=targetBasis;
+BakedCloudRenderer.relightParameters=relightParameters;
+BakedCloudRenderer.relightPhase=relightPhase;
 global.BakedCloudRenderer=BakedCloudRenderer;
 })(window);

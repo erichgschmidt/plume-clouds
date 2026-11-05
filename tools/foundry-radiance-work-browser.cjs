@@ -13,11 +13,12 @@ const serialize=a=>({...a,data:a.data.map(v=>v.map(m=>[...m])),radiance:a.radian
  try{
   const page=await browser.newPage({viewport:{width:420,height:360}}),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.setContent('<canvas style="width:320px;height:240px"></canvas>');
   for(const f of ['src/foundry-assets.js','assets/skypaint-default.js','src/foundry-scene.js','src/foundry-renderer.js'])await page.addScriptTag({content:fs.readFileSync(path.join(root,f),'utf8')});
-  await page.addScriptTag({content:baseline});await page.evaluate(()=>{window.workBefore=new BakedCloudRenderer(document.querySelector('canvas'));workBefore.radianceCloud=workBefore.normalCloud;workBefore.load(FoundryAssets.parse(SKYPAINT_DEFAULT));});
+  await page.addScriptTag({content:'window.frozenOpticalAsset='+fixtures.frozenOpticalAsset.toString()+';'});
+  await page.addScriptTag({content:baseline});await page.evaluate(()=>{window.workBefore=new BakedCloudRenderer(document.querySelector('canvas'));workBefore.radianceCloud=workBefore.normalCloud;workBefore.load(FoundryAssets.parse(frozenOpticalAsset(SKYPAINT_DEFAULT)));});
   await page.addScriptTag({content:current});
   const result=await page.evaluate(synthetic=>{
-   const before=workBefore,after=new BakedCloudRenderer(document.querySelector('canvas'));after.load(FoundryAssets.parse(SKYPAINT_DEFAULT));const gl=after.gl,W=320,H=240,N=W*H;
-   const settings={pixelSize:1,detailMode:'full',breathing:0,haze:0,shadow:0,exposure:1.25,skyColor:[.09,.2,.3]},packet={id:1,x:0,y:0,scale:1.1,yaw:0,pitch:0,distance:6,opacity:1,depthScale:.01};
+   const before=workBefore,after=new BakedCloudRenderer(document.querySelector('canvas'));after.load(FoundryAssets.parse(frozenOpticalAsset(SKYPAINT_DEFAULT)));const gl=after.gl,W=320,H=240,N=W*H;
+   const settings={pixelSize:1,detailMode:'full',breathing:0,haze:0,shadow:0,relighting:false,exposure:1.25,skyColor:[.09,.2,.3]},packet={id:1,x:0,y:0,scale:1.1,yaw:0,pitch:0,distance:6,opacity:1,depthScale:.01};
    function frame(r,packets,extra={}){
     r.render(packets,0,{...settings,...extra});const rgb=new Uint8Array(N*4),color=new Uint8Array(N*4),hdr=new Float32Array(N*4),surface=new Float32Array(N*4);gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,rgb);gl.bindFramebuffer(gl.FRAMEBUFFER,r.target.fbo);gl.readBuffer(gl.COLOR_ATTACHMENT0);gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,color);gl.readBuffer(gl.COLOR_ATTACHMENT2);gl.readPixels(0,0,W,H,gl.RGBA,gl.FLOAT,hdr);gl.readBuffer(gl.COLOR_ATTACHMENT1);gl.readPixels(0,0,W,H,gl.RGBA,gl.FLOAT,surface);gl.bindFramebuffer(gl.FRAMEBUFFER,null);return {rgb,color,hdr,surface};
    }

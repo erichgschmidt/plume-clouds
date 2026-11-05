@@ -30,6 +30,22 @@
     "totalPixels": 12288,
     "renderer": "WebKit WebGL"
   },
+  "relightComparison": {
+    "axisMax": 4.6475747428331715e-7,
+    "perAxisMax": [
+      3.974496378678083e-7,
+      3.6644030165788877e-7,
+      3.6063552388831965e-7,
+      3.0589798905023e-7,
+      4.6475747428331715e-7,
+      1.2205360577777213e-7
+    ],
+    "axisRMSE": 2.6829159959853854e-8,
+    "ambientMax": 0,
+    "opacityMax": 0,
+    "responseMax": 0.9128909707069397,
+    "quantMax": 0.003629517501154922
+  },
   "perView": [
     {
       "yaw": -35,
@@ -158,10 +174,10 @@
   "lods": [
     64
   ],
-  "rawBytes": 5529600,
-  "elapsedSeconds": 6.956,
+  "rawBytes": 7372800,
+  "elapsedSeconds": 9.286,
   "limitations": [
-    "Lighting frozen at bake; runtime must not relight radiance; exposure remains editable",
+    "Directional transport has six axis samples; interpolation between axes approximates source lighting",
     "One integrated depth interval cannot reveal internal disocclusions",
     "Representative depth is opacity centroid, not a geometric cloud surface"
   ],

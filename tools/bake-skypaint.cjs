@@ -6,6 +6,7 @@ const argv=process.argv.slice(2),arg=(key,fallback)=>{const i=argv.indexOf('--'+
 async function main(){
  const root=path.resolve(arg('source',process.env.SKYPAINT_SOURCE||'../SkyPaint'));
  const w=Number(arg('width','128')),h=w*3/4,radianceScale=Number(arg('radiance-scale','4'));
+ const relight=argv.includes('--relight');
  if(![64,128,256,512].includes(w))throw Error('Width must be 64,128,256 or512');
  const output=path.resolve(arg('output','assets/skypaint-default.js')),report=path.resolve(arg('report','assets/skypaint-default-audit.json'));
  const bundle=await buildFixture(root);
@@ -21,20 +22,23 @@ async function main(){
   await page.goto('http://127.0.0.1:'+server.address().port);
   if(errors.length)throw Error(errors.join('\n'));
   const sceneFile=arg('scene',null);
-  const info=await page.evaluate(async options=>{const b=await createSkyPaintBake(options);return {scene:b.scene,bounds:b.bounds,center:b.center,halfHeight:b.halfHeight,range:b.range};},{w,h,radianceScale,kind:arg('kind','bank'),densityResolution:Number(arg('density','128')),halfHeight:Number(arg('half-height','0')),...(sceneFile?{scene:fs.readFileSync(path.resolve(sceneFile),'utf8')}:{})});
+  const info=await page.evaluate(async options=>{const b=await createSkyPaintBake(options);return {scene:b.scene,bounds:b.bounds,center:b.center,halfHeight:b.halfHeight,range:b.range,relightSettings:b.relightSettings};},{w,h,radianceScale,kind:arg('kind','bank'),densityResolution:Number(arg('density','128')),halfHeight:Number(arg('half-height','0')),...(sceneFile?{scene:fs.readFileSync(path.resolve(sceneFile),'utf8')}:{})});
   const views=captureViews();
   if(!Number(arg('half-height','0'))){let extent=0;for(const view of views)extent=Math.max(extent,await page.evaluate(v=>skyPaintBake.measure(v),view));if(!(extent>0))throw Error('SkyPaint recipe has no occupied capture support');info.halfHeight=await page.evaluate(height=>skyPaintBake.setFraming(height),extent*1.18);}
   const comparison=await page.evaluate(view=>skyPaintBake.compare(view),{yaw:0,pitch:0});
   if(comparison.shaderMax>1e-5||comparison.cloudCompositeMax>1e-5||comparison.clipped||comparison.transparentRGB)throw Error('SkyPaint source fidelity failed: '+JSON.stringify(comparison));
-  const decode=s=>new Uint8Array(Buffer.from(s,'base64')),data=[],radiance=[],perView=[];
+  const relightComparison=relight?await page.evaluate(()=>skyPaintBake.compareRelighting({yaw:0,pitch:0})):null;
+  if(relightComparison&&(relightComparison.axisMax>1e-5||relightComparison.ambientMax>1e-5||relightComparison.opacityMax>1e-5))throw Error('SkyPaint directional transport source fidelity failed: '+JSON.stringify(relightComparison));
+  const decode=s=>new Uint8Array(Buffer.from(s,'base64')),data=[],radiance=[],relighting=[],perView=[];
   for(const view of views){
    const result=await page.evaluate(v=>skyPaintBake.capture(v),view),rgba=decode(result.radiance),normal=decode(result.normal),depth=decode(result.depth);
    let count=0,opacity=0,edge=0,max=0;for(let i=0;i<rgba.length;i+=4){if(rgba[i+3]){count++;opacity+=rgba[i+3]/255;const p=i/4,x=p%w,y=Math.floor(p/w);if(x===0||x===w-1||y===0||y===h-1)edge++;}max=Math.max(max,rgba[i],rgba[i+1],rgba[i+2]);}
    data.push([depth,normal,new Uint8Array(w*h*4),new Uint8Array(w*h*4)]);radiance.push([rgba,new Uint8Array(w*h*4)]);
+   if(relight){const frame=await page.evaluate(v=>skyPaintBake.captureRelighting(v),view),maps=frame.maps.map(decode);for(let i=3;i<rgba.length;i+=4)if(maps[1][i]!==rgba[i])throw Error('Relighting changed captured opacity');relighting.push(maps);}
    perView.push({...view,occupied:count,opacitySum:opacity,edgePixels:edge,maxRGBByte:max});console.log(JSON.stringify(perView.at(-1)));
   }
-  const asset={format:'plume.foundry.asset',version:3,name:'SkyPaint Studio cumulus — density integral',w,h,halfHeight:info.halfHeight,range:info.range,views,grid:15,yawArc:35,pitchArc:85,appearance:'baked-radiance-v1',radianceScale,data,radiance,
-   source:{name:'SkyPaint',recipe:sceneFile?'exported scene JSON':'studioScene()',...sourceManifest(root)},bakeLighting:{exposure:info.scene.sky.exposure,sun:info.scene.sun,look:info.scene.render.look,transport:info.scene.render.look.visibility||'direct-v1',toneMap:'exponential-v1',frozen:true},
+  const asset={format:'plume.foundry.asset',version:relight?4:3,name:'SkyPaint Studio cumulus — density integral',w,h,halfHeight:info.halfHeight,range:info.range,views,grid:15,yawArc:35,pitchArc:85,appearance:'baked-radiance-v1',radianceScale,data,radiance,...(relight?{relighting,relightEncoding:'sqrt-premultiplied-visibility-v1',relightSettings:info.relightSettings}:{}),
+   source:{name:'SkyPaint',recipe:sceneFile?'exported scene JSON':'studioScene()',...sourceManifest(root)},bakeLighting:{exposure:info.scene.sky.exposure,sun:info.scene.sun,sunAz:((info.scene.sun.azimuth+180)%360+360)%360-180,sunAlt:Math.max(-90,Math.min(90,info.scene.sun.elevation)),look:info.scene.render.look,transport:info.scene.render.look.visibility||'direct-v1',toneMap:'exponential-v1',frozen:!relight},
    recipe:{source:'SkyPaint',scene:info.scene,capture:{center:info.center,viewSteps:128,shadowSteps:32,depth:'opacity-contribution centroid; back=last contributing sample',layers:'one complete integrated interval plus empty interval1',radiance:'unexposed premultiplied linear RGB; alpha=1-transmission'}},coordinateSystem:'X right, Y up, Z toward front capture',normalSpace:'object',rowOrder:'bottom-up',mapOrder:['depth0','normal0','depth1','normal1']};
   const Assets=require('../src/foundry-assets.js');
   Assets.buildLods(asset,{minWidth:64});const json=Assets.stringify(asset);
@@ -42,7 +46,7 @@ async function main(){
   const preview=await page.evaluate(()=>skyPaintBake.preview({yaw:0,pitch:0}));
   const previewPath=output.replace(/\.(js|json)$/,'.png');fs.writeFileSync(previewPath,Buffer.from(preview.split(',')[1],'base64'));
   if(errors.length)throw Error(errors.join('\n'));
-  const audit={source:sourceManifest(root),comparison,perView,w,h,views:views.length,lods:asset.lods.map(l=>l.w),rawBytes:Assets.byteLength(asset),elapsedSeconds:(Date.now()-started)/1000,limitations:['Lighting frozen at bake; runtime must not relight radiance; exposure remains editable','One integrated depth interval cannot reveal internal disocclusions','Representative depth is opacity centroid, not a geometric cloud surface'],output,previewPath};
+  const audit={source:sourceManifest(root),comparison,...(relight?{relightComparison}:{}),perView,w,h,views:views.length,lods:asset.lods.map(l=>l.w),rawBytes:Assets.byteLength(asset),elapsedSeconds:(Date.now()-started)/1000,limitations:[relight?'Directional transport has six axis samples; interpolation between axes approximates source lighting':'Lighting frozen at bake; runtime must not relight radiance; exposure remains editable','One integrated depth interval cannot reveal internal disocclusions','Representative depth is opacity centroid, not a geometric cloud surface'],output,previewPath};
   fs.writeFileSync(report,JSON.stringify(audit,null,2)+'\n');console.log(JSON.stringify(audit));
   await page.evaluate(()=>skyPaintBake.dispose());
  }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

@@ -53,6 +53,9 @@ window.createSkyPaintBake=async function(options={}){
  let halfHeight=options.halfHeight||radius*1.02;const range=radius*1.15;
  const original=v.material.fragmentShader;
  const patched=window.patchSkyPaintShader(original);
+ let transportShader=null,lastCapture=null;
+ const axes=[[1,0,0],[0,1,0],[0,0,1],[-1,0,0],[0,-1,0],[0,0,-1]];
+ const relightSettings={anisotropy:v.uniforms.uAnisotropy.value,fill:v.uniforms.uScatterFill.value,intensity:v.uniforms.uIntensity.value,ambient:v.uniforms.uAmbient.value,sunColor:v.uniforms.uSunTint.value.toArray(),skyColor:v.uniforms.uSkyTint.value.toArray()};
  Object.assign(v.uniforms,{uBakeMode:{value:0},uBakeScale:{value:options.radianceScale||4},uBakeRange:{value:range},uBakeCenter:{value:new THREE.Vector3(...center)},uBakeToward:{value:new THREE.Vector3()}});
  v.material.fragmentShader=patched;v.material.needsUpdate=true;
  v.uniforms.uSolo.value=-1;v.uniforms.uPanorama.value=0;v.uniforms.uOrthographic.value=1;
@@ -82,13 +85,54 @@ window.createSkyPaintBake=async function(options={}){
   return pixels;
  }
  function base64(bytes){let s='';for(let i=0;i<bytes.length;i+=8192)s+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(s);}
+ function captureKey(view){return [view.yaw,view.pitch,halfHeight].join('|');}
+ function transportSamples(){
+  const oldSun=v.uniforms.uSun.value.clone(),result=[];
+  try{
+   transportShader||=window.skyPaintRelightingShader(original);v.material.fragmentShader=transportShader;v.material.needsUpdate=true;
+   for(const axis of axes){v.uniforms.uSun.value.fromArray(axis);result.push(draw(4,true));}
+  }finally{v.uniforms.uSun.value.copy(oldSun);v.material.fragmentShader=patched;v.material.needsUpdate=true;}
+  return result;
+ }
+ function packedTransport(samples,opacity){
+  const maps=[new Uint8Array(opacity.length),new Uint8Array(opacity.length)];
+  for(let i=0;i<opacity.length;i+=4){if(!opacity[i+3])continue;
+   for(let axis=0;axis<6;axis++)maps[axis<3?0:1][i+axis%3]=Math.round(255*Math.sqrt(Math.max(0,Math.min(1,samples[axis][i]))));
+   maps[0][i+3]=Math.round(255*Math.max(0,Math.min(1,samples[0][i+1])));maps[1][i+3]=opacity[i+3];
+  }return maps;
+ }
  let disposed=false;function assertLive(){if(disposed)throw Error('Bake adapter disposed');if(options.signal?.aborted)throw new DOMException('Bake cancelled','AbortError');}
- const api={scene,bounds,center,halfHeight,range,
+ const api={scene,bounds,center,halfHeight,range,relightSettings,
   stats(){const gl=v.renderer.getContext();return {disposed,textures:v.renderer.info.memory.textures,geometries:v.renderer.info.memory.geometries,programs:v.renderer.info.programs?.length||0,listeners:owned.listenerCount(),glError:gl.getError(),contextLost:gl.isContextLost()};},
   dispose(){if(disposed)return;disposed=true;target.dispose();floatTarget.dispose();owned.dispose();},
   setFraming(height){assertLive();if(!(height>0)||!Number.isFinite(height))throw Error('Invalid capture framing');halfHeight=height;this.halfHeight=height;return height;},
   measure(view){setCamera(view);const rgba=draw(1);let extent=0;for(let y=0;y<options.h;y++)for(let x=0;x<options.w;x++){if(!rgba[(y*options.w+x)*4+3])continue;extent=Math.max(extent,Math.abs((x+.5)/options.w-.5)*2*4/3,Math.abs((y+.5)/options.h-.5)*2);}return extent*halfHeight;},
-  capture(view){setCamera(view);const radiance=draw(1);window.assertSkyPaintCaptureRadianceFits(radiance,()=>draw(4,true),options.radianceScale,view);const depth=draw(2),normal=draw(3);return {radiance:base64(radiance),depth:base64(depth),normal:base64(normal)};},
+  capture(view){setCamera(view);const radiance=draw(1);window.assertSkyPaintCaptureRadianceFits(radiance,()=>draw(4,true),options.radianceScale,view);lastCapture={key:captureKey(view),opacity:radiance};const depth=draw(2),normal=draw(3);return {radiance:base64(radiance),depth:base64(depth),normal:base64(normal)};},
+  captureRelighting(view){
+   setCamera(view);const opacity=lastCapture?.key===captureKey(view)?lastCapture.opacity:draw(1);
+   return {maps:packedTransport(transportSamples(),opacity).map(base64)};
+  },
+  compareRelighting(view){
+   setCamera(view);const actual=transportSamples(),errors=[],saved={};
+   for(const key of ['uSun','uSunTint','uSkyTint','uZenith','uHorizon','uIntensity','uAmbient','uScatterFill','uAnisotropy','uIncludeSun'])saved[key]=v.uniforms[key].value?.clone?.()??v.uniforms[key].value;
+   const visibility=v.material.defines.SKY_VISIBILITY_LOOKUP,rd=v.uniforms.uBakeToward.value.clone().negate();
+   let ambientMax=0,opacityMax=0,responseMax=0,quantMax=0,squares=0,count=0;
+   try{
+    v.material.defines.SKY_VISIBILITY_LOOKUP=0;v.material.needsUpdate=true;
+    v.uniforms.uSunTint.value.setRGB(1,1,1);v.uniforms.uSkyTint.value.setRGB(0,0,0);v.uniforms.uZenith.value.setRGB(0,0,0);v.uniforms.uHorizon.value.setRGB(0,0,0);
+    v.uniforms.uIntensity.value=1;v.uniforms.uAmbient.value=0;v.uniforms.uScatterFill.value=0;v.uniforms.uAnisotropy.value=0;v.uniforms.uIncludeSun.value=0;
+    for(let axis=0;axis<6;axis++){
+     v.uniforms.uSun.value.fromArray(axes[axis]);const raw=draw(0,true,true),mu=rd.dot(v.uniforms.uSun.value),phase=.85+.15*(1-.23*.23)/Math.pow(Math.max(.001,1+.23*.23+2*.23*mu),1.5);let max=0;
+     for(let i=0;i<raw.length;i+=4){const delta=Math.abs(raw[i]/phase-actual[axis][i]);max=Math.max(max,delta);squares+=delta*delta;count++;responseMax=Math.max(responseMax,actual[axis][i]);}
+     errors.push(max);
+    }
+    v.uniforms.uSunTint.value.setRGB(0,0,0);v.uniforms.uSkyTint.value.setRGB(1,1,1);v.uniforms.uIntensity.value=0;v.uniforms.uAmbient.value=1;
+    const ambient=draw(0,true,true);for(let axis=0;axis<6;axis++)for(let i=0;i<ambient.length;i+=4)ambientMax=Math.max(ambientMax,Math.abs(ambient[i]-actual[axis][i+1]));
+   }finally{for(const [key,value]of Object.entries(saved)){if(value?.clone)v.uniforms[key].value.copy(value);else v.uniforms[key].value=value;}v.material.defines.SKY_VISIBILITY_LOOKUP=visibility;v.material.fragmentShader=patched;v.material.needsUpdate=true;}
+   const opacity=draw(1),rawOpacity=draw(4,true),encoded=packedTransport(actual,opacity);
+   for(let axis=0;axis<6;axis++)for(let i=0;i<opacity.length;i+=4){opacityMax=Math.max(opacityMax,Math.abs(rawOpacity[i+3]-actual[axis][i+3]));quantMax=Math.max(quantMax,Math.abs(actual[axis][i]-(encoded[axis<3?0:1][i+axis%3]/255)**2));}
+   return {axisMax:Math.max(...errors),perAxisMax:errors,axisRMSE:Math.sqrt(squares/count),ambientMax,opacityMax,responseMax,quantMax};
+  },
   compare(view){setCamera(view);const raw=draw(4,true),patchedLinear=draw(0,true),reference=draw(0,true,true),encoded=draw(1);let shaderMax=0,cloudCompositeMax=0,quantMax=0,quantSquare=0,alphaMax=0,n=0,clipped=0,occupied=0,transparentRGB=0;
    const rd=v.uniforms.uBakeToward.value.clone().negate(),t=THREE.MathUtils.smoothstep(rd.y,-.05,.9),sky=v.uniforms.uHorizon.value.clone().lerp(v.uniforms.uZenith.value,t),sun=Math.max(rd.dot(v.uniforms.uSun.value),0)**500*v.uniforms.uIntensity.value;
    sky.r+=sun;sky.g+=sun*.86;sky.b+=sun*.6;const background=sky.toArray();
@@ -99,7 +143,7 @@ window.createSkyPaintBake=async function(options={}){
   },
   preview(view){setCamera(view);draw(0,false,false,true);const bytes=new Uint8Array(options.w*options.h*4);v.renderer.readRenderTargetPixels(target,0,0,options.w,options.h,bytes);const preview=options.previewCanvas||document.querySelector('#preview');if(!preview)throw Error('Preview canvas unavailable');preview.width=options.w;preview.height=options.h;const ctx=preview.getContext('2d'),pixels=new Uint8ClampedArray(bytes.length);for(let y=0;y<options.h;y++)pixels.set(bytes.subarray(y*options.w*4,(y+1)*options.w*4),(options.h-1-y)*options.w*4);ctx.putImageData(new ImageData(pixels,options.w,options.h),0,0);return preview.toDataURL();}
  };
- for(const method of ['measure','capture','compare','preview']){const call=api[method];api[method]=(...args)=>{assertLive();return call.apply(api,args);};}
+ for(const method of ['measure','capture','captureRelighting','compareRelighting','compare','preview']){const call=api[method];api[method]=(...args)=>{assertLive();return call.apply(api,args);};}
  return window.skyPaintBake=api;
  }catch(error){owned.dispose();throw error;}
 };

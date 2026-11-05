@@ -1,6 +1,7 @@
 /* Real-cloud before/after diagnostics; enclosed holes are observations, never a physical oracle. */
 'use strict';
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict');
+const {frozenOpticalAsset}=require('./foundry-volume-fixtures.cjs');
 const sha=value=>require('node:crypto').createHash('sha256').update(value).digest('hex');
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const root=path.resolve(__dirname,'..'),tmp=os.tmpdir(),label=process.env.WISP_REAL_LABEL||'final';
@@ -17,14 +18,15 @@ const sourceHashes={baselineRef,disableSpecializedBaseline,current:Object.fromEn
   const page=await browser.newPage({viewport:{width:1310,height:850}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.setContent('<style>body{margin:0;background:#17232b;color:#edf2f2;font:13px system-ui}#c{width:320px;height:240px}#sheet{display:grid;grid-template-columns:repeat(4,320px);gap:6px;padding:6px;width:max-content}.title{height:38px}canvas{display:block;image-rendering:pixelated}</style><canvas id="c"></canvas><div id="sheet"></div>');
   for(const f of ['src/foundry-assets.js','assets/skypaint-default.js','src/foundry-scene.js'])await page.addScriptTag({content:fs.readFileSync(path.join(root,f),'utf8')});
+  await page.addScriptTag({content:'window.frozenOpticalAsset='+frozenOpticalAsset.toString()+';'});
   for(const k of ['shaders','renderer'])await page.addScriptTag({content:current[k]});
-  await page.evaluate(()=>{window.wispCurrent=new BakedCloudRenderer(document.querySelector('#c'));wispCurrent.load(FoundryAssets.parse(SKYPAINT_DEFAULT));});
+  await page.evaluate(()=>{window.wispCurrent=new BakedCloudRenderer(document.querySelector('#c'));wispCurrent.load(FoundryAssets.parse(frozenOpticalAsset(SKYPAINT_DEFAULT)));});
   for(const k of ['shaders','renderer'])await page.addScriptTag({content:baseline[k]});
   console.log('Real before/after sources and current asset captured.');
   const metrics=await page.evaluate(disableSpecializedBaseline=>{
-   const W=320,H=240,N=W*H,newR=wispCurrent,oldR=new BakedCloudRenderer(document.querySelector('#c'));if(disableSpecializedBaseline&&oldR.normalCloud)oldR.radianceCloud=oldR.normalCloud;oldR.load(FoundryAssets.parse(SKYPAINT_DEFAULT));const gl=newR.gl;
+   const W=320,H=240,N=W*H,newR=wispCurrent,oldR=new BakedCloudRenderer(document.querySelector('#c'));if(disableSpecializedBaseline&&oldR.normalCloud)oldR.radianceCloud=oldR.normalCloud;oldR.load(FoundryAssets.parse(frozenOpticalAsset(SKYPAINT_DEFAULT)));const gl=newR.gl;
    const packet={id:1,x:0,y:0,scale:1.15,yaw:0,pitch:0,cameraPitch:0,distance:6,opacity:1,phase:0};
-   const settings={pixelSize:1,pixelSnap:false,detailMode:'full',breathing:0,shadow:0,haze:0,exposure:1.25,skyColor:[.09,.2,.3]};
+   const settings={pixelSize:1,pixelSnap:false,detailMode:'full',breathing:0,shadow:0,haze:0,relighting:false,exposure:1.25,skyColor:[.09,.2,.3]};
    function enclosed(mask){const seen=new Uint8Array(N),q=new Int32Array(N),inside=new Uint8Array(N);let head=0,tail=0;const add=i=>{if(!mask[i]&&!seen[i]){seen[i]=1;q[tail++]=i;}};for(let x=0;x<W;x++){add(x);add((H-1)*W+x);}for(let y=0;y<H;y++){add(y*W);add(y*W+W-1);}while(head<tail){const i=q[head++],x=i%W,y=(i/W)|0;if(x)add(i-1);if(x<W-1)add(i+1);if(y)add(i-W);if(y<H-1)add(i+W);}let count=0;for(let i=0;i<N;i++)if(!mask[i]&&!seen[i]){inside[i]=1;count++;}return{count,inside};}
    function frame(r,p={},sky=settings.skyColor,list=null){r.render(list||[{...packet,...p}],0,{...settings,skyColor:sky,cameraPitch:p.cameraPitch||0});const rgba=new Uint8Array(N*4),hdr=new Float32Array(N*4),mask=new Uint8Array(N),zeroMask=new Uint8Array(N);gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,rgba);gl.bindFramebuffer(gl.FRAMEBUFFER,r.target.fbo);gl.readBuffer(gl.COLOR_ATTACHMENT2);gl.readPixels(0,0,W,H,gl.RGBA,gl.FLOAT,hdr);gl.bindFramebuffer(gl.FRAMEBUFFER,null);let alpha=0,energy=0,covered=0;for(let i=0;i<N;i++){const a=hdr[i*4+3];alpha+=a;energy+=hdr[i*4]+hdr[i*4+1]+hdr[i*4+2];mask[i]=a>.01?1:0;zeroMask[i]=a>0?1:0;covered+=mask[i];}return{rgba,hdr,mask,alpha,energy,covered,holes:enclosed(mask),zeroHoles:enclosed(zeroMask)};}
    function diff(a,b){let coverage=0,colorChanged=0,maxColorStep=0,alphaL1=0,holeChurn=0,zeroHoleChurn=0;for(let i=0;i<N;i++){coverage+=a.mask[i]!==b.mask[i];alphaL1+=Math.abs(a.hdr[i*4+3]-b.hdr[i*4+3]);holeChurn+=a.holes.inside[i]!==b.holes.inside[i];zeroHoleChurn+=a.zeroHoles.inside[i]!==b.zeroHoles.inside[i];const d=Math.max(...[0,1,2].map(k=>Math.abs(a.rgba[i*4+k]-b.rgba[i*4+k])));if(d>8)colorChanged++;maxColorStep=Math.max(maxColorStep,d);}return{coverage,coverageFraction:coverage/Math.max(a.covered,b.covered,1),colorChanged,colorFraction:colorChanged/Math.max(a.covered,b.covered,1),maxColorStep,alphaL1Fraction:alphaL1/Math.max(a.alpha,b.alpha,1),alphaRatio:b.alpha/Math.max(a.alpha,1e-9),energyRatio:b.energy/Math.max(a.energy,1e-9),holeChurn,zeroHoleChurn};}

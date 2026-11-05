@@ -5,6 +5,13 @@ function replaceOne(source,anchor,replacement){
  if(source.split(anchor).length!==2)throw Error('SkyPaint source changed at '+anchor.slice(0,80));
  return source.replace(anchor,replacement);
 }
+function extractFunction(source,signature){
+ if(source.split(signature).length!==2)throw Error('SkyPaint source changed at '+signature);
+ const start=source.indexOf(signature),open=source.indexOf('{',start);let depth=1,end=open+1;
+ for(;end<source.length&&depth;end++){if(source[end]==='{')depth++;else if(source[end]==='}')depth--;}
+ if(depth)throw Error('SkyPaint source has an incomplete '+signature);
+ return source.slice(start,end);
+}
 function patchCloudShader(source){
  if(source.includes('uBakeMode'))throw Error('SkyPaint shader already patched');
  let s=replaceOne(source,'void main() {',`
@@ -33,6 +40,12 @@ void main() {`);
   }
   if(uLinear==1){outColor=vec4(radiance+sky*transmission,1);return;}`);
  return s;
+}
+function relightingShader(source){
+ // Small author-only variant. The original shadow function and density march
+ // stay unchanged; six sequential draws retarget its ordinary uSun uniform.
+ extractFunction(source,'float shadow(vec3 p)');
+ return replaceOne(patchCloudShader(source),'vec3 lit=studioLight(p,rd);','vec3 lit=vec3(shadow(p),.20+.80*studioSkyVisibility(p),1);');
 }
 function encodeRadiance(values,scale=4){
  if(!(scale>0)||!Number.isFinite(scale))throw Error('Invalid radiance scale');
@@ -72,6 +85,6 @@ async function buildFixture(root){
   plugins:[{name:'read-only-skypaint',setup(build){
    build.onResolve({filter:/^skypaint\//},args=>({path:path.join(root,'src',args.path.slice(9))}));
    build.onResolve({filter:/^three(?:\/.*)?$/},args=>({path:args.path==='three'?path.join(root,'node_modules/three/build/three.module.js'):require.resolve(args.path,{paths:[root]})}));
-  }}]});return '/*!\nSkyPaint authoring adapter third-party notices\n'+licenseText(root).replaceAll('*/','* /')+'\n*/\n'+result.outputFiles[0].text+'\n'+replaceOne.toString()+'\nwindow.patchSkyPaintShader='+patchCloudShader.toString()+';\nwindow.assertSkyPaintCaptureRadianceFits='+assertCaptureRadianceFits.toString()+';\nwindow.SKYPAINT_BAKE_SOURCE='+JSON.stringify({...sourceManifest(root),views:captureViews()})+';';
+  }}]});return '/*!\nSkyPaint authoring adapter third-party notices\n'+licenseText(root).replaceAll('*/','* /')+'\n*/\n'+result.outputFiles[0].text+'\n'+replaceOne.toString()+'\n'+extractFunction.toString()+'\n'+patchCloudShader.toString()+'\nwindow.patchSkyPaintShader=patchCloudShader;\nwindow.skyPaintRelightingShader='+relightingShader.toString()+';\nwindow.assertSkyPaintCaptureRadianceFits='+assertCaptureRadianceFits.toString()+';\nwindow.SKYPAINT_BAKE_SOURCE='+JSON.stringify({...sourceManifest(root),views:captureViews()})+';';
 }
-module.exports={patchCloudShader,encodeRadiance,assertCaptureRadianceFits,captureViews,sourceManifest,licenseText,buildFixture};
+module.exports={patchCloudShader,relightingShader,extractFunction,encodeRadiance,assertCaptureRadianceFits,captureViews,sourceManifest,licenseText,buildFixture};

@@ -126,6 +126,33 @@ tone mapping and exposure. It checks its instrumented shader against the origina
 and verifies recomposition with the original background before accepting a bake.
 Source hashes, scene recipe and bake illumination metadata accompany the maps.
 
+V4 optionally adds `relighting`, two RGBA8 response maps per view, to this same
+appearance. The original radiance stays available for comparison. Positive RGB
+stores square-root encoded premultiplied visibility toward +X,+Y,+Z; negative
+RGB stores -X,-Y,-Z. Positive A stores integrated ambient sky response and
+negative A stores integrated opacity, both linear. `relightEncoding` is
+`sqrt-premultiplied-visibility-v1`. Responses are captured through the same
+SkyPaint density/shadow integrator, without baked light color, strength or phase.
+Only interval 0 is supported; occupied second intervals are rejected explicitly.
+The new version prevents older importers silently dropping relighting data.
+
+The runtime combines signed squared-axis response weights, analytic Studio
+phase, linear light colors and strengths. Sun and an independent second light
+add together, with ambient sky and primary scattered fill. These are six-axis
+approximations of arbitrary lighting, not exact arbitrary-direction shadow rays.
+No density or 3D renderer executes in the sky. Two extra sampled textures cost
+eight bytes per source pixel/view (one-third more map storage than frozen v3).
+Changing light or comparing the frozen look never changes opacity, depth or IDs;
+both use one relight-capable program to avoid compiler-induced raster changes.
+Extreme radiance is limited to opacity times the RGBA16F finite maximum.
+
+Dynamic lighting is the baker default. Existing v3 assets require one rebake;
+missing directional information cannot be recovered from the final RGB image.
+The sky exposes sun/second-light direction, elevation, strength and colors, plus
+sky/scattered fill. Time of day is an artistic sun/moon/background preset. Day
+length zero is manual; a positive duration advances on the same playback clock,
+including pause and speed zero. Manual light edits stop automatic cycling.
+
 Angular interpolation treats an absent radiance ray as transparent. Both linear
 premultiplied RGB and opacity use the full capture weights, without renormalizing
 only the visible views or applying a second silhouette-consistency fade. This
@@ -171,8 +198,10 @@ Radiance detail levels area-average decoded linear premultiplied RGB and opacity
 over each 2x2 footprint, including empty rays as zero. Geometry keeps a complete
 representative ray. Blocks containing a contributing second interval retain
 that complete ray's appearance instead of independently averaging intervals.
-Packed depth remains unaveraged. The included 128x96 demo plus 64x48 detail level
-uses 5,529,600 raw map bytes; the same 160 MiB asset budget applies.
+Packed depth remains unaveraged. Relighting LODs likewise average decoded
+directional response energy and linear ambient/opacity, with empty rays zero.
+The included relightable 128x96 demo plus 64x48 detail level uses 7,372,800 raw map
+bytes (5,529,600 for frozen v3); the same 160 MiB asset budget applies.
 
 The initial SkyPaint exporter integrates each ray into interval 0, using the
 opacity-contribution centroid as its representative depth; interval 1 is empty.

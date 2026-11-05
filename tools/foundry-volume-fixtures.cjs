@@ -21,4 +21,11 @@ function slab({w=32,h=w,views=[{yaw:0,pitch:0}],layers=[{front:.2,back:-.2,sigma
  }
  return {name:'Analytic homogeneous slab',appearance:'baked-radiance-v1',radianceScale:SCALE,w,h,halfHeight:1,range:1,views,data,radiance};
 }
-module.exports={SCALE,encode,decode,over,slab};
+// Test-only compatibility view: old renderers receive the identical frozen
+// optical bytes without optional v4 response maps or their metadata.
+function frozenOpticalAsset(asset){
+ const strip=level=>{const out={...level};delete out.relighting;delete out.relightEncoding;delete out.relightSettings;if(out.version===4)out.version=3;return out;};
+ const out=strip(asset);if(out.appearance==='baked-radiance-v1')out.version=3;
+ if(asset.lods)out.lods=asset.lods.map(strip);return out;
+}
+module.exports={SCALE,encode,decode,over,slab,frozenOpticalAsset};

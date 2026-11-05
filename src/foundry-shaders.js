@@ -31,6 +31,11 @@ layout(location=2)out vec4 material;
 uniform sampler2DArray uDepth0,uNormal0,uDepth1,uNormal1;
 uniform sampler2DArray uLightPos0,uLightNeg0,uLightPos1,uLightNeg1;
 uniform sampler2DArray uRadiance0,uRadiance1;
+uniform sampler2DArray uRelightPos,uRelightNeg;
+uniform int uRelighting;
+uniform int uRelightEnabled;
+uniform vec3 uSunWeightsPos,uSunWeightsNeg,uSecondWeightsPos,uSecondWeightsNeg;
+uniform vec3 uDirectPrimary,uDirectSecond,uRelightAmbient,uRelightFill;
 uniform mat3 uTarget,uSource0,uSource1,uSource2,uSource3;
 uniform vec2 uCenter;
 uniform vec4 uViews,uWeights,uMinDepth,uMaxDepth;
@@ -46,6 +51,16 @@ float alphaCutoff(){return uRadiance==1?0.:.01;}
 vec3 axisWeights(){vec3 w=uLight*uLight;return w/max(dot(w,vec3(1)),.00001);}
 vec4 depthAt(vec2 uv,int view,int layer){return layer==0?texture(uDepth0,vec3(uv,float(view))):texture(uDepth1,vec3(uv,float(view)));}
 vec4 normalAt(vec2 uv,int view,int layer){return layer==0?texture(uNormal0,vec3(uv,float(view))):texture(uNormal1,vec3(uv,float(view)));}
+vec3 relightAt(vec2 uv,int view,float opacity){
+ vec4 p=texture(uRelightPos,vec3(uv,float(view))),n=texture(uRelightNeg,vec3(uv,float(view)));
+ vec3 positive=p.rgb*p.rgb,negative=n.rgb*n.rgb;
+ float primary=dot(positive,uSunWeightsPos)+dot(negative,uSunWeightsNeg);
+ float second=dot(positive,uSecondWeightsPos)+dot(negative,uSecondWeightsNeg);
+ vec3 c=uDirectPrimary*primary+uDirectSecond*second+uRelightAmbient*p.a+uRelightFill*max(n.a-primary,0.);
+ // Bound premultiplied output so RGBA16F and repeated over composition stay
+ // finite even for the largest supported lights and forward-scattering peak.
+ return min(c,vec3(opacity*65504.));
+}
 Hit patchSample(ivec2 cell,vec4 weights,int view,int layer,float solved){
  vec2 size=vec2(textureSize(uDepth0,0).xy);vec3 normal=vec3(0),positive=vec3(0),negative=vec3(0),radiance=vec3(0);float ao=0.,thickness=0.,reference=0.,opacity=0.;
  for(int k=0;k<4;k++)if(weights[k]>0.){
@@ -55,7 +70,7 @@ Hit patchSample(ivec2 cell,vec4 weights,int view,int layer,float solved){
   thickness+=max((unpack16(d.rg)-unpack16(d.ba))*2.*uRange,0.)*w;
   reference+=dot(max(mix(-n,n,step(vec3(0),uLight)),vec3(0)),axisWeights())*w;
   if(uHasLighting==1&&uSixWay>0.){vec3 q=vec3(uv,float(view));positive+=(layer==0?texture(uLightPos0,q).rgb:texture(uLightPos1,q).rgb)*w;negative+=(layer==0?texture(uLightNeg0,q).rgb:texture(uLightNeg1,q).rgb)*w;}
-  if(uRadiance==1){vec4 r=layer==0?texture(uRadiance0,vec3(uv,float(view))):texture(uRadiance1,vec3(uv,float(view)));opacity+=r.a*w;if(r.a>0.)radiance+=r.rgb*r.rgb*uRadianceScale*w;}
+  if(uRadiance==1){vec4 r=layer==0?texture(uRadiance0,vec3(uv,float(view))):texture(uRadiance1,vec3(uv,float(view)));opacity+=r.a*w;if(r.a>0.)radiance+=(uRelighting==1&&uRelightEnabled==1&&layer==0?relightAt(uv,view,r.a):r.rgb*r.rgb*uRadianceScale)*w;}
  }
  return Hit(normalize(normal),ao,thickness,uRadiance==1?opacity:1.-exp(-thickness*12.),solved,positive,negative,reference,radiance);
 }
