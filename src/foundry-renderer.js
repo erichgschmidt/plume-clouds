@@ -61,6 +61,21 @@ function hasSecondInterval(level){
   return false;
  });
 }
+function paddedRadianceDepth(depth,coverage,w,h){
+ const result=new Uint8Array(depth);
+ // Extend only geometric depth into adjacent empty texels. Original coverage,
+ // normals, radiance, and the immutable asset remain unchanged. Shared depths
+ // let partial patches meet without separating constant-depth pixel islands.
+ for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+  const at=(y*w+x)*4;if(coverage[at+3]>127)continue;let chosen=-1,distance=Infinity;
+  for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+   const px=x+dx,py=y+dy;if(px<0||py<0||px>=w||py>=h)continue;const i=(py*w+px)*4,d=dx*dx+dy*dy;
+   if(coverage[i+3]>127&&d<distance){chosen=i;distance=d;}
+  }
+  if(chosen>=0)for(let k=0;k<4;k++)result[at+k]=depth[chosen+k];
+ }
+ return result;
+}
 function validateAsset(a){
  if(!a||!Number.isInteger(a.w)||!Number.isInteger(a.h)||a.w<1||a.h<1||a.w>1024||a.h>1024)throw Error('Cloud maps require integer dimensions 1–1024, matching the asset format.');
  if(!Number.isFinite(a.halfHeight)||a.halfHeight<=0||!Number.isFinite(a.range)||a.range<=0)throw Error('Cloud maps require positive halfHeight and range.');
@@ -103,9 +118,15 @@ function program(gl,vertex,fragment){
   return {p,loc:new Map()};
  }catch(e){if(p)gl.deleteProgram(p);throw e;}finally{shaders.forEach(s=>gl.deleteShader(s));}
 }
+function radianceSource(source){
+ const declaration='uniform int uPalette,uHasLighting,uRadiance,uHasSecondInterval;';
+ if(source.split(declaration).length!==2)throw Error('Cloud shader requires one explicit appearance declaration.');
+ return source.replace(declaration,'uniform int uPalette,uHasLighting,uHasSecondInterval;\nconst int uRadiance=1;');
+}
 class BakedCloudRenderer{
  constructor(canvas){
   if(!global.FoundryShaders)throw Error('Load foundry-shaders.js before foundry-renderer.js.');
+  this.sources={...global.FoundryShaders};
   this.canvas=canvas;this.gl=canvas.getContext('webgl2',{alpha:false,antialias:false,premultipliedAlpha:false});
   if(!this.gl)throw Error('Baked clouds require WebGL2.');
   this.asset=null;this.textures=[];this.levels=[];this.lodState=new Map();this.target=null;this.lost=false;this.error=null;
@@ -119,16 +140,21 @@ class BakedCloudRenderer{
   const gl=this.gl;
   if(!gl.getExtension('EXT_color_buffer_float'))throw Error('Baked cloud depth/shadow buffers require EXT_color_buffer_float.');
   if(gl.getParameter(gl.MAX_DRAW_BUFFERS)<3)throw Error('Baked clouds require three render targets.');
-  this.cloud=program(gl,global.FoundryShaders.vertex,global.FoundryShaders.cloud);
-  this.post=program(gl,global.FoundryShaders.vertex,global.FoundryShaders.post);
+  this.cloud=this.normalCloud=this.radianceCloud=this.post=null;
+  try{this.normalCloud=program(gl,this.sources.vertex,this.sources.cloud);this.post=program(gl,this.sources.vertex,this.sources.post);this.cloud=this.normalCloud;}
+  catch(e){if(this.normalCloud)gl.deleteProgram(this.normalCloud.p);this.normalCloud=null;throw e;}
   gl.disable(gl.DITHER);gl.disable(gl.CULL_FACE);
  }
  _u(p,name,kind,...v){const gl=this.gl;if(!p.loc.has(name))p.loc.set(name,gl.getUniformLocation(p.p,name));const loc=p.loc.get(name);if(loc===null)return;if(kind==='m3')gl.uniformMatrix3fv(loc,false,v[0]);else gl['uniform'+kind](loc,...v);}
  load(asset){
   const bytes=validateAsset(asset),gl=this.gl;
   if(asset.w>gl.getParameter(gl.MAX_TEXTURE_SIZE)||asset.h>gl.getParameter(gl.MAX_TEXTURE_SIZE)||asset.views.length>gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS))throw Error('Cloud asset exceeds this GPU texture limits.');
-  const next=[],levels=[];
+  const next=[],levels=[];let selectedCloud=this.normalCloud,newRadiance=null;
   try{
+   // A frozen appearance can be compiled once without the relighting branches.
+   // Derive it from the captured source so test/custom shader edits stay local
+   // to this renderer. Failed compilation/upload cannot replace an active asset.
+   if(asset.appearance==='baked-radiance-v1')selectedCloud=this.radianceCloud||(newRadiance=program(gl,this.sources.vertex,radianceSource(this.sources.cloud)));
    gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
    // Serialized LODs may be smallest-first. Selection always walks downward
    // from the master without modifying the imported asset's ordering.
@@ -141,11 +167,16 @@ class BakedCloudRenderer{
     gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_BASE_LEVEL,0);gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MAX_LEVEL,0);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
     gl.texImage3D(gl.TEXTURE_2D_ARRAY,0,gl.RGBA8,level.w,level.h,asset.views.length,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
-    for(let i=0;i<asset.views.length;i++)gl.texSubImage3D(gl.TEXTURE_2D_ARRAY,0,0,0,i,level.w,level.h,1,gl.RGBA,gl.UNSIGNED_BYTE,m<4?level.data[i][m]:(record.hasRadiance?level.radiance[i][m-4]:level.lighting[i][m-4]));
+    for(let i=0;i<asset.views.length;i++){
+     let map=m<4?level.data[i][m]:(record.hasRadiance?level.radiance[i][m-4]:level.lighting[i][m-4]);
+     if(record.hasRadiance&&(m===0||m===2))map=paddedRadianceDepth(map,level.data[i][m+1],level.w,level.h);
+     gl.texSubImage3D(gl.TEXTURE_2D_ARRAY,0,0,0,i,level.w,level.h,1,gl.RGBA,gl.UNSIGNED_BYTE,map);
+    }
     }
    }
    const error=gl.getError();if(error!==gl.NO_ERROR)throw Error('Cloud map upload failed: GL '+error);
-  }catch(e){next.forEach(t=>gl.deleteTexture(t));throw e;}
+  }catch(e){next.forEach(t=>gl.deleteTexture(t));if(newRadiance)gl.deleteProgram(newRadiance.p);throw e;}
+  if(newRadiance)this.radianceCloud=newRadiance;this.cloud=selectedCloud;
   this.textures.forEach(t=>gl.deleteTexture(t));this.textures=next;this.levels=levels;this.lodState.clear();this.asset=asset;
   this.capture=asset.views.map(v=>({yaw:v.yaw*DEG,pitch:v.pitch*DEG,basis:basis(v.yaw*DEG,v.pitch*DEG)}));
   this.renderBounds=this.capture.map((_,i)=>{const bounds=levels.map(l=>l.bounds[i]),all=[Math.min(...bounds.map(b=>b[0])),Math.max(...bounds.map(b=>b[1]))];all.xy=[Math.min(...bounds.map(b=>b.xy[0])),Math.min(...bounds.map(b=>b.xy[1])),Math.max(...bounds.map(b=>b.xy[2])),Math.max(...bounds.map(b=>b.xy[3]))];return all;});
@@ -273,7 +304,7 @@ class BakedCloudRenderer{
   this._u(p,'uBands','1f',finite(settings.bands,0));this._u(p,'uPalette','1i',settings.palette==='dusk'?1:settings.palette==='moon'?2:0);
   gl.drawArrays(gl.TRIANGLES,0,3);
  }
- dispose(){const gl=this.gl;this._freeTarget();this.textures.forEach(t=>gl.deleteTexture(t));this.textures=[];for(const p of [this.cloud,this.post])if(p)gl.deleteProgram(p.p);this.canvas.removeEventListener('webglcontextlost',this._lost);this.canvas.removeEventListener('webglcontextrestored',this._restored);this.asset=null;}
+ dispose(){const gl=this.gl;this._freeTarget();this.textures.forEach(t=>gl.deleteTexture(t));this.textures=[];for(const p of new Set([this.normalCloud,this.radianceCloud,this.post]))if(p)gl.deleteProgram(p.p);this.cloud=this.normalCloud=this.radianceCloud=this.post=null;this.canvas.removeEventListener('webglcontextlost',this._lost);this.canvas.removeEventListener('webglcontextrestored',this._restored);this.asset=null;}
 }
 BakedCloudRenderer.validateAsset=validateAsset;
 BakedCloudRenderer.selectViews=selectViews;

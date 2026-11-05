@@ -5,7 +5,7 @@ const Renderer=context.window.BakedCloudRenderer;
 const level=w=>({w,h:w,data:[Array.from({length:4},()=>new Uint8Array(w*w*4))],radiance:[Array.from({length:2},()=>new Uint8Array(w*w*4))]});
 const make=()=>({...level(32),halfHeight:1,range:1,views:[{yaw:0,pitch:0}],appearance:'baked-radiance-v1',radianceScale:4,lods:[level(16)]});
 function load(a){
- const r=Object.create(Renderer.prototype);r.textures=[];r.lodState=new Map();r.stats={};
+ const r=Object.create(Renderer.prototype);r.textures=[];r.lodState=new Map();r.stats={};r.normalCloud={p:{}};r.radianceCloud={p:{}};
  // Real load/texture dispatch, with GPU calls replaced by inert allocations.
  // This verifies classification of each uploaded level, not just a helper.
  r.gl={getParameter:()=>4096,getError:()=>0,NO_ERROR:0,createTexture:()=>({})};

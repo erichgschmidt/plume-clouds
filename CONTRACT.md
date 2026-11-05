@@ -106,6 +106,14 @@ JSON export/import works independently of browser storage. The generated
 `assets/skypaint-author.js` is never included in the sky page. Rebuilding it reads
 the separate SkyPaint checkout without modifying that project.
 
+The baker automatically previews the selected source on open, preset changes
+and scene imports. This front preview is distinct from the last completed baked
+asset; changing the source never silently replaces a saved sky cloud. Preview
+work is serialized and stale requests are cancelled. A matching preview adapter
+is reused for baking, with its conservative framing restored before measuring
+all views. Navigation disposes the author GPU resources. Full SkyPaint editing
+remains in SkyPaint; the baker is the bridge into the shared sky renderer.
+
 V3 `appearance: baked-radiance-v1` stores two RGBA8 radiance maps per capture,
 alongside the geometry maps. RGB encodes `sqrt(premultipliedLinearRadiance /
 radianceScale)` and A stores integrated opacity. The default scale is 4;
@@ -117,6 +125,34 @@ The source adapter extracts these values before SkyPaint background composition,
 tone mapping and exposure. It checks its instrumented shader against the original
 and verifies recomposition with the original background before accepting a bake.
 Source hashes, scene recipe and bake illumination metadata accompany the maps.
+
+Angular interpolation treats an absent radiance ray as transparent. Both linear
+premultiplied RGB and opacity use the full capture weights, without renormalizing
+only the visible views or applying a second silhouette-consistency fade. This
+keeps a wisp at half contribution when its source view has half angular weight,
+instead of retaining its full brightness until the view nearly disappears.
+Geometry-lit assets retain their existing consistency and depth rules.
+
+Radiance sampling skips normal decoding, cavity/thickness shading and palette
+lighting that cannot affect baked colors. Its surface-normal metadata is a
+constant compatibility value; depth, instance IDs, opacity and radiance retain
+their geometric/optical values. Geometry-lit assets still compute their full
+normals and lighting. This specialization keeps the boundary fix affordable
+without lowering capture resolution or skipping visible cloud instances.
+Programs are cached per appearance and selected only after a successful upload.
+Compiler specialization can change a few intermediate-view raster decisions at
+floating-point thresholds; native colors remain exact. Validate intermediate
+views against the analytic coverage/optical tests, not byte equality with the
+unspecialized shader. Sparse one-pixel gaps remain possible in centroid captures.
+
+Radiance upload extends depth by one neighboring texel without changing any
+coverage, normal or radiance bytes in the asset. This supplies shared geometry
+for partial boundary patches. A reconstructed hit is accepted only inside an
+originally covered texel footprint; empty corners contribute zero light and
+opacity. If the partial patch misses, the original covered-footprint fallback
+remains available. This connects curved wisps without filling genuine gaps,
+dilating the silhouette, or applying an image blur. Native capture centers keep
+their original samples. Normal-lit assets do not use this boundary extension.
 
 The runtime decodes into the existing RGBA16F material target. Two local intervals
 composite front over back. A separate material pass composites cloud instances
@@ -185,6 +221,14 @@ GPU checks: `tools/skypaint-bake-ui-browser.cjs`,
 and `tools/foundry-volume-quality-browser.cjs`. Run browser GPU audits serially
 to avoid contending contexts and misleading timing. Quality audit images and
 measurements are written to the OS temporary directory.
+Automatic preview lifecycle is covered by `tools/skypaint-preview-test.cjs`.
+`tools/foundry-wisp-browser.cjs` checks weighted transparent contributions against
+an independent optical oracle. `tools/foundry-partial-boundary-test.cjs` checks
+immutable uploads; `tools/foundry-partial-boundary-browser.cjs` checks curved
+filaments, native captures, genuine openings and outside-silhouette leakage.
+`tools/foundry-wisp-real-browser.cjs` compares 201 overhead frames and paired
+render timings against commit `9252a15`. Its real-cloud hole counts are diagnostic;
+they do not establish that every enclosed opening is an artifact.
 Pixel-grid checks are `tools/foundry-pixel-grid-test.cjs` and
 `tools/foundry-pixel-grid-browser.cjs`. Capture transitions are checked by
 `tools/foundry-view-selection-test.cjs` and `tools/foundry-transition-browser.cjs`,

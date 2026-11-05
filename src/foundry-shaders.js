@@ -49,7 +49,8 @@ vec4 normalAt(vec2 uv,int view,int layer){return layer==0?texture(uNormal0,vec3(
 Hit patchSample(ivec2 cell,vec4 weights,int view,int layer,float solved){
  vec2 size=vec2(textureSize(uDepth0,0).xy);vec3 normal=vec3(0),positive=vec3(0),negative=vec3(0),radiance=vec3(0);float ao=0.,thickness=0.,reference=0.,opacity=0.;
  for(int k=0;k<4;k++)if(weights[k]>0.){
-  vec2 uv=(vec2(cell+ivec2(k%2,k/2))+.5)/size;vec4 nm=normalAt(uv,view,layer),d=depthAt(uv,view,layer);
+  ivec2 id=cell+ivec2(k%2,k/2);vec2 uv=(vec2(id)+.5)/size;vec4 nm=normalAt(uv,view,layer),d=depthAt(uv,view,layer);
+  if(uRadiance==1&&(nm.a<=.5||any(lessThan(id,ivec2(0)))||any(greaterThanEqual(id,ivec2(size)))))continue;
   vec3 n=decodeOct(nm.rg);float w=weights[k];normal+=n*w;ao+=nm.b*w;
   thickness+=max((unpack16(d.rg)-unpack16(d.ba))*2.*uRange,0.)*w;
   reference+=dot(max(mix(-n,n,step(vec3(0),uLight)),vec3(0)),axisWeights())*w;
@@ -104,7 +105,7 @@ Hit reproject(vec2 xy,mat3 source,int view,int layer,float minDepth,float maxDep
    coverage[k]=all(greaterThanEqual(id,ivec2(0)))&&all(lessThan(id,ivec2(size)))?nm.a:0.;
    z[k]=(unpack16(depthAt(uv,view,layer).rg)*2.-1.)*uRange;normals[k]=decodeOct(nm.rg);
   }
-  bool compatible=all(greaterThan(coverage,vec4(.5)));
+  bool compatible=uRadiance==1?any(greaterThan(coverage,vec4(.5))):all(greaterThan(coverage,vec4(.5)));
   if(compatible&&uRadiance==0){
    vec2 dx=vec2(extent.x/size.x,0),dy=vec2(0,extent.y/size.y);
    compatible=edgeCompatible(z.x,z.y,normals[0],normals[1],dx,source,pixel)&&edgeCompatible(z.z,z.w,normals[2],normals[3],dx,source,pixel)&&edgeCompatible(z.x,z.z,normals[0],normals[2],dy,source,pixel)&&edgeCompatible(z.y,z.w,normals[1],normals[3],dy,source,pixel);
@@ -112,8 +113,14 @@ Hit reproject(vec2 xy,mat3 source,int view,int layer,float minDepth,float maxDep
   if(compatible){
    float lengthT=cursor-exitT;vec2 f0=(origin+velocity*exitT)*size-.5-vec2(cell),df=velocity*size*lengthT;
    float s=patchRoot(z,f0,df,sourceZ+den*exitT,den*lengthT);
-   if(s>=0.){vec2 f=clamp(f0+df*s,vec2(0),vec2(1));vec4 weights=vec4((1.-f.x)*(1.-f.y),f.x*(1.-f.y),(1.-f.x)*f.y,f.x*f.y);return patchSample(cell,weights,view,layer,exitT+lengthT*s);}
-  }else{
+   if(s>=0.){
+    vec2 f=clamp(f0+df*s,vec2(0),vec2(1));ivec2 nearest=ivec2(floor(f+.5));int k=nearest.y*2+nearest.x;
+    // Partial depth patches can connect covered neighbors, but never claim an
+    // originally empty texel footprint. Padded depth carries no optical alpha.
+    if(uRadiance==0||coverage[k]>.5){vec4 weights=vec4((1.-f.x)*(1.-f.y),f.x*(1.-f.y),(1.-f.x)*f.y,f.x*f.y);return patchSample(cell,weights,view,layer,exitT+lengthT*s);}
+   }
+  }
+  if(!compatible||(uRadiance==1&&!all(greaterThan(coverage,vec4(.5))))){
    // Never join missing coverage or a discontinuous depth layer. Boundary
    // fallback is restricted to original constant-depth texel footprints.
    float nearest=-1e6;int chosen=-1;
@@ -198,7 +205,10 @@ void main(){
  for(int i=0;i<4;i++){
   weights[i]=0.;hits[i]=emptyHit();if(uViews[i]<0.||uWeights[i]<=0.)continue;
   hits[i]=viewHit(xy,sourceAt(i),int(uViews[i]),uMinDepth[i],uMaxDepth[i]);
-  if(hits[i].alpha>alphaCutoff())weights[i]=uWeights[i]*consistency(hits[i],xy);
+  // For density captures, absent support already contributes zero light and
+  // opacity. Applying a second silhouette veto would fade that contribution
+  // twice. Geometry-lit captures retain their surface-consistency check.
+  if(hits[i].alpha>alphaCutoff())weights[i]=uWeights[i]*(uRadiance==1?1.:consistency(hits[i],xy));
   if(weights[i]>0.&&hits[i].alpha>alphaCutoff()&&hits[i].z>h.z)h=hits[i];
  }
  if(h.alpha>alphaCutoff()){
@@ -220,16 +230,25 @@ void main(){
    ao+=hits[i].ao*weight;thickness+=hits[i].thickness*weight;reference+=hits[i].unoccluded*weight;coverage+=hits[i].alpha*weight;
    radiance+=hits[i].radiance*weight;
   }
-  if(total>0.){float support=smoothstep(0.,.12,total);h.n=normalize(normal);h.lightPos=positive/total;h.lightNeg=negative/total;h.ao=ao/total;h.thickness=thickness/total;h.unoccluded=reference/total;h.alpha=coverage/total*support;h.radiance=radiance/total*support;}
+  // A missing radiance ray is transparent, not a missing vote. Normalizing by
+  // only the covered views kept a one-view wisp at full strength until the
+  // last 12% of its angular support, then abruptly extinguished it. Blend
+  // premultiplied light and opacity with the full capture weights instead.
+  if(total>0.){float support=smoothstep(0.,.12,total);h.n=normalize(normal);h.lightPos=positive/total;h.lightNeg=negative/total;h.ao=ao/total;h.thickness=thickness/total;h.unoccluded=reference/total;h.alpha=uRadiance==1?coverage:coverage/total*support;h.radiance=radiance;}
  }
  if(h.alpha<=alphaCutoff()||uOpacity<=0.)discard;
  float distance=max(.001,uDistance-h.z*uDepthScale);
  gl_FragDepth=distance/(distance+1.);
- float alpha=h.alpha*uOpacity;vec2 terms=lightingTerms(h);
- color=vec4(shadeTerms(terms,uBands,uPalette)*alpha,alpha);
- material=vec4(terms,0.,alpha);
- if(uRadiance==1){color=vec4(0);material=vec4(h.radiance*uOpacity,alpha);}
- surface=vec4(encodeOct(transpose(uTarget)*h.n),distance,uInstance);
+ float alpha=h.alpha*uOpacity;
+ if(uRadiance==1){
+  color=vec4(0);material=vec4(h.radiance*uOpacity,alpha);
+  // Surface RG is compatibility metadata; the radiance post pass uses only
+  // distance/instance BA and the independent linear HDR material target.
+  surface=vec4(.5,.5,distance,uInstance);
+ }else{
+  vec2 terms=lightingTerms(h);color=vec4(shadeTerms(terms,uBands,uPalette)*alpha,alpha);material=vec4(terms,0.,alpha);
+  surface=vec4(encodeOct(transpose(uTarget)*h.n),distance,uInstance);
+ }
 }`;
 const post=`#version 300 es
 precision highp float;

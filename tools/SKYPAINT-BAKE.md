@@ -2,6 +2,9 @@
 
 Serve the repository, open `skypaint-bake.html`, choose a Studio preset or import
 an exported SkyPaint scene JSON, select 128 or 256 resolution, then choose Bake.
+The source cloud previews automatically on opening the page and when its preset
+or imported scene changes. This single front view is separate from the last
+completed baked asset. Previewing never saves or replaces a cloud in the sky.
 The page validates and captures fifteen views with progress and cancellation.
 Use in sky saves the completed asset locally; open the sky and choose Load saved
 cloud if it is already open. Export downloads the portable frozen asset JSON.
@@ -107,6 +110,10 @@ use 5,529,600 raw bytes across all geometry and radiance maps.
 
 `PLAYWRIGHT_MODULE`, `CHROME_PATH` and `SKYPAINT_SOURCE` override local defaults.
 GPU browser sessions must run serially with the repository's other GPU audits.
+`node tools/skypaint-preview-test.cjs` checks automatic preview, rapid source
+changes, cached adapter reuse, cancellation, framing and saved-result isolation
+with deterministic CPU fixtures. The browser UI audit verifies actual preview
+pixels, preset/import changes and the completed asset's handoff to the sky.
 `node tools/skypaint-bake-lifecycle-browser.cjs` audits valid scene imports,
 translated coordinates, an actual SkyPaint sculpt carve, repeated capture and
 idempotent disposal on the same canvas. It verifies source agreement and checks
