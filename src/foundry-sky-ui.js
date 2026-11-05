@@ -49,7 +49,7 @@
   var detailRow = document.createElement('div'), detailLabel = document.createElement('label'), detailSelect = document.createElement('select'); detailRow.className = 'row'; detailLabel.textContent = 'Detail'; detailLabel.htmlFor = 'param-detailMode'; detailSelect.id = 'param-detailMode';
   [['auto', 'Automatic detail'], ['full', 'Full resolution']].forEach(function (entry) { var o = document.createElement('option'); o.value = entry[0]; o.textContent = entry[1]; detailSelect.appendChild(o); });
   detailSelect.addEventListener('change', function () { settings.detailMode = detailSelect.value; }); detailRow.title = 'Automatic detail reduces distant texture shimmer and rendering work. Full resolution always uses the original maps.'; detailRow.append(detailLabel, detailSelect); qg.appendChild(detailRow);
-  range(qg, settings, 'bands', 'Color bands', 3, 8, 1, 'Number of steps in the cloud palette.');
+  range(qg, settings, 'bands', 'Color bands', 0, 8, 1, '0 or 1 uses smooth tones; 2–8 deliberately steps the cloud and shadow palette. Pixel edges remain crisp.');
   function applyAsset(next, source) {
     FoundryAssets.validate(next); renderer.load(next); asset = next; scene.assetAspect = next.w / next.h;
     // The source depth box rotates between captured views; its enclosing sphere

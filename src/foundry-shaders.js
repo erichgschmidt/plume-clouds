@@ -5,6 +5,16 @@ const common=`
 float unpack16(vec2 v){vec2 b=floor(v*255.0+.5);return (b.x*256.0+b.y)/65535.0;}
 vec3 decodeOct(vec2 e){vec3 n=vec3(e*2.-1.,1.-abs(e.x*2.-1.)-abs(e.y*2.-1.));float t=max(-n.z,0.);n.xy+=vec2(n.x>=0.?-t:t,n.y>=0.?-t:t);return normalize(n);}
 vec2 encodeOct(vec3 n){n/=abs(n.x)+abs(n.y)+abs(n.z);vec2 e=n.xy;if(n.z<0.)e=(1.-abs(e.yx))*vec2(e.x>=0.?1.:-1.,e.y>=0.?1.:-1.);return e*.5+.5;}
+vec3 paletteColor(float v,int palette){
+ vec3 dark=vec3(.29,.45,.53),mid=vec3(.64,.77,.76),lit=vec3(.99,.94,.80);
+ if(palette==1){dark=vec3(.30,.36,.51);mid=vec3(.70,.64,.65);lit=vec3(1.,.79,.56);}
+ if(palette==2){dark=vec3(.16,.29,.40);mid=vec3(.43,.59,.66);lit=vec3(.78,.89,.88);}
+ return mix(mix(dark,mid,smoothstep(0.,.6,v)),lit,smoothstep(.5,1.,v));
+}
+vec3 shadeTerms(vec2 terms,float bands,int palette){
+ float v=clamp(terms.x,0.,1.);if(bands>1.)v=floor(v*(bands-1.)+.5)/(bands-1.);
+ return mix(paletteColor(v,palette),paletteColor(1.,palette),clamp(terms.y,0.,.65));
+}
 `;
 const vertex=`#version 300 es
 precision highp float;
@@ -17,6 +27,7 @@ precision highp sampler2DArray;
 in vec2 screen;
 layout(location=0)out vec4 color;
 layout(location=1)out vec4 surface;
+layout(location=2)out vec4 material;
 uniform sampler2DArray uDepth0,uNormal0,uDepth1,uNormal1;
 uniform sampler2DArray uLightPos0,uLightNeg0,uLightPos1,uLightNeg1;
 uniform mat3 uTarget,uSource0,uSource1,uSource2,uSource3;
@@ -108,7 +119,7 @@ Hit reproject(vec2 xy,mat3 source,int view,int layer,float minDepth,float maxDep
    if(chosen>=0){vec4 weights=vec4(0);weights[chosen]=1.;return patchSample(cell,weights,view,layer,nearest);}
   }
   if(exitT<=low+1e-6)break;
-  cursor=exitT-1e-5;
+  cursor=exitT;
  }
  return emptyHit();
 }
@@ -139,7 +150,7 @@ float consistency(Hit h,vec2 xy){
  // surface merely by appearing on the other side of a capture-grid line.
  return smoothstep(0.,.6,1.-disagreement);
 }
-vec3 lightCloud(Hit h){
+vec2 lightingTerms(Hit h){
  // Capture normals and the sun share the asset/world axes. Changing the
  // camera capture must not rotate the illumination of a stationary cloud.
  vec3 n=h.n;float diffuse=clamp((dot(n,uLight)+.2)/1.2,0.,1.);
@@ -155,14 +166,9 @@ vec3 lightCloud(Hit h){
   diffuse*=mix(1.,visibility,uSixWay);
  }
  float v=clamp(.19+diffuse*.81-(1.-h.ao)*uAO*.26,0.,1.);
- if(uBands>1.)v=floor(v*(uBands-1.)+.5)/(uBands-1.);
- vec3 dark=vec3(.29,.45,.53),mid=vec3(.64,.77,.76),lit=vec3(.99,.94,.80);
- if(uPalette==1){dark=vec3(.30,.36,.51);mid=vec3(.70,.64,.65);lit=vec3(1.,.79,.56);}
- if(uPalette==2){dark=vec3(.16,.29,.40);mid=vec3(.43,.59,.66);lit=vec3(.78,.89,.88);}
- vec3 c=mix(dark,mid,smoothstep(0.,.6,v));c=mix(c,lit,smoothstep(.5,1.,v));
  float rim=pow(clamp(1.-dot(n,uTarget[2]),0.,1.),3.)*max(dot(n,uLight),0.);
  float transmit=exp(-h.thickness*1.1)*pow(max(dot(-uLight,uTarget[2]),0.),2.)*uTransmission;
- return mix(c,lit,clamp(rim*.13+transmit*.38,0.,.65));
+ return vec2(v,clamp(rim*.13+transmit*.38,0.,.65));
 }
 void main(){
  vec2 xy=(screen*vec2(uAspect,1)-uCenter)/uScale*uHalfHeight;
@@ -197,36 +203,56 @@ void main(){
  if(h.alpha<.01||uOpacity<=0.)discard;
  float distance=max(.001,uDistance-h.z*uDepthScale);
  gl_FragDepth=distance/(distance+1.);
- float alpha=h.alpha*uOpacity;color=vec4(lightCloud(h)*alpha,alpha);
+ float alpha=h.alpha*uOpacity;vec2 terms=lightingTerms(h);
+ color=vec4(shadeTerms(terms,uBands,uPalette)*alpha,alpha);
+ material=vec4(terms,0.,alpha);
  surface=vec4(encodeOct(transpose(uTarget)*h.n),distance,uInstance);
 }`;
 const post=`#version 300 es
 precision highp float;
 in vec2 screen;out vec4 color;
-uniform sampler2D uColor,uSurface;
+uniform sampler2D uColor,uSurface,uMaterial;
 uniform vec2 uSize;
 uniform vec3 uLight,uSky;
-uniform float uHaze,uShadow,uShadowReach;
+uniform float uHaze,uShadow,uShadowReach,uBands;
+uniform int uPalette;
 ${common}
+float blockerAt(vec2 q,float receiver,float expected,float bias){
+ vec2 p=q*uSize-.5,f=fract(p);ivec2 cell=ivec2(floor(p));float sum=0.;
+ // Filter visibility only. Never interpolate instance IDs or foreground and
+ // background depths, and never blur the cloud image or its coverage mask.
+ for(int y=0;y<2;y++)for(int x=0;x<2;x++){
+  ivec2 at=cell+ivec2(x,y);if(any(lessThan(at,ivec2(0)))||any(greaterThanEqual(at,ivec2(uSize))))continue;
+  vec4 b=texelFetch(uSurface,at,0);if(b.a<.5||abs(b.a-receiver)<.5)continue;
+  float weight=(x==0?1.-f.x:f.x)*(y==0?1.-f.y:f.y);
+  sum+=weight*smoothstep(bias,bias*3.,expected-b.b)*texelFetch(uMaterial,at,0).a;
+ }
+ return sum;
+}
 void main(){
  vec2 uv=screen*.5+.5;vec4 c=texture(uColor,uv),s=texture(uSurface,uv);vec3 bg=uSky;
  if(s.a<.5){color=vec4(bg,1);return;}
  float occ=0.;vec2 dir=uLight.xy;float len=length(dir);
- if(uShadow>0.&&len>.01){dir/=len;float span=max(1.,uShadowReach);
-  for(int i=1;i<=12;i++){
-   float px=span*float(i)/12.;vec2 q=uv+dir*px/uSize;
+ if(uShadow>0.&&len>.01){dir/=len;float span=clamp(uShadowReach,1.,64.);
+  for(int i=1;i<=64;i++){
+   float px=float(i);if(px>span)break;vec2 q=uv+dir*px/uSize;
    if(any(lessThan(q,vec2(0)))||any(greaterThan(q,vec2(1))))continue;
-   vec4 blocker=texture(uSurface,q);if(blocker.a<.5||abs(blocker.a-s.a)<.5)continue;
    float travel=2.*px/uSize.y*s.b;
    float expected=s.b-travel*uLight.z/len;
    float bias=max(.004,s.b*2./uSize.y);
-   float hit=smoothstep(bias,bias*3.,expected-blocker.b);
+   float hit=blockerAt(q,s.a,expected,bias);
    // Local recesses use baked AO. Screen samples shadow other instances only;
    // sampling steep same-cloud silhouette depth creates comb-like self-shadows.
-   occ=max(occ,hit*(1.-float(i)/16.));
+   occ=max(occ,hit*(1.-smoothstep(0.,span,px)));
   }
  }
- c.rgb*=1.-clamp(uShadow,0.,1.)*occ*.55;
+ if(occ>0.){
+  vec2 terms=texture(uMaterial,uv).rg;float shade=clamp(uShadow,0.,1.)*occ;
+  // Cast shadows reduce light before the SAME palette transfer as local
+  // shading. Multiplying finished RGB pushed every palette toward black.
+  terms.x=mix(terms.x,min(terms.x,.19),shade);terms.y*=1.-shade;
+  c.rgb=shadeTerms(terms,uBands,uPalette)*c.a;
+ }
  float haze=1.-exp(-max(uHaze,0.)*s.b*.025);c.rgb=mix(c.rgb,bg*c.a,haze);
  color=vec4(c.rgb+bg*(1.-c.a),1.);
 }`;

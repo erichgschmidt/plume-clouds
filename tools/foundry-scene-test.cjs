@@ -46,9 +46,11 @@ overhead.clouds = [{ id: 70, x: 0, y: 5, z: 1, radius: 1, born: -10, phase: 0 }]
 const up = overhead.project(1.5)[0];
 assert(up && Math.abs(up.y) < .1, 'overhead camera centers an underside cloud');
 assert(up.pitch < -75 && up.distance > 4.9, 'actual underside capture uses positive tilted camera depth');
+assert.equal(up.cameraPitch,80,'packet carries camera tilt separately from physical capture direction');
 const capture = [up.yaw, up.pitch];
 overhead.settings.lookElevation = 60;
 assert.deepEqual([overhead.packet(overhead.clouds[0]).yaw, overhead.packet(overhead.clouds[0]).pitch], capture, 'looking upward does not change physical capture direction');
+assert.equal(overhead.packet(overhead.clouds[0]).cameraPitch,60);
 overhead.settings.lookElevation = 80;
 overhead.advance(1.5, 0, {});
 assert.equal(overhead.clouds[0].id, 70, 'cloud passing world forward plane remains visible overhead');

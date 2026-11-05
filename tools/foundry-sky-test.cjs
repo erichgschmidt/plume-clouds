@@ -68,6 +68,7 @@ const server = http.createServer((req, res) => {
     const poleContributions=overhead.poleViews.map(p=>{
       assert.equal(p.views.length,4);assert.equal(p.weights.length,4);assert.equal(p.target.length,9);
       assert(p.target.every(Number.isFinite));assert(p.weights.every(w=>Number.isFinite(w)&&w>=0));
+      assert(Math.abs(p.target[1]*Math.cos(80*Math.PI/180)+p.target[2]*Math.sin(80*Math.PI/180))<1e-6,'GPU target right follows tilted camera screen axes');
       assert(Math.abs(p.weights.reduce((sum,w)=>sum+w,0)-1)<1e-6,'capture weights are normalized');
       const totals=new Map();p.views.forEach((view,i)=>{if(p.weights[i]>0){assert(Number.isInteger(view)&&view>=0);totals.set(view,(totals.get(view)||0)+p.weights[i]);}});
       return totals;
@@ -114,6 +115,8 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.locator('#param-sixWay').isDisabled(),false);assert.equal(await page.evaluate(()=>!!foundrySky.asset.lighting),true);
     assert.equal(await page.evaluate(async()=>(await FoundryAssets.load('active')).name),'Sky transfer test','starter preview never overwrites the saved authored cloud');
     assert.deepEqual(errors, []);
+    // Stop the original scene's render loop before testing separate DPR contexts.
+    await page.close();
     const gridCases=[];
     for(const dpr of [1,1.25,1.5,2]){
       const context=await browser.newContext({viewport:{width:1167,height:823},deviceScaleFactor:dpr}),p=await context.newPage();

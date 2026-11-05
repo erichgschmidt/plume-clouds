@@ -50,12 +50,14 @@
     // Captures cover the front and underside, not a full back hemisphere.
     // At zenith azimuth is undefined: smoothly hold a front-facing azimuth
     // instead of flipping the billboard 180 degrees when world dz crosses zero.
-    // Outside this narrow cone the physical capture direction is unchanged.
+    // This front-facing hold continues behind world-forward zero because the
+    // current asset has no rear captures; it is not a full-orbit camera model.
     var guard = Math.max(.02, Math.abs(q.dy) * .1), yawDepth = q.dz;
     if (yawDepth < guard) { var t = clamp(yawDepth / guard, 0, 1); yawDepth = guard * (.5 + .5 * t * t); }
     return { id: cloud.id, x: q.dx / depth, y: q.screenY / depth, scale: cloud.radius * this.settings.size / depth,
       yaw: Math.atan2(-q.dx, yawDepth) * 180 / Math.PI,
       pitch: -Math.atan2(q.dy, Math.hypot(q.dx, q.dz)) * 180 / Math.PI,
+      cameraPitch: clamp(finite(this.settings.lookElevation, 0), 0, 80),
       distance: depth, opacity: this.opacity(cloud), phase: cloud.phase };
   };
   FoundryScene.prototype.visible = function (p) {

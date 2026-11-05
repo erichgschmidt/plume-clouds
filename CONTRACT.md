@@ -31,6 +31,9 @@ source for this integration and is preserved in `reference/cloud-foundry-v2.1.ht
   movement remains available while playback is paused. Look elevation exposes
   overhead captures; azimuth holds a continuous front/underside continuation near
   zenith rather than flipping to an unavailable back-hemisphere capture.
+  The packet carries camera pitch separately from the capture direction. Target
+  screen axes follow the tilted camera, preventing unwanted billboard roll during
+  sideways translation. Translation still changes the apparent viewing angle.
 - `BakedCloudRenderer` shares uploaded maps between cloud instances. Its instance
   packet uses height-normalized screen coordinates (center zero, positive Y up),
   half-height scale, positive camera distance, and yaw/pitch in degrees.
@@ -53,6 +56,11 @@ source for this integration and is preserved in `reference/cloud-foundry-v2.1.ht
   Requests outside the capture range hold a supported view. Surfaces absent from
   every participating capture cannot be reconstructed exactly; the finite captures
   and two depth intervals are not unrestricted 360-degree geometry.
+  Binary capture masks still produce small silhouette gaps/flecks between views.
+  Removing partial boundary footprints reduces these but loses thin features;
+  that lossy workaround is deliberately not enabled. A future bake should retain
+  measured subpixel contour coverage and use it consistently for partial patches
+  and detail levels. More viewing directions alone do not guarantee clean edges.
 - Depth-map shadows approximate visibility in the current screen. They cannot
   account for offscreen blockers or geometry absent from the baked captures.
   The runtime screen-space shadow pass applies between instances only. Internal
@@ -61,6 +69,16 @@ source for this integration and is preserved in `reference/cloud-foundry-v2.1.ht
   transparent intersections currently retain the nearest surface rather than
   compositing every depth layer. Capture normals and sun use common object/world
   axes, so camera movement does not rotate the illumination.
+  Cast shadows reduce unquantized lighting before the same palette transfer as
+  local shading, rather than multiplying finished colors toward black. Visibility
+  uses four neighboring depth/instance comparisons at one-logical-pixel intervals,
+  up to the requested reach (maximum 64); IDs and depths are never interpolated.
+  This filters shadow visibility without blurring the cloud image or silhouette.
+  Color bands 0 or 1 enables smooth tones; 2–8 deliberately quantizes both cloud
+  and shadow tones. A third RGBA16F target retains lighting and coverage, adding
+  eight bytes per logical pixel (32 bytes per pixel across scene targets/depth).
+  Shadow sampling costs more than the former 12 taps, especially at long reach;
+  setting shadow strength to zero skips the visibility loop.
   Frozen assets support relighting and gentle map deformation, not live topology
   evolution, physical merging, or a complete atmospheric simulation at runtime.
 
@@ -98,6 +116,11 @@ Pixel-grid checks are `tools/foundry-pixel-grid-test.cjs` and
 `tools/foundry-view-selection-test.cjs` and `tools/foundry-transition-browser.cjs`,
 using independently generated sphere captures and a known open gap. Real-cloud
 hole counts are diagnostics, since a real cloud can contain intentional holes.
+`tools/foundry-shadow-color-browser.cjs` checks day/dusk/moon shadow colors,
+smooth spatial and moving-blocker falloff, unchanged surfaces and no self-shadow.
+`tools/foundry-edge-browser.cjs` reports remaining fringe gaps and verifies a flat
+front/broad underside ellipsoid retains its distinct silhouettes. Its `--strict`
+mode enforces the currently unmet edge-cleanup target; normal mode is diagnostic.
 `tools/bake-foundry-default.cjs` rebuilds
 the bundled starter through the actual authoring pipeline.
 Run them with Node; browser tests accept `PLAYWRIGHT_MODULE` and `CHROME_PATH`.

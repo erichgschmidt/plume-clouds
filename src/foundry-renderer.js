@@ -5,6 +5,17 @@ const DEG=Math.PI/180;
 const finite=(v,d)=>Number.isFinite(v)?v:d;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function basis(yaw,pitch){const cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);return new Float32Array([cy,0,-sy,-sy*sp,cp,-cy*sp,sy*cp,sp,cy*cp]);}
+function targetBasis(yaw,pitch,cameraPitch=0){
+ const target=basis(yaw,pitch);if(!cameraPitch||!Number.isFinite(cameraPitch))return target;
+ // Source views remain world-oriented. Rotate only the target screen axes so
+ // tilted-camera panning does not make every cloud keep a different world-up.
+ const co=Math.cos(cameraPitch),si=Math.sin(cameraPitch);
+ const alongRight=target[1]*co+target[2]*si,alongUp=target[4]*co+target[5]*si;
+ const length=Math.hypot(alongRight,alongUp);if(length<1e-6)return target;
+ const c=alongUp/length,s=alongRight/length;
+ for(let i=0;i<3;i++){const right=target[i],up=target[i+3];target[i]=right*c-up*s;target[i+3]=right*s+up*c;}
+ return target;
+}
 function selectViews(capture,yaw,pitch){
  const axis=(key,value)=>{const values=[...new Set(capture.map(v=>v[key]))].sort((a,b)=>a-b);let lo=values[0],hi=values[values.length-1];for(const v of values){if(v<=value)lo=v;if(v>=value){hi=v;break;}}const t=hi===lo?0:clamp((value-lo)/(hi-lo),0,1);return [[lo,1-t],[hi,t]];};
  const corners=[];let complete=true;
@@ -74,7 +85,7 @@ class BakedCloudRenderer{
   this.canvas=canvas;this.gl=canvas.getContext('webgl2',{alpha:false,antialias:false,premultipliedAlpha:false});
   if(!this.gl)throw Error('Baked clouds require WebGL2.');
   this.asset=null;this.textures=[];this.levels=[];this.lodState=new Map();this.target=null;this.lost=false;this.error=null;
-  this.stats={drawn:0,culled:0,clampedViews:0,assetBytes:0,views:0,shadowSamples:12};
+  this.stats={drawn:0,culled:0,clampedViews:0,assetBytes:0,views:0,shadowSamples:64};
   this._lost=e=>{e.preventDefault();this.lost=true;this.error='Cloud GPU context lost; waiting for restoration.';};
   this._restored=()=>{try{this.textures=[];this.target=null;this._init();if(this.asset)this.load(this.asset);this.lost=false;this.error=null;}catch(e){this.error=e.message;this.lost=true;}};
   canvas.addEventListener('webglcontextlost',this._lost);canvas.addEventListener('webglcontextrestored',this._restored);
@@ -83,7 +94,7 @@ class BakedCloudRenderer{
  _init(){
   const gl=this.gl;
   if(!gl.getExtension('EXT_color_buffer_float'))throw Error('Baked cloud depth/shadow buffers require EXT_color_buffer_float.');
-  if(gl.getParameter(gl.MAX_DRAW_BUFFERS)<2)throw Error('Baked clouds require two render targets.');
+  if(gl.getParameter(gl.MAX_DRAW_BUFFERS)<3)throw Error('Baked clouds require three render targets.');
   this.cloud=program(gl,global.FoundryShaders.vertex,global.FoundryShaders.cloud);
   this.post=program(gl,global.FoundryShaders.vertex,global.FoundryShaders.post);
   gl.disable(gl.DITHER);gl.disable(gl.CULL_FACE);
@@ -129,7 +140,7 @@ class BakedCloudRenderer{
   }
   this.lodState.set(id,index);return index;
  }
- _freeTarget(){const gl=this.gl,t=this.target;if(!t)return;gl.deleteFramebuffer(t.fbo);gl.deleteTexture(t.color);gl.deleteTexture(t.surface);gl.deleteRenderbuffer(t.depth);this.target=null;}
+ _freeTarget(){const gl=this.gl,t=this.target;if(!t)return;gl.deleteFramebuffer(t.fbo);gl.deleteTexture(t.color);gl.deleteTexture(t.surface);gl.deleteTexture(t.material);gl.deleteRenderbuffer(t.depth);this.target=null;}
  _resize(pixelSize){
   const gl=this.gl,r=this.canvas.getBoundingClientRect(),px=Math.max(1,finite(pixelSize,1));
   const grid=global.FoundryPixelGrid?global.FoundryPixelGrid.measure(this.canvas,px):null;
@@ -139,16 +150,16 @@ class BakedCloudRenderer{
   this.canvas.width=w;this.canvas.height=h;this._freeTarget();
   const t={fbo:gl.createFramebuffer(),depth:gl.createRenderbuffer(),color:null,surface:null};this.target=t;
   gl.bindFramebuffer(gl.FRAMEBUFFER,t.fbo);
-  for(const [key,index,format,type] of [['color',0,gl.RGBA8,gl.UNSIGNED_BYTE],['surface',1,gl.RGBA32F,gl.FLOAT]]){
+  for(const [key,index,format,type] of [['color',0,gl.RGBA8,gl.UNSIGNED_BYTE],['surface',1,gl.RGBA32F,gl.FLOAT],['material',2,gl.RGBA16F,gl.HALF_FLOAT]]){
    t[key]=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t[key]);gl.texImage2D(gl.TEXTURE_2D,0,format,w,h,0,gl.RGBA,type,null);
    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
    gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0+index,gl.TEXTURE_2D,t[key],0);
   }
   gl.bindRenderbuffer(gl.RENDERBUFFER,t.depth);gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT24,w,h);gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,t.depth);
-  gl.drawBuffers([gl.COLOR_ATTACHMENT0,gl.COLOR_ATTACHMENT1]);
+  gl.drawBuffers([gl.COLOR_ATTACHMENT0,gl.COLOR_ATTACHMENT1,gl.COLOR_ATTACHMENT2]);
   if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE){this._freeTarget();throw Error('Baked cloud scene framebuffer is incomplete.');}
-  this.stats.bufferBytes=w*h*24;
+  this.stats.bufferBytes=w*h*32;
  }
  render(instances,time,settings={}){
   if(this.lost)return;
@@ -157,7 +168,7 @@ class BakedCloudRenderer{
   const light=[Math.cos(alt)*Math.sin(az),Math.sin(alt),Math.cos(alt)*Math.cos(az)];
   const sky=Array.isArray(settings.skyColor)?settings.skyColor:[.08,.43,.53];
   gl.viewport(0,0,w,h);gl.bindFramebuffer(gl.FRAMEBUFFER,this.target.fbo);gl.disable(gl.SCISSOR_TEST);gl.disable(gl.BLEND);
-  gl.clearBufferfv(gl.COLOR,0,new Float32Array(4));gl.clearBufferfv(gl.COLOR,1,new Float32Array(4));gl.clearBufferfv(gl.DEPTH,0,new Float32Array([1]));
+  gl.clearBufferfv(gl.COLOR,0,new Float32Array(4));gl.clearBufferfv(gl.COLOR,1,new Float32Array(4));gl.clearBufferfv(gl.COLOR,2,new Float32Array(4));gl.clearBufferfv(gl.DEPTH,0,new Float32Array([1]));
   gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LESS);gl.depthMask(true);this.stats.drawn=0;this.stats.culled=0;this.stats.clampedViews=0;
   if(this.asset){
    const a=this.asset,p=this.cloud;gl.useProgram(p.p);
@@ -180,7 +191,7 @@ class BakedCloudRenderer{
     const selected=selectViews(this.capture,yaw,pitch),sources=selected.map(v=>this.capture[v.i]);
     if(Math.abs(yaw-requestedYaw)>1e-7||Math.abs(pitch-requestedPitch)>1e-7)this.stats.clampedViews++;
     // Conservative rectangle includes rotation of the complete baked depth box.
-    const target=basis(yaw,pitch);let rx=0,ry=0;
+    const target=targetBasis(yaw,pitch,finite(it.cameraPitch,0)*DEG);let rx=0,ry=0;
     for(const entry of selected){const src=this.capture[entry.i],bounds=this.renderBounds[entry.i];for(const x of [bounds.xy[0],bounds.xy[2]])for(const y of [bounds.xy[1],bounds.xy[3]])for(const z of bounds){
      const q=[0,1,2].map(k=>src.basis[k]*x+src.basis[3+k]*y+src.basis[6+k]*z);
      rx=Math.max(rx,Math.abs(q[0]*target[0]+q[1]*target[1]+q[2]*target[2]));ry=Math.max(ry,Math.abs(q[0]*target[3]+q[1]*target[4]+q[2]*target[5]));
@@ -213,18 +224,20 @@ class BakedCloudRenderer{
   }
   gl.disable(gl.SCISSOR_TEST);gl.disable(gl.DEPTH_TEST);gl.bindFramebuffer(gl.FRAMEBUFFER,null);
   const p=this.post;gl.useProgram(p.p);this._u(p,'uRect','4f',-1,-1,1,1);
-  for(const [i,key,name] of [[0,'color','uColor'],[1,'surface','uSurface']]){gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D,this.target[key]);this._u(p,name,'1i',i);}
+  for(const [i,key,name] of [[0,'color','uColor'],[1,'surface','uSurface'],[2,'material','uMaterial']]){gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D,this.target[key]);this._u(p,name,'1i',i);}
   // Scene +distance points away, while authored normal/light +Z points toward
   // the front camera. Positive camera pitch looks upward in world +Y.
   const tilt=finite(settings.cameraPitch,0)*DEG,ct=Math.cos(tilt),st=Math.sin(tilt);
   const screenLight=[light[0],light[1]*ct+light[2]*st,light[2]*ct-light[1]*st];
   this._u(p,'uSize','2f',w,h);this._u(p,'uLight','3f',...screenLight);this._u(p,'uSky','3f',...sky);
   this._u(p,'uHaze','1f',finite(settings.haze,0));this._u(p,'uShadow','1f',finite(settings.shadow,0));this._u(p,'uShadowReach','1f',finite(settings.shadowReach,24));
+  this._u(p,'uBands','1f',finite(settings.bands,0));this._u(p,'uPalette','1i',settings.palette==='dusk'?1:settings.palette==='moon'?2:0);
   gl.drawArrays(gl.TRIANGLES,0,3);
  }
  dispose(){const gl=this.gl;this._freeTarget();this.textures.forEach(t=>gl.deleteTexture(t));this.textures=[];for(const p of [this.cloud,this.post])if(p)gl.deleteProgram(p.p);this.canvas.removeEventListener('webglcontextlost',this._lost);this.canvas.removeEventListener('webglcontextrestored',this._restored);this.asset=null;}
 }
 BakedCloudRenderer.validateAsset=validateAsset;
 BakedCloudRenderer.selectViews=selectViews;
+BakedCloudRenderer.targetBasis=targetBasis;
 global.BakedCloudRenderer=BakedCloudRenderer;
 })(window);
